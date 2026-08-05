@@ -2,21 +2,32 @@
   "name": "star-list-manager",
   "version": "1.0.0",
   "devDependencies": {
-    "typescript": "7.0.2",
-    "extension": "^4.0.27"
+    "@types/bun": "^1.3.14",
+    "@types/chrome": "^0.2.5",
+    "extension": "^4.0.27",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "^20.11.1",
+    "typescript": "7.0.2"
   },
-  "description": "Adds a sidebar panel to the browser with a simple page.",
+  "description": "A local-first dashboard for finding and revisiting GitHub stars.",
   "license": "MIT",
   "packageManager": "bun@1.3.14",
   "private": true,
   "scripts": {
-    "dev": "extension dev",
-    "start": "extension start",
-    "build": "extension build",
-    "preview": "extension preview",
-    "build:chrome": "extension build --browser chrome",
-    "build:firefox": "extension build --browser firefox",
-    "build:edge": "extension build --browser edge"
+    "dev": "EXTENSION_TELEMETRY=0 extension dev",
+    "start": "EXTENSION_TELEMETRY=0 extension start",
+    "build": "EXTENSION_TELEMETRY=0 extension build",
+    "preview": "EXTENSION_TELEMETRY=0 extension preview",
+    "build:chrome": "EXTENSION_TELEMETRY=0 extension build --browser chrome",
+    "build:firefox": "EXTENSION_TELEMETRY=0 extension build --browser firefox",
+    "build:edge": "EXTENSION_TELEMETRY=0 extension build --browser edge",
+    "check:source": "bun scripts/check-no-any.ts",
+    "inspect:build": "bun scripts/inspect-build.ts",
+    "spike:github-app": "bun scripts/github-app-capability-spike.ts",
+    "probe:oauth-starring": "bun scripts/oauth-starring-capability-probe.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run check:source && bun run typecheck && bun test && bun run build:chrome && bun run build:firefox && bun run inspect:build"
   },
   "type": "module",
   "dependencies": {

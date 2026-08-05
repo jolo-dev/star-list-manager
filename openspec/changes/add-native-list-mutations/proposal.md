@@ -28,5 +28,5 @@ None.
 - Extends native-list dashboard views with selection, membership previews, add/remove/move controls, conflict warnings, and verified results.
 - Adds GraphQL mutation contracts and membership-specific jobs to the durable mutation queue created by `add-safe-unstar-workflows`.
 - Uses the public `updateUserListsForItem` GraphQL mutation, which requires a complete target List ID set.
-- Depends on complete read-only List import, stable repository node IDs, GitHub App write-capability proof, and background-only credential access from the earlier changes.
+- Depends on complete read-only List import, stable repository node IDs, and a separate write-auth change that proves `UpdateUserListsForItem`; the core GitHub App token was denied that mutation.
 - Keeps the MVP public-repository-only and does not request private repository access.

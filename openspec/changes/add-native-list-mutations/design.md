@@ -38,9 +38,9 @@ The system requires two consecutive complete observations with identical selecte
 
 Alternative considered: trust the local imported membership set. It is faster but can remove memberships changed directly on GitHub since the last sync.
 
-### Gate writes behind a proven GitHub App capability
+### Gate writes behind a separately proven credential capability
 
-The development capability spike from the core change must prove that a device-flow user token with the intended GitHub App permissions can call `updateUserListsForItem` for a disposable public star and read the result. Production controls remain disabled if the schema or permission probe fails.
+The core capability spike proved that its device-flow GitHub App token is denied `CreateUserList` and `UpdateUserListsForItem`, including an empty no-op membership set. A separate write-auth change must define a credential boundary and prove `updateUserListsForItem` for a disposable public star with independent read-back. Production controls remain disabled until that change succeeds, and schema or permission failure keeps native Lists read-only.
 
 ### Use pure set operations for intent calculation
 
@@ -100,7 +100,7 @@ Changing native membership does not change local tags, notes, favorite, triage s
 
 ## Migration Plan
 
-1. Confirm the earlier development capability spike recorded successful List mutation and read-back under the intended GitHub App permission.
+1. Confirm a separate write-auth change recorded successful List mutation and independent read-back with a disposable fixture.
 2. Add pure membership set operations and exhaustive preservation tests before adding queue or UI behavior.
 3. Extend queue and history schemas with membership intent, canonical observations, needs-confirmation, unstable-observation, and conflict details through a versioned migration.
 4. Add bounded consecutive membership observation refresh and GraphQL mutation clients using fake transports and fixture accounts.

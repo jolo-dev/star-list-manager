@@ -1,7 +1,7 @@
 ## 1. Confirm mutation prerequisites
 
-- [ ] 1.1 Confirm `build-star-manager-core` and `add-safe-unstar-workflows` are implemented and their native-list import, GitHub authentication, stable repository identity, and durable queue contracts are available.
-- [ ] 1.2 Review the recorded development GitHub App capability spike and keep production membership controls disabled unless `updateUserListsForItem` and independent read-back succeeded with the intended permission.
+- [ ] 1.1 Confirm `build-star-manager-core`, `add-safe-unstar-workflows`, and a separately approved write-auth change are implemented and their native-list import, credentials, stable repository identity, and durable queue contracts are available.
+- [ ] 1.2 Review the separate write-auth capability result and keep production membership controls disabled unless `updateUserListsForItem` and independent read-back succeeded with a disposable fixture.
 - [ ] 1.3 Add disposable fixture setup and cleanup guidance for manually testing List mutations without touching existing user Lists or memberships.
 
 ## 2. Implement membership intent and set logic

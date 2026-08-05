@@ -1,69 +1,28 @@
-# Store metadata
+# Store Listing
 
-Starter file generated from this template's manifest. Every store asks
-for this material at submission time; keep it current as the code
-changes instead of rewriting it at the end. Replace the placeholder
-lines marked TODO before you submit.
+## Short Description
 
-Packaging your extension is local and free. Submitting the result to a
-store is what [extension.dev](https://docs.extension.dev/publish/overview?utm_source=store-md)
-does, and it sponsors Extension.js.
+Search, triage, annotate, and revisit public GitHub stars from a local-first dashboard.
 
-Last updated: 2026-08-02
+## Detailed Description
 
-## Listing
+Star List Manager turns public GitHub stars into a searchable working library. New stars enter Inbox, historical stars enter Backlog, and revisit dates resurface repositories in Due. Local tags, private notes, favorites, and review state stay in the browser profile.
 
-- Name: star-list-manager
-- Summary: Adds a sidebar panel to the browser.
-- Description: TODO write two or three short paragraphs of user
-  benefits. Describe what the user sees and gains, not how the code
-  works.
-- Category: TODO pick one per store (for example Productivity).
-- Screenshots: TODO at least one 1280x800 screenshot per store.
+The extension can import native GitHub Lists and public memberships read-only. Native Lists are a GitHub public-preview capability, so local search and organization continue to work when List access is unavailable or partial.
 
-## Privacy and data use
+The extension supports explicit single and bulk unstar cleanup. It shows the complete repository list before confirmation, stores every confirmed job before sending a request, executes one at a time, verifies remote absence, and records per-repository history. It does not automatically unstar, provide an unverified Undo/re-star action, or modify GitHub Lists. It has no content scripts, backend, analytics, advertising, or hosted synchronization.
 
-- This template collects, stores, and transmits no user data.
-- The manifest declares data_collection_permissions: none for
-  Firefox, which matches this behavior. If you add data collection,
-  update the declaration, this section, and your privacy policy in
-  the same change.
-- Privacy policy URL: TODO required by every store once you collect
-  any data.
+## Permission Justification
 
-## Chrome Web Store
+- `storage`: required for browser-local credentials, synchronized public metadata, local annotations, settings, and import/export state.
+- `alarms`: required to resume eligible persisted unstar work while the browser is open after a background worker is suspended.
+- `github.com/login`: required for read-only GitHub App device authorization, secretless refresh-token exchange, and optional OAuth App device authorization.
+- `api.github.com`: required to validate identity, read public stars and native Lists, and perform only confirmed authenticated-user Starring requests when optional write access is enabled.
 
-### Single purpose
+No broad page access, notification permission, private-repository permission, repository-content permission, organization permission, or remote code is requested. Optional OAuth authorization requests `public_repo`, which grants broader public-repository write authority than the extension uses; the implementation restricts that credential to exact Starring routes.
 
-Adds a sidebar panel to the browser.
+Repositories remain visibly starred until complete GitHub observations verify removal. Successful and externally completed jobs preserve local annotations and history. Queued jobs can be cancelled before execution; authentication and permission failures stop automatic retry, rate limits wait for reset, and unresolved `blocked unknown` outcomes require a refresh and explicit manual retry.
 
-### Permissions justification
+## Data Removal
 
-- sidePanel (Chromium only): Renders the extension's main interface in the browser side panel.
-- Content script match <all_urls>: The content script runs on the pages the user visits to render the extension's on-page interface. Narrow this to the specific sites your extension needs before submitting.
-
-## Firefox Add-ons
-
-### Reviewer notes
-
-TODO steps a reviewer needs to exercise the extension, plus test
-credentials if sign-in is required. The build is bundled, so AMO
-requires a source zip; include build-from-source instructions:
-npm install, then npm run build. The dist output matches the upload.
-
-### Release notes
-
-TODO user-facing notes for the version you are submitting.
-
-## Edge Add-ons
-
-### Certification notes
-
-TODO anything the certification team needs to test the extension,
-including test steps and credentials. Mirrors the Firefox reviewer
-notes in most cases.
-
-## Version history
-
-- 1.0.0 (unreleased): initial version from the typescript template.
-  Not yet submitted to any store.
+Disconnect write access to remove only the optional OAuth credential. Disconnect GitHub removes both active credentials while retaining local annotations. Use Delete all local data for complete removal of credentials, synchronized metadata, annotations, settings, sync state, and badge state. Users can also revoke the OAuth App under GitHub Settings, Applications, Authorized OAuth Apps.

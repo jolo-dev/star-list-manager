@@ -13,7 +13,7 @@
     }
   },
   "name": "star-list-manager",
-  "description": "Adds a sidebar panel to the browser with a simple page.",
+  "description": "A local-first dashboard for finding and revisiting GitHub stars.",
   "icons": {
     "16": "images/icon.png",
     "32": "images/icon.png",
@@ -29,7 +29,7 @@
       "64": "images/icon.png",
       "128": "images/icon.png"
     },
-    "default_title": "Open Side Panel"
+    "default_title": "Open Star List Manager"
   },
   "firefox:browser_action": {
     "default_icon": {
@@ -39,33 +39,30 @@
       "64": "images/icon.png",
       "128": "images/icon.png"
     },
-    "default_title": "Open Side Panel"
-  },
-  "chromium:side_panel": {
-    "default_path": "sidebar/index.html",
-    "default_title": "Side Panel Content"
-  },
-  "firefox:sidebar_action": {
-    "default_panel": "sidebar/index.html",
-    "default_title": "Side Panel Content"
+    "default_title": "Open Star List Manager"
   },
   "chromium:permissions": [
-    "sidePanel"
+    "storage",
+    "alarms"
   ],
+  "chromium:host_permissions": [
+    "https://api.github.com/*",
+    "https://github.com/login/*"
+  ],
+  "firefox:permissions": [
+    "storage",
+    "alarms",
+    "https://api.github.com/*",
+    "https://github.com/login/*"
+  ],
+  "options_ui": {
+    "page": "dashboard/index.html",
+    "open_in_tab": true
+  },
   "background": {
     "chromium:service_worker": "background.ts",
     "firefox:scripts": [
       "background.ts"
     ]
-  },
-  "content_scripts": [
-    {
-      "matches": [
-        "<all_urls>"
-      ],
-      "js": [
-        "content/scripts.ts"
-      ]
-    }
-  ]
+  }
 }

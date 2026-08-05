@@ -1,0 +1,1801 @@
+import van from 'vanjs-core'
+import {sendRuntimeMessage} from '../platform/browser'
+import type {AppState, RuntimeMessage, RuntimeResponse} from '../shared/messages'
+import type {AnnotationPatch, AppPhase} from '../shared/messages'
+import type {
+  ExportPayload,
+  ImportImpact,
+  MutationBatchRecord,
+  MutationJobRecord,
+  MutationJobStatus,
+  OperationHistoryRecord,
+  RepositorySort,
+  RepositoryRecord,
+  TriageState
+} from '../domain/types'
+import {
+  availableLanguages,
+  buildLibraryRepositories,
+  defaultRepositoryFilters,
+  deriveViewCounts,
+  nextSelectionIndex,
+  operationHistoryForRepository,
+  queryRepositories,
+  safeGitHubUrl,
+  type LibraryRepository,
+  type LibraryView,
+  type InclusionFilter,
+  type RepositoryQuery,
+  type StarFilter
+} from './library'
+import './styles.css'
+
+const {
+  a,
+  article: articleElement,
+  button,
+  details,
+  div,
+  h1,
+  h2,
+  h3,
+  header,
+  input,
+  label,
+  li,
+  main,
+  nav,
+  option,
+  p,
+  section,
+  select,
+  span,
+  strong: strongText,
+  summary,
+  textarea,
+  ul
+} = van.tags
+
+const emptyState: AppState = {
+  phase: 'loading',
+  identity: null,
+  authorization: null,
+  writeAuthorization: {
+    readiness: 'signed-out',
+    previewVisible: false,
+    authorization: null,
+    error: null
+  },
+  sync: null,
+  nativeListSync: null,
+  triageCounts: null,
+  library: null,
+  mutations: null,
+  error: null
+}
+const appState = van.state<AppState>(emptyState)
+const activeView = van.state<LibraryView>({kind: 'inbox'})
+const searchText = van.state('')
+const sort = van.state<RepositorySort>('starred-at')
+const ascending = van.state(false)
+const language = van.state<string | null>(null)
+const hideArchived = van.state(true)
+const starState = van.state<StarFilter>('starred')
+const disabled = van.state<InclusionFilter>('all')
+const triageState = van.state<TriageState | null>(null)
+const starredAfter = van.state<string | null>(null)
+const starredBefore = van.state<string | null>(null)
+const pushedAfter = van.state<string | null>(null)
+const pushedBefore = van.state<string | null>(null)
+const selectedRepositoryNodeId = van.state<string | null>(null)
+const selectedForUnstar = van.state<ReadonlySet<string>>(new Set())
+const pendingUnstarTargets = van.state<readonly UnstarConfirmationTarget[]>([])
+const enqueueingUnstars = van.state(false)
+const syncing = van.state(false)
+let pollTimer: number | null = null
+let autoSyncAccountId: string | null = null
+let dashboardAccountId: string | null = null
+
+export interface UnstarConfirmationTarget {
+  readonly repositoryNodeId: string
+  readonly fullName: string
+}
+
+function Dashboard() {
+  return div(
+    {class: 'app-shell'},
+    () => Navigation(),
+    main({class: 'workspace'}, () => renderState(appState.val))
+  )
+}
+
+function Navigation() {
+  const state = appState.val
+  const repositories = state.library
+    ? buildLibraryRepositories(state.library)
+    : []
+  const counts = deriveViewCounts(repositories, Date.now())
+  const lists = state.library?.nativeLists.toSorted((left, right) =>
+    left.name.localeCompare(right.name)
+  ) ?? []
+  const tags = Object.entries(counts.tags).toSorted(([left], [right]) =>
+    left.localeCompare(right)
+  )
+
+  return nav(
+    {class: 'sidebar', 'aria-label': 'Library'},
+    div(
+      {class: 'brand'},
+      span({class: 'brand-mark', 'aria-hidden': 'true'}, 'S'),
+      div(span({class: 'brand-name'}, 'Star List'), span('Manager'))
+    ),
+    p({class: 'nav-heading'}, 'Library'),
+    ul(
+      {class: 'nav-list'},
+      NavItem('Inbox', {kind: 'inbox'}, counts.inbox),
+      NavItem('Backlog', {kind: 'backlog'}, counts.backlog),
+      NavItem('Due', {kind: 'due'}, counts.due),
+      NavItem('Organized', {kind: 'organized'}, counts.organized),
+      NavItem('All stars', {kind: 'all'}, counts.all),
+      NavItem('Unstarred history', {kind: 'history'}, counts.history)
+    ),
+    lists.length > 0
+      ? div(
+          p({class: 'nav-heading'}, 'GitHub Lists'),
+          ul(
+            {class: 'nav-list nav-list-secondary'},
+            ...lists.map((nativeList) =>
+              NavItem(
+                nativeList.name,
+                {kind: 'list', listNodeId: nativeList.listNodeId},
+                counts.lists[nativeList.listNodeId] ?? 0
+              )
+            )
+          )
+        )
+      : null,
+    tags.length > 0
+      ? div(
+          p({class: 'nav-heading'}, 'Local tags'),
+          ul(
+            {class: 'nav-list nav-list-secondary'},
+            ...tags.map(([tag, count]) =>
+              NavItem(`#${tag}`, {kind: 'tag', tag}, count)
+            )
+          )
+        )
+      : null,
+    div(
+      {class: 'sidebar-footer'},
+      ul(
+        {class: 'nav-list'},
+        NavItem(
+          'Operations',
+          {kind: 'operations'},
+          state.mutations?.batches.length ?? 0
+        ),
+        NavItem('Settings', {kind: 'settings'}, null)
+      ),
+      p({class: 'local-note'}, 'Private notes and tags stay in this browser profile.')
+    )
+  )
+}
+
+function NavItem(title: string, view: LibraryView, count: number | null) {
+  return li(
+    button(
+      {
+        class: isActiveView(view) ? 'nav-item is-active' : 'nav-item',
+        type: 'button',
+        ...(isActiveView(view) ? {'aria-current': 'page'} : {}),
+        onclick: () => {
+          activeView.val = view
+          selectedRepositoryNodeId.val = null
+          selectedForUnstar.val = new Set()
+          pendingUnstarTargets.val = []
+        }
+      },
+      span({class: 'nav-label'}, title),
+      count === null ? null : span(String(count))
+    )
+  )
+}
+
+function renderState(state: AppState) {
+  switch (state.phase) {
+    case 'loading':
+    case 'reauthentication':
+      return LoadingState(
+        state.phase === 'reauthentication'
+          ? 'Preparing a new GitHub authorization.'
+          : 'Loading the local account state and extension configuration.'
+      )
+    case 'authorization-pending':
+      return AuthorizationPendingState(state)
+    case 'authorization-expired':
+      return AuthorizationResultState('Code expired', 'The GitHub device code expired.')
+    case 'authorization-denied':
+      return AuthorizationResultState(
+        'Authorization denied',
+        'GitHub did not authorize this extension. No local data was changed.'
+      )
+    case 'signed-out':
+      return FirstRunState(true, state.error?.message ?? null)
+    case 'first-run':
+      return FirstRunState(false, state.error?.message ?? null)
+    case 'ready':
+      return ReadyState(state)
+  }
+}
+
+function ReadyState(state: AppState) {
+  if (activeView.val.kind === 'settings') return SettingsState(state)
+  if (activeView.val.kind === 'operations') return OperationsState(state)
+  const snapshot = state.library
+  if (!snapshot || (!state.sync && snapshot.repositories.length === 0)) {
+    return LoadingState('Synchronizing the first public-star observation.')
+  }
+  if (snapshot.repositories.length === 0 && state.sync?.phase === 'complete') {
+    return EmptyLibraryState()
+  }
+
+  const repositories = buildLibraryRepositories(snapshot)
+
+  return div(
+    {class: 'library-page'},
+    LibraryHeader(state, repositories),
+    () => SelectionActions(appState.val, repositories),
+    () => AdvancedFilters(),
+    () => StatusBanners(appState.val),
+    () => LibraryResults(repositories),
+    () =>
+      pendingUnstarTargets.val.length > 0
+        ? UnstarConfirmation(
+            appState.val,
+            pendingUnstarTargets.val,
+            () => void confirmPendingUnstars(),
+            cancelUnstarConfirmation
+          )
+        : ''
+  )
+}
+
+function LibraryResults(repositories: readonly LibraryRepository[]) {
+  const query = currentQuery()
+  const results = queryRepositories(repositories, query, Date.now())
+  const visibleResults = results.slice(0, 200)
+  const selected = selectCurrentRepository(visibleResults)
+
+  return div(
+    {class: 'library-grid'},
+    section(
+      {
+        class: 'results-panel',
+        'aria-label': 'Repositories',
+        tabindex: 0,
+        onkeydown: (event: KeyboardEvent) =>
+          handleResultKey(event, visibleResults)
+      },
+      results.length === 0
+        ? NoResultsState(query.search.length > 0)
+        : ul(
+            {class: 'repository-list', role: 'listbox'},
+            ...visibleResults.map((item) => RepositoryRow(item, selected))
+          ),
+      results.length > visibleResults.length
+        ? p(
+            {class: 'result-limit'},
+            `Showing the first ${visibleResults.length} of ${results.length} matches. Refine the local search to narrow the list.`
+          )
+        : null
+    ),
+    selected ? RepositoryInspector(selected) : InspectionPlaceholder()
+  )
+}
+
+function LibraryHeader(
+  state: AppState,
+  repositories: readonly LibraryRepository[]
+) {
+  const languages = availableLanguages(repositories)
+  return header(
+    {class: 'library-header'},
+    div(
+      p({class: 'eyebrow'}, viewEyebrow(activeView.val)),
+      h1(viewTitle(activeView.val)),
+      p(
+        {class: 'result-count', 'aria-live': 'polite'},
+        () =>
+          `${queryRepositories(repositories, currentQuery(), Date.now()).length} repositories`
+      )
+    ),
+    div(
+      {class: 'library-actions'},
+      label(
+        {class: 'search-field'},
+        span({class: 'sr-only'}, 'Search repositories'),
+        input({
+          id: 'library-search',
+          type: 'search',
+          placeholder: 'Search stars, notes, Lists…',
+          value: searchText,
+          oninput: (event: Event) => {
+            searchText.val = (event.currentTarget as HTMLInputElement).value
+            selectedRepositoryNodeId.val = null
+          }
+        })
+      ),
+      label(
+        span('Language'),
+        select(
+          {
+            value: language.val ?? '',
+            onchange: (event: Event) => {
+              language.val = (event.currentTarget as HTMLSelectElement).value || null
+            }
+          },
+          option({value: ''}, 'All'),
+          ...languages.map((value) => option({value}, value))
+        )
+      ),
+      label(
+        span('Sort'),
+        select(
+          {
+            value: sort,
+            onchange: (event: Event) => {
+              sort.val = (event.currentTarget as HTMLSelectElement)
+                .value as RepositorySort
+            }
+          },
+          option({value: 'starred-at'}, 'Star date'),
+          option({value: 'pushed-at'}, 'Push date'),
+          option({value: 'reviewed-at'}, 'Review date'),
+          option({value: 'name'}, 'Name')
+        )
+      ),
+      button(
+        {
+          class: 'filter-toggle',
+          type: 'button',
+          'aria-pressed': ascending,
+          onclick: () => {
+            ascending.val = !ascending.val
+          }
+        },
+        () => (ascending.val ? 'Ascending' : 'Descending')
+      ),
+      button(
+        {
+          class: 'filter-toggle',
+          type: 'button',
+          'aria-pressed': hideArchived,
+          onclick: () => {
+            hideArchived.val = !hideArchived.val
+          }
+        },
+        () => (hideArchived.val ? 'Archived hidden' : 'Archived shown')
+      ),
+      button(
+        {
+          class: 'refresh-button',
+          type: 'button',
+          disabled: syncing,
+          onclick: () => void sendAction({type: 'start-sync', force: true})
+        },
+        () => (syncing.val ? 'Syncing…' : 'Refresh')
+      ),
+      state.identity
+        ? span(
+            {
+              class: 'header-avatar',
+              title: `Connected as ${state.identity.login}`,
+              'aria-label': `Connected as ${state.identity.login}`
+            },
+            state.identity.login.slice(0, 1).toLocaleUpperCase()
+          )
+        : null
+    )
+  )
+}
+
+function SelectionActions(
+  state: AppState,
+  repositories: readonly LibraryRepository[]
+) {
+  const selected = repositories
+    .filter(
+      (item) =>
+        item.repository.isStarred &&
+        selectedForUnstar.val.has(item.repository.repositoryNodeId)
+    )
+    .map((item) => item.repository)
+  if (selected.length === 0) return ''
+
+  return section(
+    {class: 'selection-bar', 'aria-live': 'polite'},
+    div(
+      span({class: 'selection-count'}, `${selected.length} selected`),
+      span('Selection changes no stars, notes, tags, favorites, or triage state.')
+    ),
+    div(
+      {class: 'selection-actions'},
+      button(
+        {
+          class: 'danger-action',
+          type: 'button',
+          disabled:
+            state.writeAuthorization.readiness !== 'ready' ||
+            selected.some((repository) =>
+              hasActiveRepositoryJob(repository.repositoryNodeId)
+            ),
+          onclick: () => openUnstarConfirmation(selected)
+        },
+        `Review unstar for ${selected.length}`
+      ),
+      button(
+        {
+          class: 'secondary-action',
+          type: 'button',
+          onclick: () => {
+            selectedForUnstar.val = new Set()
+          }
+        },
+        'Clear selection'
+      )
+    ),
+    state.writeAuthorization.readiness !== 'ready'
+      ? WriteReadinessNotice(state)
+      : null
+  )
+}
+
+function UnstarConfirmation(
+  state: AppState,
+  targets: readonly UnstarConfirmationTarget[],
+  onConfirm: () => void,
+  onCancel: () => void
+) {
+  const ready = state.writeAuthorization.readiness === 'ready'
+  return div(
+    {
+      class: 'dialog-backdrop',
+      role: 'presentation',
+      onkeydown: (event: KeyboardEvent) => {
+        if (event.key === 'Escape') onCancel()
+      }
+    },
+    section(
+      {
+        class: 'confirmation-dialog',
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-labelledby': 'unstar-confirmation-title',
+        tabindex: -1
+      },
+      p({class: 'eyebrow'}, 'Remote GitHub account change'),
+      h2(
+        {id: 'unstar-confirmation-title'},
+        `Remove ${targets.length} ${targets.length === 1 ? 'star' : 'stars'} from GitHub?`
+      ),
+      p(
+        `This will change the connected GitHub account for exactly ${targets.length} ${targets.length === 1 ? 'repository' : 'repositories'}. Local annotations are retained.`
+      ),
+      ul(
+        {class: 'confirmation-list', 'aria-label': 'Repositories to unstar'},
+        ...targets.map((target) => li(target.fullName))
+      ),
+      p(
+        {class: 'no-undo-note'},
+        'There is no Undo or re-star control. Each result is checked against GitHub before the local starred state changes.'
+      ),
+      ready
+        ? null
+        : p(
+            {class: 'inline-error', role: 'alert'},
+            'GitHub Starring write authorization must be ready before confirmation.'
+          ),
+      div(
+        {class: 'action-row'},
+        button(
+          {
+            class: 'danger-action',
+            type: 'button',
+            disabled: !ready || enqueueingUnstars.val,
+            onclick: onConfirm
+          },
+          enqueueingUnstars.val ? 'Queueing...' : `Confirm unstar ${targets.length}`
+        ),
+        button(
+          {
+            class: 'secondary-action',
+            type: 'button',
+            disabled: enqueueingUnstars.val,
+            onclick: onCancel
+          },
+          'Cancel'
+        )
+      )
+    )
+  )
+}
+
+export function renderUnstarConfirmation(
+  state: AppState,
+  targets: readonly UnstarConfirmationTarget[],
+  onConfirm: () => void,
+  onCancel: () => void
+): HTMLElement {
+  return UnstarConfirmation(state, targets, onConfirm, onCancel) as HTMLElement
+}
+
+function OperationsState(state: AppState) {
+  const mutations = state.mutations
+  const githubUserId = state.identity?.githubUserId
+  const batches = (mutations?.batches ?? []).filter(
+    (batch) => batch.githubUserId === githubUserId
+  ).toSorted(
+    (left, right) =>
+      right.createdAt.localeCompare(left.createdAt) ||
+      right.batchId.localeCompare(left.batchId)
+  )
+  const history = (mutations?.history ?? []).filter(
+    (record) => record.githubUserId === githubUserId
+  ).toSorted(
+    (left, right) =>
+      right.occurredAt.localeCompare(left.occurredAt) ||
+      right.historyId.localeCompare(left.historyId)
+  )
+  return div(
+    {class: 'operations-page'},
+    header(
+      p({class: 'eyebrow'}, 'Connected account only'),
+      h1('Operations'),
+      p(
+        {class: 'operations-intro'},
+        'Durable GitHub star changes and verified outcomes. No credential material is shown or stored with these records.'
+      )
+    ),
+    batches.length === 0
+      ? section(
+          {class: 'settings-card'},
+          h2('No unstar operations'),
+          p('Confirmed single and bulk operations will appear here.')
+        )
+      : section(
+          {class: 'operation-section', 'aria-label': 'Mutation batches'},
+          h2('Batches'),
+          ...batches.map((batch) => MutationBatchCard(batch, mutations?.jobs ?? []))
+        ),
+    section(
+      {class: 'operation-section', 'aria-label': 'Operation history'},
+      h2('History'),
+      history.length === 0
+        ? p('No completed operation history for this account.')
+        : ul(
+            {class: 'operation-history-list'},
+            ...history.map(OperationHistoryRow)
+          )
+    )
+  )
+}
+
+function MutationBatchCard(
+  batch: MutationBatchRecord,
+  jobs: readonly MutationJobRecord[]
+) {
+  const batchJobs = batch.jobIds.flatMap((jobId) => {
+    const job = jobs.find(
+      (candidate) =>
+        candidate.jobId === jobId && candidate.githubUserId === batch.githubUserId
+    )
+    return job ? [job] : []
+  })
+  return articleElement(
+    {class: 'batch-card'},
+    div(
+      {class: 'batch-heading'},
+      div(
+        p({class: 'eyebrow'}, batch.origin === 'bulk' ? 'Bulk unstar' : 'Single unstar'),
+        h3(`${batch.summary.total} ${batch.summary.total === 1 ? 'repository' : 'repositories'}`)
+      ),
+      span({class: 'batch-status'}, formatBatchStatus(batch.status))
+    ),
+    div(
+      {class: 'batch-summary', 'aria-label': 'Batch outcome counts'},
+      SummaryCount('Succeeded', batch.summary.succeeded),
+      SummaryCount('Failed', batch.summary.failed),
+      SummaryCount('Blocked unknown', batch.summary.blockedUnknown),
+      SummaryCount('Queued', batch.summary.queued),
+      SummaryCount('Cancelled', batch.summary.cancelled),
+      SummaryCount('Pending', batch.summary.pending)
+    ),
+    ul(
+      {class: 'batch-jobs'},
+      ...batchJobs.map((job) =>
+        li(
+          div(
+            strongText(`${job.ownerLogin}/${job.repositoryName}`),
+            job.lastError ? span({class: 'job-error'}, job.lastError.message) : null
+          ),
+          div(
+            {class: 'job-actions'},
+            MutationStatus(job),
+            job.status === 'queued'
+              ? button(
+                  {
+                    class: 'secondary-action cancel-job',
+                    type: 'button',
+                    onclick: () => void cancelMutationJob(job.jobId)
+                  },
+                  'Cancel queued job'
+                )
+              : null
+          )
+        )
+      )
+    ),
+    batch.summary.blockedUnknown > 0
+      ? p(
+          {class: 'blocked-note'},
+          'Blocked-unknown jobs are not retried automatically. Refresh the library before deciding on a later manual attempt.'
+        )
+      : null
+  )
+}
+
+function SummaryCount(title: string, count: number) {
+  return div(span(title), strongText(String(count)))
+}
+
+function OperationHistoryRow(record: OperationHistoryRecord) {
+  return li(
+    div(
+      strongText(`${record.ownerLogin}/${record.repositoryName}`),
+      span(`${formatMutationStatus(record.finalStatus)} on ${formatDate(record.occurredAt)}`)
+    ),
+    record.error ? p(record.error.message) : null
+  )
+}
+
+function RepositoryOperationDetails(repositoryNodeId: string) {
+  const githubUserId = appState.val.identity?.githubUserId
+  const jobs = (appState.val.mutations?.jobs ?? [])
+    .filter(
+      (job) =>
+        job.githubUserId === githubUserId &&
+        job.repositoryNodeId === repositoryNodeId
+    )
+    .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))
+  const history = operationHistoryForRepository(
+    (appState.val.mutations?.history ?? []).filter(
+      (record) => record.githubUserId === githubUserId
+    ),
+    repositoryNodeId
+  )
+  if (jobs.length === 0 && history.length === 0) return null
+  return div(
+    {class: 'detail-group repository-operations'},
+    h3('Unstar outcomes'),
+    jobs[0] ? div({class: 'repository-job-status'}, MutationStatus(jobs[0])) : null,
+    ...history.map((record) =>
+      p(
+        `${formatMutationStatus(record.finalStatus)} on ${formatDate(record.occurredAt)}. ${record.error?.message ?? formatVerification(record)}`
+      )
+    )
+  )
+}
+
+function MutationStatus(job: MutationJobRecord) {
+  const suspended = job.recoveryStatus === 'account-suspended'
+  return span(
+    {
+      class: `mutation-status status-${job.status}`,
+      'data-status': job.status,
+      ...(suspended
+        ? {title: 'The owning account is not currently active.'}
+        : {})
+    },
+    suspended ? 'Account suspended' : formatMutationStatus(job.status)
+  )
+}
+
+function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | null) {
+  const repository = item.repository
+  const active = selected?.repository.repositoryNodeId === repository.repositoryNodeId
+  const selectedForMutation = selectedForUnstar.val.has(repository.repositoryNodeId)
+  const latestJob = latestRepositoryJob(repository.repositoryNodeId)
+  return li(
+    {class: 'repository-row-shell'},
+    repository.isStarred
+      ? label(
+          {class: 'selection-control'},
+          input({
+            type: 'checkbox',
+            checked: selectedForMutation,
+            disabled: hasActiveRepositoryJob(repository.repositoryNodeId),
+            'aria-label': `Select ${repository.fullName} for unstar`,
+            onchange: (event: Event) =>
+              toggleUnstarSelection(
+                repository.repositoryNodeId,
+                (event.currentTarget as HTMLInputElement).checked
+              )
+          }),
+          span({class: 'sr-only'}, `Select ${repository.fullName}`)
+        )
+      : null,
+    button(
+      {
+        class: active ? 'repository-row is-selected' : 'repository-row',
+        type: 'button',
+        role: 'option',
+        'aria-selected': active,
+        onclick: () => {
+          selectedRepositoryNodeId.val = repository.repositoryNodeId
+        }
+      },
+      div(
+        {class: 'repository-row-main'},
+        div(
+          span({class: 'repository-owner'}, repository.ownerLogin),
+          h2(repository.name)
+        ),
+        p(repository.description ?? 'No description provided.'),
+        div(
+          {class: 'repository-meta'},
+          repository.primaryLanguage ? span(repository.primaryLanguage) : null,
+          span(`Starred ${formatDate(repository.starredAt)}`),
+           item.annotation?.favorite ? span({title: 'Local favorite'}, 'Favorite') : null,
+           latestJob ? MutationStatus(latestJob) : null
+        )
+      ),
+      span({class: `triage-pill triage-${item.annotation?.triageState ?? 'unclassified'}`},
+        item.annotation?.triageState ?? 'unclassified'
+      )
+    )
+  )
+}
+
+function RepositoryInspector(item: LibraryRepository) {
+  const repository = item.repository
+  const annotation = item.annotation
+  const githubUrl = safeGitHubUrl(repository.htmlUrl)
+  return section(
+    {class: 'inspector', 'aria-label': `${repository.fullName} details`},
+    div(
+      {class: 'inspector-heading'},
+      div(p({class: 'eyebrow'}, repository.ownerLogin), h2(repository.name)),
+      githubUrl
+        ? a({class: 'github-link', href: githubUrl, target: '_blank', rel: 'noopener noreferrer'}, 'Open GitHub')
+        : null
+    ),
+    p({class: 'inspector-description'}, repository.description ?? 'No description provided.'),
+    DetailGroup(
+      'Repository',
+      repository.primaryLanguage ? `Language: ${repository.primaryLanguage}` : 'Language: not reported',
+      `Starred: ${formatDate(repository.starredAt)}`,
+      repository.pushedAt ? `Last push: ${formatDate(repository.pushedAt)}` : 'Last push: not reported',
+      repository.archived ? 'Archived' : 'Active',
+      repository.disabled ? 'Disabled by GitHub' : null
+    ),
+    DetailGroup(
+      'GitHub Lists',
+      ...(item.nativeLists.length > 0
+        ? item.nativeLists.map((nativeList) => nativeList.name)
+        : ['No synchronized List membership'])
+    ),
+    DetailGroup(
+      'Topics',
+      ...(repository.topics.length > 0 ? repository.topics : ['No topics reported'])
+    ),
+    RepositoryOperationDetails(repository.repositoryNodeId),
+    repository.isStarred
+      ? div(
+          {class: 'remote-action-card'},
+          h3('GitHub account change'),
+          p('Remove this repository from your GitHub stars after explicit confirmation and remote verification.'),
+          button(
+            {
+              class: 'danger-action',
+              type: 'button',
+              disabled:
+                appState.val.writeAuthorization.readiness !== 'ready' ||
+                hasActiveRepositoryJob(repository.repositoryNodeId),
+              onclick: () => openUnstarConfirmation([repository])
+            },
+            hasActiveRepositoryJob(repository.repositoryNodeId)
+              ? 'Unstar already queued'
+              : 'Review unstar'
+          ),
+          appState.val.writeAuthorization.readiness !== 'ready'
+            ? WriteReadinessNotice(appState.val)
+            : null
+        )
+      : null,
+    div(
+      {class: 'annotation-editor'},
+      h3('Local organization'),
+      div(
+        {class: 'triage-actions'},
+        TriageButton('Inbox', 'inbox', item),
+        TriageButton('Backlog', 'backlog', item),
+        TriageButton('Reviewed', 'reviewed', item)
+      ),
+      label(
+        span('Tags'),
+        input({
+          type: 'text',
+          value: annotation?.tags.join(', ') ?? '',
+          placeholder: 'research, browser, later',
+          onchange: (event: Event) =>
+            void updateAnnotation(repository.repositoryNodeId, {
+              tags: (event.currentTarget as HTMLInputElement).value
+                .split(',')
+                .map((tag) => tag.trim())
+            })
+        })
+      ),
+      label(
+        span('Private note'),
+        textarea(
+          {
+            rows: 5,
+            placeholder: 'Why did this repository matter?',
+            onchange: (event: Event) =>
+              void updateAnnotation(repository.repositoryNodeId, {
+                note: (event.currentTarget as HTMLTextAreaElement).value
+              })
+          },
+          annotation?.note ?? ''
+        )
+      ),
+      label(
+        span('Revisit date'),
+        input({
+          type: 'date',
+          value: annotation?.revisitAt?.slice(0, 10) ?? '',
+          onchange: (event: Event) => {
+            const value = (event.currentTarget as HTMLInputElement).value
+            void updateAnnotation(repository.repositoryNodeId, {
+              revisitAt: value ? `${value}T09:00:00Z` : null,
+              ...(value ? {triageState: 'snoozed' as const} : {})
+            })
+          }
+        })
+      ),
+      button(
+        {
+          class: annotation?.favorite ? 'favorite-button is-active' : 'favorite-button',
+          type: 'button',
+          'aria-pressed': annotation?.favorite ?? false,
+          onclick: () =>
+            void updateAnnotation(repository.repositoryNodeId, {
+              favorite: !(annotation?.favorite ?? false)
+            })
+        },
+        annotation?.favorite ? 'Remove local favorite' : 'Add local favorite'
+      )
+    )
+  )
+}
+
+function TriageButton(
+  title: string,
+  triageState: 'inbox' | 'backlog' | 'reviewed',
+  item: LibraryRepository
+) {
+  return button(
+    {
+      class: item.annotation?.triageState === triageState ? 'is-active' : '',
+      type: 'button',
+      'aria-pressed': item.annotation?.triageState === triageState,
+      onclick: () =>
+        void updateAnnotation(item.repository.repositoryNodeId, {triageState})
+    },
+    title
+  )
+}
+
+function DetailGroup(title: string, ...values: Array<string | null>) {
+  return div(
+    {class: 'detail-group'},
+    h3(title),
+    ul(...values.flatMap((value) => (value ? [li(value)] : [])))
+  )
+}
+
+function SettingsState(state: AppState) {
+  return div(
+    {class: 'settings-page'},
+    header(p({class: 'eyebrow'}, 'Settings'), h1('Local account controls')),
+    section(
+      {class: 'settings-card'},
+      h2(state.identity ? `Connected as ${state.identity.login}` : 'GitHub disconnected'),
+      p(syncSummary(state)),
+      p(nativeListSummary(state)),
+      div(
+        {class: 'action-row'},
+        button(
+          {
+            class: 'primary-action',
+            type: 'button',
+            onclick: () => void exportData()
+          },
+          'Export local data'
+        ),
+        label(
+          {class: 'file-action'},
+          'Import JSON',
+          input({
+            type: 'file',
+            accept: 'application/json,.json',
+            onchange: (event: Event) => void importData(event)
+          })
+        ),
+        button(
+          {
+            class: 'secondary-action',
+            type: 'button',
+            onclick: () => void confirmDisconnect()
+          },
+          'Disconnect GitHub'
+        ),
+        button(
+          {
+            class: 'danger-action',
+            type: 'button',
+            onclick: () => void confirmCompleteRemoval()
+          },
+          'Delete all local data'
+        )
+      )
+    ),
+    WriteAuthorizationCard(state)
+  )
+}
+
+function WriteAuthorizationCard(state: AppState) {
+  const write = state.writeAuthorization
+  if (write.previewVisible) {
+    return section(
+      {class: 'settings-card write-auth-card'},
+      p({class: 'eyebrow'}, 'Optional write access'),
+      h2('Review GitHub Starring authorization'),
+      p(
+        'GitHub requires the public_repo OAuth scope to change stars on public repositories. That scope grants broader public-repository write access than Star List Manager uses.'
+      ),
+      p(
+        'The extension restricts this credential to confirmed Starring status, star, and unstar endpoints. The token stays in extension-owned browser storage and is excluded from exports, pages, and logs.'
+      ),
+      p(
+        'You can disconnect it here or revoke Star List Manager under GitHub Settings, Applications, Authorized OAuth Apps.'
+      ),
+      span({class: 'scope-pill'}, 'public_repo'),
+      div(
+        {class: 'action-row'},
+        button(
+          {
+            class: 'primary-action',
+            type: 'button',
+            onclick: () => void sendAction({type: 'start-write-device-auth'})
+          },
+          'Continue to GitHub'
+        ),
+        button(
+          {
+            class: 'secondary-action',
+            type: 'button',
+            onclick: () => void sendAction({type: 'cancel-write-device-auth'})
+          },
+          'Cancel'
+        )
+      )
+    )
+  }
+
+  if (write.readiness === 'pending') {
+    return section(
+      {class: 'settings-card write-auth-card'},
+      p({class: 'eyebrow'}, 'Optional write access'),
+      h2('Approve Starring access'),
+      p(
+        'Open GitHub, enter this code, and approve the disclosed public_repo authorization.'
+      ),
+      write.authorization
+        ? div({class: 'auth-code'}, write.authorization.userCode)
+        : p('Requesting a GitHub device code...'),
+      div(
+        {class: 'action-row'},
+        write.authorization
+          ? a(
+              {
+                class: 'primary-action',
+                href: write.authorization.verificationUri,
+                target: '_blank',
+                rel: 'noopener noreferrer'
+              },
+              'Open GitHub'
+            )
+          : null,
+        button(
+          {
+            class: 'secondary-action',
+            type: 'button',
+            onclick: () => void sendAction({type: 'cancel-write-device-auth'})
+          },
+          'Cancel'
+        )
+      )
+    )
+  }
+
+  if (write.readiness === 'ready') {
+    return section(
+      {class: 'settings-card write-auth-card'},
+      p({class: 'eyebrow'}, 'Optional write access'),
+      h2('Confirmed star changes are authorized'),
+      p(
+        'The separate public_repo credential is ready and restricted by the extension to GitHub Starring endpoints.'
+      ),
+      p(
+        'Disconnecting write access preserves GitHub sign-in, synchronization, and all local library data.'
+      ),
+      write.error ? p({class: 'inline-error', role: 'alert'}, write.error.message) : null,
+      button(
+        {
+          class: 'secondary-action',
+          type: 'button',
+          onclick: () => void confirmWriteDisconnect()
+        },
+        'Disconnect write access'
+      )
+    )
+  }
+
+  return section(
+    {class: 'settings-card write-auth-card'},
+    p({class: 'eyebrow'}, 'Optional write access'),
+    h2('Confirmed star changes'),
+    p(
+      'Read-only synchronization remains available without this authorization. Enable it only when you want Star List Manager to perform a confirmed star or unstar request.'
+    ),
+    write.error ? p({class: 'inline-error', role: 'alert'}, write.error.message) : null,
+    button(
+      {
+        class: 'secondary-action',
+        type: 'button',
+        onclick: () => void sendAction({type: 'show-write-auth-preview'})
+      },
+      write.readiness === 'authorization-required'
+        ? 'Review write authorization'
+        : 'Review authorization again'
+    )
+  )
+}
+
+function AdvancedFilters() {
+  const constraints = activeFilterLabels()
+  return details(
+    {class: 'advanced-filters'},
+    summary(
+      'Filters',
+      constraints.length > 0
+        ? span({class: 'filter-count'}, String(constraints.length))
+        : null
+    ),
+    div(
+      {class: 'filter-panel'},
+      FilterSelect(
+        'Star state',
+        starState.val,
+        [
+          ['starred', 'Starred'],
+          ['unstarred', 'Unstarred history'],
+          ['all', 'All states']
+        ],
+        (value) => {
+          starState.val = value as StarFilter
+          if (value !== 'starred') activeView.val = {kind: 'all'}
+        }
+      ),
+      FilterSelect(
+        'Triage',
+        triageState.val ?? '',
+        [
+          ['', 'All states'],
+          ['inbox', 'Inbox'],
+          ['backlog', 'Backlog'],
+          ['reviewed', 'Reviewed'],
+          ['snoozed', 'Snoozed']
+        ],
+        (value) => {
+          triageState.val = value ? (value as TriageState) : null
+        }
+      ),
+      FilterSelect(
+        'Disabled',
+        disabled.val,
+        [
+          ['all', 'Shown'],
+          ['exclude', 'Hidden'],
+          ['only', 'Only disabled']
+        ],
+        (value) => {
+          disabled.val = value as InclusionFilter
+        }
+      ),
+      DateFilter('Starred after', starredAfter),
+      DateFilter('Starred before', starredBefore),
+      DateFilter('Pushed after', pushedAfter),
+      DateFilter('Pushed before', pushedBefore),
+      button({class: 'clear-filters', type: 'button', onclick: clearFilters}, 'Clear filters')
+    ),
+    constraints.length > 0
+      ? div(
+          {class: 'active-filters', 'aria-label': 'Active filters'},
+          ...constraints.map((constraint) => span(constraint))
+        )
+      : null
+  )
+}
+
+function FilterSelect(
+  title: string,
+  value: string,
+  choices: readonly (readonly [string, string])[],
+  onChange: (value: string) => void
+) {
+  return label(
+    span(title),
+    select(
+      {
+        value,
+        onchange: (event: Event) =>
+          onChange((event.currentTarget as HTMLSelectElement).value)
+      },
+      ...choices.map(([choiceValue, choiceTitle]) =>
+        option({value: choiceValue}, choiceTitle)
+      )
+    )
+  )
+}
+
+function DateFilter(title: string, state: {val: string | null}) {
+  return label(
+    span(title),
+    input({
+      type: 'date',
+      value: state.val ?? '',
+      onchange: (event: Event) => {
+        state.val = (event.currentTarget as HTMLInputElement).value || null
+      }
+    })
+  )
+}
+
+function StatusBanners(state: AppState) {
+  return div(
+    {class: 'status-stack', 'aria-live': 'polite'},
+    state.sync?.phase === 'stale'
+      ? p({class: 'status-banner is-warning'}, 'Star data is stale; the last complete library remains available.')
+      : null,
+    state.nativeListSync?.phase === 'partial'
+      ? p({class: 'status-banner is-warning'}, 'Native List coverage is partial because inaccessible items are not disclosed.')
+      : null,
+    state.error || state.sync?.lastError
+      ? p(
+          {class: 'status-banner is-error'},
+          state.error?.message ?? state.sync?.lastError?.message ?? 'A recoverable error occurred.'
+        )
+      : null
+  )
+}
+
+function NoResultsState(searching: boolean) {
+  return div(
+    {class: 'empty-results'},
+    h2(searching ? 'No local matches' : 'This view is clear'),
+    p(
+      searching
+        ? 'Try fewer words or clear a filter. Your library has not been changed.'
+        : 'No starred repository currently belongs to this view.'
+    )
+  )
+}
+
+function EmptyLibraryState() {
+  return section(
+    {class: 'state-panel'},
+    p({class: 'eyebrow'}, 'Empty library'),
+    h2('No public stars found'),
+    p('Star a public repository on GitHub, then refresh this dashboard.')
+  )
+}
+
+function InspectionPlaceholder() {
+  return section(
+    {class: 'inspector inspector-empty'},
+    p({class: 'eyebrow'}, 'Repository details'),
+    h2('Select a repository'),
+    p('Use the mouse or arrow keys to inspect synchronized metadata and edit local organization.')
+  )
+}
+
+function LoadingState(copy: string) {
+  return section(
+    {class: 'state-panel', 'aria-busy': 'true'},
+    p({class: 'eyebrow'}, 'Opening library'),
+    h2('Preparing your dashboard'),
+    p(copy),
+    div({class: 'skeleton-list', 'aria-hidden': 'true'}, div({class: 'skeleton-row'}), div({class: 'skeleton-row'}))
+  )
+}
+
+function FirstRunState(returningUser: boolean, error: string | null) {
+  return section(
+    {class: 'state-panel'},
+    p({class: 'eyebrow'}, returningUser ? 'Signed out' : 'First run'),
+    h2(returningUser ? 'Reconnect your GitHub library' : 'Turn stars into a working library'),
+    p('Connect GitHub to import public stars and native Lists. Notes, tags, favorites, and revisit dates remain local.'),
+    error ? p({class: 'inline-error', role: 'alert'}, error) : null,
+    button(
+      {class: 'primary-action', type: 'button', onclick: () => void sendAction({type: 'start-device-auth'})},
+      'Connect GitHub',
+      span('Device flow')
+    )
+  )
+}
+
+function AuthorizationPendingState(state: AppState) {
+  const authorization = state.authorization
+  if (!authorization) return LoadingState('Waiting for GitHub authorization details.')
+  return section(
+    {class: 'state-panel'},
+    p({class: 'eyebrow'}, 'GitHub authorization'),
+    h2('Approve this device'),
+    p('Open GitHub, enter the code below, and approve read-only access.'),
+    div({class: 'auth-code'}, authorization.userCode),
+    div(
+      {class: 'action-row'},
+      a({class: 'primary-action', href: authorization.verificationUri, target: '_blank', rel: 'noopener noreferrer'}, 'Open GitHub'),
+      button({class: 'secondary-action', type: 'button', onclick: () => void sendAction({type: 'cancel-device-auth'})}, 'Cancel')
+    )
+  )
+}
+
+function AuthorizationResultState(title: string, copy: string) {
+  return section(
+    {class: 'state-panel'},
+    p({class: 'eyebrow'}, 'Sign-in incomplete'),
+    h2(title),
+    p(copy),
+    button({class: 'primary-action', type: 'button', onclick: () => void sendAction({type: 'start-device-auth'})}, 'Try again')
+  )
+}
+
+function currentQuery(): RepositoryQuery {
+  const filters = defaultRepositoryFilters()
+  return {
+    view: activeView.val,
+    search: searchText.val,
+    filters: {
+      ...filters,
+      triageStates: triageState.val ? [triageState.val] : [],
+      starState: activeView.val.kind === 'history' ? 'unstarred' : starState.val,
+      language: language.val,
+      archived: hideArchived.val ? 'exclude' : 'all',
+      disabled: disabled.val,
+      starredAfter: toStartOfDay(starredAfter.val),
+      starredBefore: toEndOfDay(starredBefore.val),
+      pushedAfter: toStartOfDay(pushedAfter.val),
+      pushedBefore: toEndOfDay(pushedBefore.val)
+    },
+    sort: sort.val,
+    ascending: ascending.val
+  }
+}
+
+function selectCurrentRepository(
+  results: readonly LibraryRepository[]
+): LibraryRepository | null {
+  const selected = results.find(
+    (item) => item.repository.repositoryNodeId === selectedRepositoryNodeId.val
+  )
+  if (selected) return selected
+  return results[0] ?? null
+}
+
+function handleResultKey(
+  event: KeyboardEvent,
+  results: readonly LibraryRepository[]
+): void {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  const currentIndex = results.findIndex(
+    (item) => item.repository.repositoryNodeId === selectedRepositoryNodeId.val
+  )
+  const index = nextSelectionIndex(
+    currentIndex,
+    results.length,
+    event.key as 'ArrowDown' | 'ArrowUp' | 'Home' | 'End'
+  )
+  selectedRepositoryNodeId.val = results[index]?.repository.repositoryNodeId ?? null
+}
+
+async function updateAnnotation(
+  repositoryNodeId: string,
+  patch: AnnotationPatch
+): Promise<void> {
+  await sendAction({type: 'update-annotation', repositoryNodeId, patch})
+  selectedRepositoryNodeId.val = repositoryNodeId
+}
+
+function toggleUnstarSelection(repositoryNodeId: string, selected: boolean): void {
+  const next = new Set(selectedForUnstar.val)
+  if (selected) next.add(repositoryNodeId)
+  else next.delete(repositoryNodeId)
+  selectedForUnstar.val = next
+}
+
+function openUnstarConfirmation(repositories: readonly RepositoryRecord[]): void {
+  pendingUnstarTargets.val = repositories.map((repository) => ({
+    repositoryNodeId: repository.repositoryNodeId,
+    fullName: repository.fullName
+  }))
+  window.setTimeout(() => {
+    document.querySelector<HTMLElement>('.confirmation-dialog')?.focus()
+  }, 0)
+}
+
+function cancelUnstarConfirmation(): void {
+  pendingUnstarTargets.val = []
+}
+
+async function confirmPendingUnstars(): Promise<void> {
+  const repositoryNodeIds = pendingUnstarTargets.val.map(
+    (target) => target.repositoryNodeId
+  )
+  if (
+    repositoryNodeIds.length === 0 ||
+    appState.val.writeAuthorization.readiness !== 'ready'
+  ) {
+    return
+  }
+  enqueueingUnstars.val = true
+  try {
+    const queued = await sendAction({
+      type: 'enqueue-confirmed-unstars',
+      repositoryNodeIds
+    })
+    if (queued) {
+      pendingUnstarTargets.val = []
+      selectedForUnstar.val = new Set()
+    }
+  } finally {
+    enqueueingUnstars.val = false
+  }
+}
+
+async function cancelMutationJob(jobId: string): Promise<void> {
+  await sendAction({type: 'cancel-mutation-job', jobId})
+}
+
+function WriteReadinessNotice(state: AppState) {
+  return div(
+    {class: 'write-readiness-notice'},
+    span(writeReadinessMessage(state.writeAuthorization.readiness)),
+    button(
+      {
+        class: 'secondary-action',
+        type: 'button',
+        onclick: () => {
+          activeView.val = {kind: 'settings'}
+          void sendAction({type: 'show-write-auth-preview'})
+        }
+      },
+      'Review write authorization'
+    )
+  )
+}
+
+function latestRepositoryJob(repositoryNodeId: string): MutationJobRecord | null {
+  const githubUserId = appState.val.identity?.githubUserId
+  return (
+    (appState.val.mutations?.jobs ?? [])
+      .filter(
+        (job) =>
+          job.githubUserId === githubUserId &&
+          job.repositoryNodeId === repositoryNodeId
+      )
+      .toSorted(
+        (left, right) =>
+          right.createdAt.localeCompare(left.createdAt) ||
+          right.jobId.localeCompare(left.jobId)
+      )[0] ?? null
+  )
+}
+
+function hasActiveRepositoryJob(repositoryNodeId: string): boolean {
+  const job = latestRepositoryJob(repositoryNodeId)
+  return job !== null && isNonterminalMutationStatus(job.status)
+}
+
+async function loadAppState(): Promise<void> {
+  await sendAction({type: 'get-app-state'})
+}
+
+async function sendAction(message: RuntimeMessage): Promise<boolean> {
+  const authenticationAction = isAuthenticationAction(message.type)
+  if (authenticationAction) appState.val = emptyState
+  if (message.type === 'start-sync') syncing.val = true
+  try {
+    const response = (await sendRuntimeMessage(message)) as RuntimeResponse<AppState>
+    applyState(
+      response.ok
+        ? response.data
+        : {...appState.val, phase: fallbackPhase(appState.val), error: response.error}
+    )
+    return response.ok
+  } finally {
+    if (message.type === 'start-sync') syncing.val = false
+  }
+}
+
+function applyState(state: AppState): void {
+  const nextAccountId = state.identity?.githubUserId ?? null
+  if (dashboardAccountId !== nextAccountId) {
+    selectedForUnstar.val = new Set()
+    pendingUnstarTargets.val = []
+    selectedRepositoryNodeId.val = null
+    dashboardAccountId = nextAccountId
+  }
+  appState.val = state
+  if (state.library) {
+    const selectable = new Set(
+      state.library.repositories
+        .filter(
+          (repository) =>
+            repository.isStarred &&
+            !hasActiveRepositoryJob(repository.repositoryNodeId)
+        )
+        .map((repository) => repository.repositoryNodeId)
+    )
+    const retained = new Set(
+      [...selectedForUnstar.val].filter((repositoryNodeId) =>
+        selectable.has(repositoryNodeId)
+      )
+    )
+    if (retained.size !== selectedForUnstar.val.size) {
+      selectedForUnstar.val = retained
+    }
+  }
+  if (!state.identity) autoSyncAccountId = null
+  if (pollTimer !== null) window.clearTimeout(pollTimer)
+  pollTimer =
+    state.phase === 'authorization-pending' ||
+    state.writeAuthorization.readiness === 'pending' ||
+    hasNonterminalMutationJobs(state)
+      ? window.setTimeout(() => void loadAppState(), 1000)
+      : null
+  if (
+    shouldStartAutoSync(state, autoSyncAccountId)
+  ) {
+    autoSyncAccountId = state.identity?.githubUserId ?? null
+    window.setTimeout(() => void sendAction({type: 'start-sync', force: false}), 0)
+  }
+}
+
+export function shouldStartAutoSync(
+  state: AppState,
+  startedAccountId: string | null
+): boolean {
+  return (
+    state.phase === 'ready' &&
+    state.identity !== null &&
+    shouldAutoSync(state) &&
+    startedAccountId !== state.identity.githubUserId
+  )
+}
+
+async function confirmDisconnect(): Promise<void> {
+  if (window.confirm('Disconnect GitHub? Local annotations will be retained.')) {
+    await sendAction({type: 'disconnect'})
+    activeView.val = {kind: 'inbox'}
+  }
+}
+
+async function confirmWriteDisconnect(): Promise<void> {
+  if (
+    window.confirm(
+      'Disconnect GitHub write access? Read-only synchronization and local data will remain available.'
+    )
+  ) {
+    await sendAction({type: 'disconnect-write-auth'})
+  }
+}
+
+async function exportData(): Promise<void> {
+  const response = (await sendRuntimeMessage({
+    type: 'export-data'
+  })) as RuntimeResponse<ExportPayload>
+  if (!response.ok) {
+    applyState({...appState.val, error: response.error})
+    return
+  }
+  const url = URL.createObjectURL(
+    new Blob([response.data.content], {type: 'application/json'})
+  )
+  const download = document.createElement('a')
+  download.href = url
+  download.download = response.data.filename
+  download.click()
+  URL.revokeObjectURL(url)
+}
+
+async function importData(event: Event): Promise<void> {
+  const fileInput = event.currentTarget as HTMLInputElement
+  const file = fileInput.files?.[0]
+  if (!file) return
+  try {
+    const documentValue = JSON.parse(await file.text()) as unknown
+    const replaceSettings = window.confirm(
+      'Include settings replacement in the import preview? Library data is always merged non-destructively.'
+    )
+    const preview = (await sendRuntimeMessage({
+      type: 'preview-import',
+      document: documentValue,
+      replaceSettings
+    })) as RuntimeResponse<ImportImpact>
+    if (!preview.ok) {
+      applyState({...appState.val, error: preview.error})
+      return
+    }
+    if (!window.confirm(`Apply this import? ${formatImpact(preview.data)}`)) return
+    const applied = (await sendRuntimeMessage({
+      type: 'apply-import',
+      document: documentValue,
+      replaceSettings
+    })) as RuntimeResponse<ImportImpact>
+    if (!applied.ok) {
+      applyState({...appState.val, error: applied.error})
+      return
+    }
+    window.alert(`Import complete. ${formatImpact(applied.data)}`)
+    await loadAppState()
+  } catch {
+    applyState({
+      ...appState.val,
+      error: {
+        category: 'validation',
+        message: 'The selected file is not valid JSON.',
+        retryable: false
+      }
+    })
+  } finally {
+    fileInput.value = ''
+  }
+}
+
+async function confirmCompleteRemoval(): Promise<void> {
+  if (
+    !window.confirm(
+      'Delete all Star List Manager data from this browser profile, including credentials, notes, tags, settings, and synchronized metadata? This cannot be undone.'
+    )
+  ) {
+    return
+  }
+  const response = (await sendRuntimeMessage({
+    type: 'clear-all-data'
+  })) as RuntimeResponse<AppState>
+  if (response.ok) {
+    activeView.val = {kind: 'inbox'}
+    applyState(response.data)
+  } else {
+    applyState({...appState.val, error: response.error})
+  }
+}
+
+function isActiveView(view: LibraryView): boolean {
+  return JSON.stringify(view) === JSON.stringify(activeView.val)
+}
+
+function isAuthenticationAction(type: RuntimeMessage['type']): boolean {
+  return type === 'start-device-auth' || type === 'cancel-device-auth' || type === 'disconnect'
+}
+
+function fallbackPhase(state: AppState): AppPhase {
+  return state.identity ? 'ready' : 'signed-out'
+}
+
+function shouldAutoSync(state: AppState): boolean {
+  return syncNeedsRefresh(state.sync) || syncNeedsRefresh(state.nativeListSync)
+}
+
+function syncNeedsRefresh(sync: AppState['sync']): boolean {
+  if (!sync) return true
+  if (sync.phase === 'running' || sync.phase === 'unavailable') return false
+  if (!sync.lastSuccessfulAt) return true
+  return Date.now() - Date.parse(sync.lastSuccessfulAt) >= 60 * 60 * 1000
+}
+
+function syncSummary(state: AppState): string {
+  if (state.sync?.phase === 'complete' && state.sync.lastSuccessfulAt) {
+    return `Public stars last synchronized ${formatDate(state.sync.lastSuccessfulAt)}.`
+  }
+  if (state.sync?.phase === 'stale') return 'The previous star library is available but stale.'
+  return 'Public-star synchronization has not completed.'
+}
+
+function nativeListSummary(state: AppState): string {
+  if (state.nativeListSync?.phase === 'complete') return 'Native GitHub Lists are synchronized read-only.'
+  if (state.nativeListSync?.phase === 'partial') return 'Native List coverage is partial.'
+  if (state.nativeListSync?.phase === 'unavailable') return 'Native GitHub Lists are unavailable.'
+  return 'Native List synchronization has not completed.'
+}
+
+function viewTitle(view: LibraryView): string {
+  if (view.kind === 'settings') return 'Settings'
+  if (view.kind === 'operations') return 'Operations'
+  if (view.kind === 'list') {
+    return appState.val.library?.nativeLists.find((list) => list.listNodeId === view.listNodeId)?.name ?? 'GitHub List'
+  }
+  if (view.kind === 'tag') return `#${view.tag}`
+  return {
+    inbox: 'Inbox',
+    backlog: 'Backlog',
+    due: 'Due for review',
+    organized: 'Organized',
+    all: 'All stars',
+    history: 'Unstarred history'
+  }[view.kind]
+}
+
+function viewEyebrow(view: LibraryView): string {
+  if (view.kind === 'operations') return 'Mutation history'
+  if (view.kind === 'list') return 'Native GitHub List'
+  if (view.kind === 'tag') return 'Local tag'
+  return 'Your GitHub library'
+}
+
+function hasNonterminalMutationJobs(state: AppState): boolean {
+  return (state.mutations?.jobs ?? []).some((job) =>
+    isNonterminalMutationStatus(job.status)
+  )
+}
+
+function isNonterminalMutationStatus(status: MutationJobStatus): boolean {
+  return (
+    status === 'queued' ||
+    status === 'checking' ||
+    status === 'deleting' ||
+    status === 'verifying' ||
+    status === 'retry-waiting'
+  )
+}
+
+function formatMutationStatus(status: MutationJobStatus): string {
+  return {
+    queued: 'Queued',
+    checking: 'Checking',
+    deleting: 'Deleting',
+    verifying: 'Verifying',
+    succeeded: 'Succeeded',
+    'succeeded-external': 'Succeeded externally',
+    failed: 'Failed',
+    'blocked-unknown': 'Blocked unknown',
+    'retry-waiting': 'Retry waiting',
+    cancelled: 'Cancelled'
+  }[status]
+}
+
+function formatBatchStatus(status: MutationBatchRecord['status']): string {
+  return status.replaceAll('-', ' ')
+}
+
+function formatVerification(record: OperationHistoryRecord): string {
+  if (record.verificationResult === 'verified-absent') {
+    return 'GitHub absence was verified.'
+  }
+  if (record.verificationResult === 'already-absent') {
+    return 'The star was already absent on GitHub.'
+  }
+  if (record.verificationResult === 'cancelled-before-execution') {
+    return 'Cancelled before remote execution.'
+  }
+  return 'GitHub absence was not verified.'
+}
+
+function writeReadinessMessage(
+  readiness: AppState['writeAuthorization']['readiness']
+): string {
+  if (readiness === 'pending') return 'GitHub Starring authorization is pending.'
+  if (readiness === 'account-mismatch') {
+    return 'Write authorization belongs to a different GitHub account.'
+  }
+  if (readiness === 'scope-denied') return 'GitHub Starring permission was not granted.'
+  if (readiness === 'credential-rejected') {
+    return 'GitHub rejected the Starring credential.'
+  }
+  return 'GitHub Starring write authorization is required.'
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {dateStyle: 'medium'}).format(new Date(value))
+}
+
+function formatImpact(impact: ImportImpact): string {
+  return [
+    `${impact.added} added`,
+    `${impact.updated} updated`,
+    `${impact.unchanged} unchanged`,
+    `${impact.skippedConflict} skipped conflicts`,
+    `${impact.metadataFilled} metadata records filled`,
+    `${impact.settingsSelected} settings record selected`
+  ].join(', ')
+}
+
+function activeFilterLabels(): readonly string[] {
+  return [
+    searchText.val ? `Search: ${searchText.val}` : null,
+    language.val ? `Language: ${language.val}` : null,
+    hideArchived.val ? 'Archived hidden' : null,
+    starState.val !== 'starred' ? `Star state: ${starState.val}` : null,
+    disabled.val !== 'all' ? `Disabled: ${disabled.val}` : null,
+    triageState.val ? `Triage: ${triageState.val}` : null,
+    starredAfter.val ? `Starred after ${starredAfter.val}` : null,
+    starredBefore.val ? `Starred before ${starredBefore.val}` : null,
+    pushedAfter.val ? `Pushed after ${pushedAfter.val}` : null,
+    pushedBefore.val ? `Pushed before ${pushedBefore.val}` : null
+  ].flatMap((value) => (value ? [value] : []))
+}
+
+function clearFilters(): void {
+  searchText.val = ''
+  language.val = null
+  hideArchived.val = true
+  starState.val = 'starred'
+  disabled.val = 'all'
+  triageState.val = null
+  starredAfter.val = null
+  starredBefore.val = null
+  pushedAfter.val = null
+  pushedBefore.val = null
+}
+
+function toStartOfDay(value: string | null): string | null {
+  return value ? `${value}T00:00:00Z` : null
+}
+
+function toEndOfDay(value: string | null): string | null {
+  return value ? `${value}T23:59:59Z` : null
+}
+
+export function mountDashboard(root: HTMLElement): void {
+  van.add(root, Dashboard())
+}
+
+export function renderSettingsState(state: AppState): HTMLElement {
+  return SettingsState(state) as HTMLElement
+}
+
+export function renderLibraryState(state: AppState): HTMLElement {
+  appState.val = state
+  activeView.val = {kind: 'all'}
+  selectedForUnstar.val = new Set()
+  pendingUnstarTargets.val = []
+  return ReadyState(state) as HTMLElement
+}
+
+export function renderOperationsState(state: AppState): HTMLElement {
+  return OperationsState(state) as HTMLElement
+}
+
+export function selectedUnstarRepositoryIds(): readonly string[] {
+  return [...selectedForUnstar.val]
+}
+
+const root = document.getElementById('app')
+if (root) {
+  mountDashboard(root)
+  void loadAppState()
+}
