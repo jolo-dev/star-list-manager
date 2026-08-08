@@ -1,1 +1,2 @@
-/// <reference types="chrome" />
+/// <reference types="extension/types" />
+/// <reference types="extension/types/polyfill" />
