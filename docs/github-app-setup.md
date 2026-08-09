@@ -30,7 +30,7 @@ The `.env.local` file is ignored by Git. Do not create or store a client secret 
    EXTENSION_PUBLIC_GITHUB_WRITE_CLIENT_ID=your_oauth_app_client_id
    ```
 
-The extension requests `public_repo`. This scope grants broader public-repository write access than the extension uses. Production code limits the separate credential to authenticated-user Starring status, PUT, and DELETE endpoints, but that implementation boundary does not narrow GitHub's granted OAuth authority.
+The extension requests `public_repo user`. `public_repo` grants broader public-repository write access than the extension uses. `user` grants broader read/write profile authority, including email and follow subscopes, but is required by GitHub for `UpdateUserListsForItem`; the extension implements no profile, email, or follow requests. Production code limits the separate account-matched credential to authenticated-user Starring status, PUT, and DELETE endpoints plus one static, internally constructed `UpdateUserListsForItem` document accepting only a repository node ID and complete canonical List IDs. Callers cannot provide another URL, GraphQL document, operation name, or unrelated variables. Neither implementation boundary narrows GitHub's granted OAuth authority. Previously stored account-matched `public_repo`-only credentials remain usable only for Starring and require reauthorization before native List membership changes.
 
 Users can remove only this credential in extension Settings or revoke the OAuth App under GitHub **Settings > Applications > Authorized OAuth Apps**.
 
@@ -56,3 +56,7 @@ The read-only GitHub App verification covers:
 - read-only GraphQL `viewer.lists` access
 
 Do not use an important repository as the OAuth fixture and never include tokens or raw authorization responses in recorded evidence.
+
+Native List membership uses GitHub's public-preview GraphQL API and is limited to public starred repositories. It has a separate unchanged-complete-set probe; follow the disposable repository and List isolation steps in [`native-list-membership-fixture.md`](native-list-membership-fixture.md). A successful OAuth authorization alone does not enable production native List controls.
+
+The production build gate is off unless `EXTENSION_PUBLIC_GITHUB_LIST_MEMBERSHIP_WRITE_ENABLED` is exactly `true`. Set it only for an isolated build after the schema, `user` permission, account ownership, unchanged-set mutation, and independent stable read-back all succeed with the combined `public_repo user` authorization. The probe does not persist or enable this gate. Leave the variable unset to retain read-only Lists, and do not enable it for a release that has not completed the disposable and manual fixture checks. This capability changes membership among existing Lists only; it provides no List create, rename, visibility, or delete controls.

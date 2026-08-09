@@ -21,7 +21,7 @@ const identityResponse = {
 }
 
 describe('GitHub OAuth write device flow', () => {
-  test('requests a device code with only the public client ID and exact public_repo scope', async () => {
+  test('requests a device code with only the public client ID and exact combined scopes', async () => {
     let requestUrl = ''
     let requestInit: RequestInit | undefined
     let receiver: unknown = 'not-called'
@@ -45,7 +45,9 @@ describe('GitHub OAuth write device flow', () => {
     expect(new Headers(requestInit?.headers).get('content-type')).toBe(
       'application/x-www-form-urlencoded'
     )
-    expect(String(requestInit?.body)).toBe('client_id=write-client-id&scope=public_repo')
+    expect(String(requestInit?.body)).toBe(
+      'client_id=write-client-id&scope=public_repo+user'
+    )
     expect(String(requestInit?.body)).not.toContain('client_secret')
     expect(toPublicWriteDeviceAuthorization(grant)).toEqual({
       userCode: 'ABCD-EFGH',
@@ -69,7 +71,7 @@ describe('GitHub OAuth write device flow', () => {
       jsonResponse({
         access_token: 'access-secret',
         token_type: 'Bearer',
-        scope: ' user:email, PUBLIC_REPO,public_repo ',
+        scope: ' user:email, USER, PUBLIC_REPO,public_repo ',
         refresh_token: 'must-be-ignored',
         expires_in: 123
       }),
@@ -104,7 +106,7 @@ describe('GitHub OAuth write device flow', () => {
       credential: {
         accessToken: 'access-secret',
         tokenType: 'bearer',
-        grantedScopes: ['public_repo', 'user:email']
+        grantedScopes: ['public_repo', 'user', 'user:email']
       },
       authorizedAt: '2026-08-04T12:00:20.000Z',
       lastFailure: null
@@ -185,6 +187,8 @@ describe('GitHub OAuth write device flow', () => {
     for (const tokenResponse of [
       {access_token: 'access-secret', token_type: 'bearer'},
       {access_token: 'access-secret', token_type: 'bearer', scope: ''},
+      {access_token: 'access-secret', token_type: 'bearer', scope: 'public_repo'},
+      {access_token: 'access-secret', token_type: 'bearer', scope: 'user'},
       {access_token: 'access-secret', token_type: 'bearer', scope: 'read:user, gist'}
     ]) {
       const fixture = await flowForTokenResponse(tokenResponse)
@@ -201,7 +205,7 @@ describe('GitHub OAuth write device flow', () => {
     const fixture = await flowForTokenResponse({
       access_token: 'access-secret',
       token_type: 'mac',
-      scope: 'public_repo'
+      scope: 'public_repo user'
     })
     await expectFailure(
       fixture.flow.completeAuthorization(fixture.grant, '42', fixture.signal),
@@ -213,7 +217,7 @@ describe('GitHub OAuth write device flow', () => {
 
   test('rejects an OAuth identity that does not exactly match the caller account', async () => {
     const fixture = await flowForTokenResponse(
-      {access_token: 'access-secret', token_type: 'bearer', scope: 'public_repo'},
+      {access_token: 'access-secret', token_type: 'bearer', scope: 'public_repo user'},
       {...identityResponse, id: 420}
     )
     await expectFailure(
@@ -225,7 +229,7 @@ describe('GitHub OAuth write device flow', () => {
 
   test('maps a rejected identity credential without exposing response content', async () => {
     const fixture = await flowForTokenResponse(
-      {access_token: 'access-secret', token_type: 'bearer', scope: 'public_repo'},
+      {access_token: 'access-secret', token_type: 'bearer', scope: 'public_repo user'},
       new Response('access_token=access-secret device_code=device-secret', {status: 401})
     )
     await expectFailure(
@@ -249,8 +253,8 @@ describe('GitHub OAuth write device flow', () => {
     for (const tokenResponse of [
       [],
       {},
-      {access_token: 42, token_type: 'bearer', scope: 'public_repo'},
-      {access_token: 'access-secret', scope: 'public_repo'},
+      {access_token: 42, token_type: 'bearer', scope: 'public_repo user'},
+      {access_token: 'access-secret', scope: 'public_repo user'},
       {access_token: 'access-secret', token_type: 'bearer', scope: 42}
     ]) {
       const fixture = await flowForTokenResponse(tokenResponse)
@@ -274,7 +278,7 @@ describe('GitHub OAuth write device flow', () => {
     )
 
     const invalidIdentity = await flowForTokenResponse(
-      {access_token: 'access-secret', token_type: 'bearer', scope: 'public_repo'},
+      {access_token: 'access-secret', token_type: 'bearer', scope: 'public_repo user'},
       {...identityResponse, id: {raw_token: 'access-secret'}}
     )
     await expectFailure(

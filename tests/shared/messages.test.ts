@@ -104,6 +104,74 @@ describe('dashboard message decoding', () => {
     }
   })
 
+  test('accepts exact credential-free native List preview and confirmation messages', () => {
+    for (const operation of [
+      {kind: 'add', listNodeIds: ['L_one', 'L_two']},
+      {kind: 'remove', listNodeIds: ['L_one']},
+      {
+        kind: 'move',
+        sourceListNodeId: 'L_one',
+        destinationListNodeId: 'L_two'
+      }
+    ] as const) {
+      expect(
+        decodeDashboardRequest({
+          type: 'preview-native-list-membership',
+          repositoryNodeIds: ['R_one', 'R_two'],
+          operation
+        }).ok
+      ).toBe(true)
+    }
+    expect(
+      decodeDashboardRequest({
+        type: 'refresh-native-list-membership-preview',
+        jobId: 'job-one'
+      }).ok
+    ).toBe(true)
+    expect(
+      decodeDashboardRequest({
+        type: 'confirm-native-list-membership-preview',
+        previewId: 'preview-one'
+      }).ok
+    ).toBe(true)
+  })
+
+  test('rejects malformed, duplicate, lifecycle, and credential-bearing membership requests', () => {
+    for (const value of [
+      {
+        type: 'preview-native-list-membership',
+        repositoryNodeIds: [],
+        operation: {kind: 'add', listNodeIds: ['L_one']}
+      },
+      {
+        type: 'preview-native-list-membership',
+        repositoryNodeIds: ['R_one'],
+        operation: {kind: 'add', listNodeIds: ['L_one', 'L_one']}
+      },
+      {
+        type: 'preview-native-list-membership',
+        repositoryNodeIds: ['R_one'],
+        operation: {
+          kind: 'move',
+          sourceListNodeId: 'L_one',
+          destinationListNodeId: 'L_one'
+        }
+      },
+      {
+        type: 'preview-native-list-membership',
+        repositoryNodeIds: ['R_one'],
+        operation: {kind: 'delete', listNodeIds: ['L_one']}
+      },
+      {
+        type: 'confirm-native-list-membership-preview',
+        previewId: 'preview-one',
+        accessToken: 'secret'
+      }
+    ]) {
+      expect(decodeDashboardRequest(value).ok).toBe(false)
+    }
+  })
+
   test('validates import preview and apply settings selection', () => {
     expect(
       decodeDashboardRequest({

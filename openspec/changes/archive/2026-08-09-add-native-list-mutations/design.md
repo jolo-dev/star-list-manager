@@ -1,6 +1,6 @@
 ## Context
 
-This change follows the read-only native List import from `build-star-manager-core` and the durable sequential queue from `add-safe-unstar-workflows`. GitHub's public GraphQL schema exposes `updateUserListsForItem(itemId, listIds)`, where `listIds` is the complete replacement set. The schema does not expose an additive mutation, a conditional expected-version input, or an obvious reverse repository-to-Lists connection.
+This change follows the read-only native List import from `build-star-manager-core`, the durable sequential queue from `add-safe-unstar-workflows`, and the separately stored account-bound OAuth credential from `add-oauth-starring-write-auth`. GitHub's public GraphQL schema exposes `updateUserListsForItem(itemId, listIds)`, where `listIds` is the complete replacement set. The schema does not expose an additive mutation, a conditional expected-version input, or an obvious reverse repository-to-Lists connection.
 
 Consequently, safe behavior requires reconstructing current membership from the user's Lists, deriving a complete target set, detecting preview staleness, and verifying the observed result. The reconstruction itself spans multiple requests and is not a point-in-time snapshot. The design uses bounded repeated observations to establish stability, but it still cannot guarantee preservation of edits made concurrently during observation or after the final observation.
 
@@ -13,6 +13,7 @@ Consequently, safe behavior requires reconstructing current membership from the 
 - Refuse mutation when the complete target set cannot be determined.
 - Detect stale confirmations before writing and verification mismatches afterward.
 - Reuse durable sequential execution and per-repository batch outcomes.
+- Reuse the existing optional OAuth credential without exposing a general-purpose GraphQL write surface.
 
 **Non-Goals:**
 
@@ -21,6 +22,7 @@ Consequently, safe behavior requires reconstructing current membership from the 
 - Manage private repositories.
 - Use cookies, GitHub DOM scraping, or undocumented internal endpoints.
 - Automatically retry a destructive membership conflict without renewed confirmation.
+- Permit arbitrary OAuth-authenticated GraphQL documents or non-membership REST writes.
 
 ## Decisions
 
@@ -38,9 +40,11 @@ The system requires two consecutive complete observations with identical selecte
 
 Alternative considered: trust the local imported membership set. It is faster but can remove memberships changed directly on GitHub since the last sync.
 
-### Gate writes behind a separately proven credential capability
+### Extend the OAuth boundary with one structured GraphQL operation
 
-The core capability spike proved that its device-flow GitHub App token is denied `CreateUserList` and `UpdateUserListsForItem`, including an empty no-op membership set. A separate write-auth change must define a credential boundary and prove `updateUserListsForItem` for a disposable public star with independent read-back. Production controls remain disabled until that change succeeds, and schema or permission failure keeps native Lists read-only.
+The core capability spike proved that its device-flow GitHub App token is denied `CreateUserList` and `UpdateUserListsForItem`, including an empty no-op membership set. A real no-op probe then confirmed that GitHub requires the OAuth `user` scope for `UpdateUserListsForItem`; `public_repo` alone is insufficient. The existing optional OAuth App flow therefore requests and validates both `public_repo` and `user`, while retaining stable-account matching, separate storage, and background-only access. The UI discloses that both scopes grant broader authority than the implementation uses. This change adds a dedicated owner-bound membership transport that constructs one static `UpdateUserListsForItem` document internally and accepts only a repository node ID plus a complete canonical List ID set. Callers cannot provide a URL, GraphQL document, operation name, or unrelated variables, and the Starring transport remains separately allowlisted.
+
+Before production controls are enabled, a development capability probe uses an explicitly approved disposable public star. It reads a complete stable membership set, submits that same set as a no-op replacement through the OAuth transport, obtains a fresh independent stable read-back, and records only sanitized evidence. Schema absence, permission denial, identity mismatch, or inconclusive read-back leaves membership controls disabled. Real add, remove, and move verification remains a later isolated-profile release step.
 
 ### Use pure set operations for intent calculation
 
@@ -97,10 +101,11 @@ Changing native membership does not change local tags, notes, favorite, triage s
 - [Bulk jobs can become stale while waiting] -> Revalidate each repository before execution and pause only affected jobs for reconfirmation.
 - [An unstar can race a membership job] -> Prevent overlapping active jobs for one repository and recheck starred state before List mutation.
 - [GraphQL mutation payload may change] -> Validate it explicitly and rely on an independent read-back rather than trusting payload shape alone.
+- [`public_repo` and `user` grant authority beyond implemented writes] -> Use the isolated credential only through the static membership operation and existing exact Starring routes, disclose both scopes, and reject arbitrary OAuth requests locally.
 
 ## Migration Plan
 
-1. Confirm a separate write-auth change recorded successful List mutation and independent read-back with a disposable fixture.
+1. Extend the existing account-bound OAuth credential through the dedicated membership transport and record a successful no-op mutation plus independent read-back with a disposable fixture.
 2. Add pure membership set operations and exhaustive preservation tests before adding queue or UI behavior.
 3. Extend queue and history schemas with membership intent, canonical observations, needs-confirmation, unstable-observation, and conflict details through a versioned migration.
 4. Add bounded consecutive membership observation refresh and GraphQL mutation clients using fake transports and fixture accounts.

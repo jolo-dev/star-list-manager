@@ -10,6 +10,7 @@ import type {
   TriageState,
   WriteReadiness
 } from '../domain/types'
+import type {NativeListMembershipIntent} from '../domain/native-list-membership'
 import {failure, success, type Result} from './result'
 import {isIsoDateTime} from './validation'
 
@@ -32,16 +33,97 @@ export interface AuthorizationPrompt {
 
 export interface WriteAuthorizationState {
   readonly readiness: WriteReadiness
+  readonly membershipReady: boolean
   readonly previewVisible: boolean
   readonly authorization: AuthorizationPrompt | null
   readonly error: AppError | null
 }
+
+export type NativeListMembershipReadiness =
+  | 'ready'
+  | 'capability-unproven'
+  | 'write-authorization-required'
+
+export interface NativeListMembershipUiState {
+  readonly readiness: NativeListMembershipReadiness
+}
+
+export type MembershipOperationSelection =
+  | {readonly kind: 'add'; readonly listNodeIds: readonly string[]}
+  | {readonly kind: 'remove'; readonly listNodeIds: readonly string[]}
+  | {
+      readonly kind: 'move'
+      readonly sourceListNodeId: string
+      readonly destinationListNodeId: string
+    }
+
+export interface MembershipListPreviewItem {
+  readonly listNodeId: string
+  readonly name: string
+  readonly visibility: 'public' | 'private' | 'unknown'
+  readonly exists: boolean
+}
+
+export interface MembershipRepositoryPreview {
+  readonly repositoryNodeId: string
+  readonly fullName: string
+  readonly current: readonly MembershipListPreviewItem[]
+  readonly resulting: readonly MembershipListPreviewItem[]
+  readonly added: readonly MembershipListPreviewItem[]
+  readonly removed: readonly MembershipListPreviewItem[]
+  readonly unchanged: readonly MembershipListPreviewItem[]
+  readonly noOps: readonly MembershipListPreviewItem[]
+  readonly createsJob: boolean
+}
+
+export interface StableMembershipPreviewResponse {
+  readonly status: 'stable'
+  readonly previewId: string
+  readonly operation: NativeListMembershipIntent['kind']
+  readonly nonAtomic: true
+  readonly attempts: number
+  readonly captureInterval: {
+    readonly startedAt: string
+    readonly completedAt: string
+  }
+  readonly repositories: readonly MembershipRepositoryPreview[]
+  readonly refreshedFromJobId: string | null
+}
+
+export type BlockedMembershipPreviewResponse =
+  | {
+      readonly status:
+        | 'changing'
+        | 'partial'
+        | 'interrupted'
+        | 'unavailable'
+        | 'rate-limited'
+      readonly attempts: number
+      readonly message: string
+      readonly retryAt: string | null
+    }
+  | {
+      readonly status: 'invalid-source'
+      readonly repositoryNodeId: string
+      readonly sourceListNodeId: string
+      readonly message: string
+    }
+  | {
+      readonly status: 'invalid-list'
+      readonly listNodeIds: readonly string[]
+      readonly message: string
+    }
+
+export type MembershipPreviewResponse =
+  | StableMembershipPreviewResponse
+  | BlockedMembershipPreviewResponse
 
 export interface AppState {
   readonly phase: AppPhase
   readonly identity: GitHubIdentity | null
   readonly authorization: AuthorizationPrompt | null
   readonly writeAuthorization: WriteAuthorizationState
+  readonly nativeListMembership?: NativeListMembershipUiState
   readonly sync: SyncStateRecord | null
   readonly nativeListSync: SyncStateRecord | null
   readonly triageCounts: TriageCounts | null
@@ -77,6 +159,19 @@ export type DashboardRequest =
   | {
       readonly type: 'enqueue-confirmed-unstars'
       readonly repositoryNodeIds: readonly string[]
+    }
+  | {
+      readonly type: 'preview-native-list-membership'
+      readonly repositoryNodeIds: readonly string[]
+      readonly operation: MembershipOperationSelection
+    }
+  | {
+      readonly type: 'refresh-native-list-membership-preview'
+      readonly jobId: string
+    }
+  | {
+      readonly type: 'confirm-native-list-membership-preview'
+      readonly previewId: string
     }
   | {readonly type: 'cancel-mutation-job'; readonly jobId: string}
   | {
@@ -136,6 +231,34 @@ export function decodeDashboardRequest(
             repositoryNodeIds: value.repositoryNodeIds
           })
         : invalidRequest()
+    case 'preview-native-list-membership': {
+      const operation = decodeMembershipOperation(value.operation)
+      return isUniqueNonEmptyStringArray(value.repositoryNodeIds) &&
+        operation !== null &&
+        hasOnlyKeys(value, ['type', 'repositoryNodeIds', 'operation'])
+        ? success({
+            type: value.type,
+            repositoryNodeIds: value.repositoryNodeIds,
+            operation
+          })
+        : invalidRequest()
+    }
+    case 'refresh-native-list-membership-preview':
+    case 'confirm-native-list-membership-preview': {
+      const key = value.type === 'refresh-native-list-membership-preview'
+        ? 'jobId'
+        : 'previewId'
+      const identifier = value[key]
+      return typeof identifier === 'string' &&
+        identifier.length > 0 &&
+        hasOnlyKeys(value, ['type', key])
+        ? success(
+            value.type === 'refresh-native-list-membership-preview'
+              ? {type: value.type, jobId: identifier}
+              : {type: value.type, previewId: identifier}
+          )
+        : invalidRequest()
+    }
     case 'cancel-mutation-job':
       return typeof value.jobId === 'string' &&
         value.jobId.length > 0 &&
@@ -227,6 +350,35 @@ function decodeAnnotationPatch(value: unknown): AnnotationPatch | null {
     ...(favorite === undefined ? {} : {favorite}),
     ...(revisitAt === undefined ? {} : {revisitAt})
   }
+}
+
+function decodeMembershipOperation(
+  value: unknown
+): MembershipOperationSelection | null {
+  if (!isRecord(value) || typeof value.kind !== 'string') return null
+  if (value.kind === 'add' || value.kind === 'remove') {
+    return isUniqueNonEmptyStringArray(value.listNodeIds) &&
+      hasOnlyKeys(value, ['kind', 'listNodeIds'])
+      ? {kind: value.kind, listNodeIds: value.listNodeIds}
+      : null
+  }
+  if (value.kind !== 'move') return null
+  return typeof value.sourceListNodeId === 'string' &&
+    value.sourceListNodeId.length > 0 &&
+    typeof value.destinationListNodeId === 'string' &&
+    value.destinationListNodeId.length > 0 &&
+    value.sourceListNodeId !== value.destinationListNodeId &&
+    hasOnlyKeys(value, [
+      'kind',
+      'sourceListNodeId',
+      'destinationListNodeId'
+    ])
+    ? {
+        kind: value.kind,
+        sourceListNodeId: value.sourceListNodeId,
+        destinationListNodeId: value.destinationListNodeId
+      }
+    : null
 }
 
 function hasOnlyKeys(

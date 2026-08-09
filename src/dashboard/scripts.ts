@@ -1,6 +1,14 @@
 import van from 'vanjs-core'
 import {sendRuntimeMessage} from '../platform/browser'
-import type {AppState, RuntimeMessage, RuntimeResponse} from '../shared/messages'
+import type {
+  AppState,
+  MembershipListPreviewItem,
+  MembershipOperationSelection,
+  MembershipPreviewResponse,
+  RuntimeMessage,
+  RuntimeResponse,
+  StableMembershipPreviewResponse
+} from '../shared/messages'
 import type {AnnotationPatch, AppPhase} from '../shared/messages'
 import type {
   ExportPayload,
@@ -62,6 +70,7 @@ const emptyState: AppState = {
   authorization: null,
   writeAuthorization: {
     readiness: 'signed-out',
+    membershipReady: false,
     previewVisible: false,
     authorization: null,
     error: null
@@ -91,6 +100,13 @@ const selectedRepositoryNodeId = van.state<string | null>(null)
 const selectedForUnstar = van.state<ReadonlySet<string>>(new Set())
 const pendingUnstarTargets = van.state<readonly UnstarConfirmationTarget[]>([])
 const enqueueingUnstars = van.state(false)
+const selectedNativeListIds = van.state<ReadonlySet<string>>(new Set())
+const membershipOperation = van.state<'add' | 'remove' | 'move'>('add')
+const moveSourceListNodeId = van.state('')
+const moveDestinationListNodeId = van.state('')
+const membershipActivity = van.state<string | null>(null)
+const pendingMembershipPreview = van.state<StableMembershipPreviewResponse | null>(null)
+const confirmingMembership = van.state(false)
 const syncing = van.state(false)
 let pollTimer: number | null = null
 let autoSyncAccountId: string | null = null
@@ -193,6 +209,7 @@ function NavItem(title: string, view: LibraryView, count: number | null) {
           selectedRepositoryNodeId.val = null
           selectedForUnstar.val = new Set()
           pendingUnstarTargets.val = []
+          cancelMembershipPreview()
         }
       },
       span({class: 'nav-label'}, title),
@@ -255,6 +272,14 @@ function ReadyState(state: AppState) {
             pendingUnstarTargets.val,
             () => void confirmPendingUnstars(),
             cancelUnstarConfirmation
+          )
+        : '',
+    () =>
+      pendingMembershipPreview.val
+        ? MembershipConfirmation(
+            pendingMembershipPreview.val,
+            () => void confirmMembershipPreview(),
+            cancelMembershipPreview
           )
         : ''
   )
@@ -420,6 +445,7 @@ function SelectionActions(
     ),
     div(
       {class: 'selection-actions'},
+      NativeListMembershipControls(state, selected, 'bulk'),
       button(
         {
           class: 'danger-action',
@@ -447,6 +473,290 @@ function SelectionActions(
     state.writeAuthorization.readiness !== 'ready'
       ? WriteReadinessNotice(state)
       : null
+  )
+}
+
+function NativeListMembershipControls(
+  state: AppState,
+  repositories: readonly RepositoryRecord[],
+  context: 'single' | 'bulk'
+) {
+  const lists = state.library?.nativeLists.toSorted((left, right) =>
+    left.name.localeCompare(right.name)
+  ) ?? []
+  if (lists.length === 0 || repositories.length === 0) return null
+  const ready = state.nativeListMembership?.readiness === 'ready'
+  const blockedByJob = repositories.some((repository) =>
+    hasActiveRepositoryJob(repository.repositoryNodeId)
+  )
+  const selected = selectedNativeListIds.val
+  const commonMemberships = new Set(
+    lists
+      .filter((list) =>
+        repositories.every((repository) =>
+          state.library?.nativeMemberships.some(
+            (membership) =>
+              membership.repositoryNodeId === repository.repositoryNodeId &&
+              membership.listNodeId === list.listNodeId
+          )
+        )
+      )
+      .map((list) => list.listNodeId)
+  )
+  const operation = membershipOperation.val
+  const selectionReady = operation === 'move'
+    ? moveSourceListNodeId.val.length > 0 &&
+      moveDestinationListNodeId.val.length > 0 &&
+      moveSourceListNodeId.val !== moveDestinationListNodeId.val
+    : selected.size > 0
+
+  return div(
+    {
+      class: `membership-controls membership-controls-${context}`,
+      'aria-label': `Native GitHub List membership for ${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'}`
+    },
+    div(
+      {class: 'membership-heading'},
+      div(
+        h3('Native GitHub Lists'),
+        p('Remote membership among existing Lists. Local tags are separate and stay unchanged.')
+      ),
+      span({class: 'remote-chip'}, 'GitHub account')
+    ),
+    div(
+      {
+        class: 'membership-operation-tabs',
+        role: 'group',
+        'aria-label': 'Membership operation'
+      },
+      ...(['add', 'remove', 'move'] as const).map((kind) =>
+        button(
+          {
+            type: 'button',
+            class: membershipOperation.val === kind ? 'is-active' : '',
+            'aria-pressed': membershipOperation.val === kind,
+            onclick: () => {
+              membershipOperation.val = kind
+              membershipActivity.val = null
+            }
+          },
+          kind === 'add'
+            ? 'Add to Lists'
+            : kind === 'remove'
+              ? 'Remove from Lists'
+              : 'Move between Lists'
+        )
+      )
+    ),
+    operation === 'move'
+      ? div(
+          {class: 'move-fields'},
+          label(
+            span('Current source List'),
+            select(
+              {
+                value: moveSourceListNodeId,
+                onchange: (event: Event) => {
+                  moveSourceListNodeId.val = (event.currentTarget as HTMLSelectElement).value
+                }
+              },
+              option({value: ''}, 'Choose a current source'),
+              ...lists
+                .filter((list) => commonMemberships.has(list.listNodeId))
+                .map((list) => option({value: list.listNodeId}, list.name))
+            )
+          ),
+          label(
+            span('Existing destination List'),
+            select(
+              {
+                value: moveDestinationListNodeId,
+                onchange: (event: Event) => {
+                  moveDestinationListNodeId.val = (event.currentTarget as HTMLSelectElement).value
+                }
+              },
+              option({value: ''}, 'Choose a destination'),
+              ...lists.map((list) =>
+                option(
+                  {value: list.listNodeId},
+                  `${list.name}${commonMemberships.has(list.listNodeId) ? ' (already present; addition is a no-op)' : ''}`
+                )
+              )
+            )
+          )
+        )
+      : div(
+          {class: 'native-list-choices'},
+          ...lists.map((nativeList) => {
+            const presentForAll = commonMemberships.has(nativeList.listNodeId)
+            const presentForAny = repositories.some((repository) =>
+              state.library?.nativeMemberships.some(
+                (membership) =>
+                  membership.repositoryNodeId === repository.repositoryNodeId &&
+                  membership.listNodeId === nativeList.listNodeId
+              )
+            )
+            const noOp = operation === 'add' ? presentForAll : !presentForAny
+            return label(
+              input({
+                type: 'checkbox',
+                checked: selected.has(nativeList.listNodeId),
+                onchange: (event: Event) =>
+                  toggleNativeListSelection(
+                    nativeList.listNodeId,
+                    (event.currentTarget as HTMLInputElement).checked
+                  )
+              }),
+              span(nativeList.name),
+              noOp ? span({class: 'no-op-label'}, 'No-op') : null
+            )
+          })
+        ),
+    operation === 'move' && commonMemberships.size === 0
+      ? p(
+          {class: 'membership-block', role: 'status'},
+          'No synchronized source List is shared by every selected repository. Choose repositories with a common current membership.'
+        )
+      : null,
+    membershipActivity.val
+      ? p({class: 'membership-activity', role: 'status'}, membershipActivity.val)
+      : null,
+    !ready
+      ? p(
+          {class: 'membership-block', role: 'status'},
+          membershipReadinessMessage(state)
+        )
+      : null,
+    button(
+      {
+        class: operation === 'add'
+          ? 'primary-action membership-review'
+          : 'danger-action membership-review',
+        type: 'button',
+        disabled: !ready || blockedByJob || !selectionReady,
+        onclick: () =>
+          void requestMembershipPreview(
+            repositories.map((repository) => repository.repositoryNodeId),
+            selectedMembershipOperation()
+          )
+      },
+      operation === 'add'
+        ? `Review additive assignment${context === 'bulk' ? ` for ${repositories.length}` : ''}`
+        : operation === 'remove'
+          ? `Review explicit removal${context === 'bulk' ? ` for ${repositories.length}` : ''}`
+          : `Review destructive move${context === 'bulk' ? ` for ${repositories.length}` : ''}`
+    )
+  )
+}
+
+function MembershipConfirmation(
+  preview: StableMembershipPreviewResponse,
+  onConfirm: () => void,
+  onCancel: () => void
+) {
+  const changed = preview.repositories.filter((repository) => repository.createsJob)
+  const destructive = preview.operation !== 'add'
+  return div(
+    {class: 'dialog-backdrop', role: 'presentation'},
+    section(
+      {
+        class: `confirmation-dialog membership-confirmation${destructive ? ' is-destructive' : ''}`,
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-labelledby': 'membership-confirmation-title',
+        tabindex: -1
+      },
+      p(
+        {class: 'eyebrow'},
+        preview.refreshedFromJobId
+          ? 'Refreshed confirmation required'
+          : 'Remote GitHub List change'
+      ),
+      h2(
+        {id: 'membership-confirmation-title'},
+        preview.refreshedFromJobId
+          ? 'GitHub changed after your earlier confirmation'
+          : `${preview.operation === 'add' ? 'Add' : preview.operation === 'remove' ? 'Remove' : 'Move'} native List membership?`
+      ),
+      preview.refreshedFromJobId
+        ? p(
+            'The original intent is preserved below, but the refreshed current and resulting sets require a new confirmation. The earlier confirmation will not execute.'
+          )
+        : null,
+      p(
+        `Stable after ${preview.attempts} complete observations. This preview covers exactly ${preview.repositories.length} ${preview.repositories.length === 1 ? 'repository' : 'repositories'}; ${changed.length} will create queued jobs.`
+      ),
+      div(
+        {class: 'membership-preview-list'},
+        ...preview.repositories.map(MembershipRepositoryPreviewCard)
+      ),
+      p(
+        {class: 'replace-all-warning'},
+        'GitHub replaces the complete List membership set; it does not provide an additive or conditional write. Star List Manager sends the resulting complete set and preserves memberships in the final stable pre-write observation.'
+      ),
+      p(
+        {class: 'concurrency-warning'},
+        'Membership discovery and verification use multiple requests, not an atomic snapshot. Changes made on GitHub during observation, between the final observation and mutation, or during verification cannot be prevented and may cause reconfirmation, instability, or a desired-versus-observed conflict.'
+      ),
+      changed.length === 0
+        ? p(
+            {class: 'no-op-summary', role: 'status'},
+            'Every requested destination or removal is already satisfied. No mutation jobs will be created.'
+          )
+        : null,
+      div(
+        {class: 'action-row'},
+        button(
+          {
+            class: destructive ? 'danger-action' : 'primary-action',
+            type: 'button',
+            disabled: changed.length === 0 || confirmingMembership.val,
+            onclick: onConfirm
+          },
+          confirmingMembership.val
+            ? 'Queueing...'
+            : `Confirm and queue ${changed.length}`
+        ),
+        button(
+          {
+            class: 'secondary-action',
+            type: 'button',
+            disabled: confirmingMembership.val,
+            onclick: onCancel
+          },
+          'Cancel'
+        )
+      )
+    )
+  )
+}
+
+function MembershipRepositoryPreviewCard(
+  repository: StableMembershipPreviewResponse['repositories'][number]
+) {
+  return articleElement(
+    {class: `membership-preview-card${repository.createsJob ? '' : ' is-no-op'}`},
+    div(
+      {class: 'membership-preview-title'},
+      h3(repository.fullName),
+      span(repository.createsJob ? 'Will queue' : 'No job needed')
+    ),
+    PreviewSet('Current', repository.current),
+    PreviewSet('Resulting', repository.resulting),
+    PreviewSet('Added', repository.added),
+    PreviewSet('Removed', repository.removed),
+    PreviewSet('Unchanged', repository.unchanged),
+    repository.noOps.length > 0
+      ? PreviewSet('No-op requests', repository.noOps)
+      : null
+  )
+}
+
+function PreviewSet(title: string, lists: readonly MembershipListPreviewItem[]) {
+  return div(
+    {class: 'membership-preview-set'},
+    strongText(title),
+    span(lists.length > 0 ? lists.map((list) => list.name).join(', ') : 'None')
   )
 }
 
@@ -559,7 +869,7 @@ function OperationsState(state: AppState) {
     batches.length === 0
       ? section(
           {class: 'settings-card'},
-          h2('No unstar operations'),
+          h2('No remote operations'),
           p('Confirmed single and bulk operations will appear here.')
         )
       : section(
@@ -576,7 +886,15 @@ function OperationsState(state: AppState) {
             {class: 'operation-history-list'},
             ...history.map(OperationHistoryRow)
           )
-    )
+    ),
+    () =>
+      pendingMembershipPreview.val
+        ? MembershipConfirmation(
+            pendingMembershipPreview.val,
+            () => void confirmMembershipPreview(),
+            cancelMembershipPreview
+          )
+        : ''
   )
 }
 
@@ -596,7 +914,10 @@ function MutationBatchCard(
     div(
       {class: 'batch-heading'},
       div(
-        p({class: 'eyebrow'}, batch.origin === 'bulk' ? 'Bulk unstar' : 'Single unstar'),
+        p(
+          {class: 'eyebrow'},
+          `${batch.origin === 'bulk' ? 'Bulk' : 'Single'} ${batch.mutationKind === 'native-list-membership' ? 'List membership' : 'unstar'}`
+        ),
         h3(`${batch.summary.total} ${batch.summary.total === 1 ? 'repository' : 'repositories'}`)
       ),
       span({class: 'batch-status'}, formatBatchStatus(batch.status))
@@ -616,7 +937,8 @@ function MutationBatchCard(
         li(
           div(
             strongText(`${job.ownerLogin}/${job.repositoryName}`),
-            job.lastError ? span({class: 'job-error'}, job.lastError.message) : null
+            job.lastError ? span({class: 'job-error'}, job.lastError.message) : null,
+            MembershipJobDetails(job)
           ),
           div(
             {class: 'job-actions'},
@@ -640,6 +962,12 @@ function MutationBatchCard(
           {class: 'blocked-note'},
           'Blocked-unknown jobs are not retried automatically. Refresh the library before deciding on a later manual attempt.'
         )
+      : null,
+    batch.status === 'partially-completed'
+      ? p(
+          {class: 'partial-batch-note'},
+          'Partial batch outcome: completed repositories remain complete; blocked or conflicting repositories require separate review.'
+        )
       : null
   )
 }
@@ -648,13 +976,56 @@ function SummaryCount(title: string, count: number) {
   return div(span(title), strongText(String(count)))
 }
 
+function MembershipJobDetails(job: MutationJobRecord) {
+  const details = job.membershipDetails
+  if (job.mutationKind !== 'native-list-membership' || !details) return null
+  if (job.status === 'needs-confirmation') {
+    return div(
+      {class: 'membership-job-detail'},
+      span('A fresh stable observation changed the preview. Original intent is retained; no write occurred.'),
+      button(
+        {
+          class: 'secondary-action refresh-membership-preview',
+          type: 'button',
+          onclick: () => void refreshMembershipPreview(job.jobId)
+        },
+        'Review refreshed preview'
+      )
+    )
+  }
+  if (job.status === 'unstable-observation' && details.unstableObservation) {
+    return span(
+      {class: 'membership-job-detail'},
+      `Safety block: ${details.unstableObservation.status} after ${details.unstableObservation.attempts} observation attempts. No membership write was verified.`
+    )
+  }
+  if (job.status === 'verification-conflict' && details.verificationConflict) {
+    return span(
+      {class: 'membership-job-detail conflict-detail'},
+      `Desired Lists: ${formatListIds(details.verificationConflict.desired.listNodeIds)}. Observed Lists: ${formatListIds(details.verificationConflict.observed.listNodeIds)}.`
+    )
+  }
+  if (job.status === 'succeeded') {
+    return span(
+      {class: 'membership-job-detail'},
+      `Verified complete membership: ${formatListIds(details.desired.listNodeIds)}.`
+    )
+  }
+  return null
+}
+
 function OperationHistoryRow(record: OperationHistoryRecord) {
   return li(
     div(
       strongText(`${record.ownerLogin}/${record.repositoryName}`),
       span(`${formatMutationStatus(record.finalStatus)} on ${formatDate(record.occurredAt)}`)
     ),
-    record.error ? p(record.error.message) : null
+    record.error ? p(record.error.message) : null,
+    record.membershipDetails?.verificationConflict
+      ? p(
+          `Desired Lists: ${formatListIds(record.membershipDetails.verificationConflict.desired.listNodeIds)}. Observed Lists: ${formatListIds(record.membershipDetails.verificationConflict.observed.listNodeIds)}.`
+        )
+      : null
   )
 }
 
@@ -676,7 +1047,7 @@ function RepositoryOperationDetails(repositoryNodeId: string) {
   if (jobs.length === 0 && history.length === 0) return null
   return div(
     {class: 'detail-group repository-operations'},
-    h3('Unstar outcomes'),
+    h3('Remote operation outcomes'),
     jobs[0] ? div({class: 'repository-job-status'}, MutationStatus(jobs[0])) : null,
     ...history.map((record) =>
       p(
@@ -696,7 +1067,11 @@ function MutationStatus(job: MutationJobRecord) {
         ? {title: 'The owning account is not currently active.'}
         : {})
     },
-    suspended ? 'Account suspended' : formatMutationStatus(job.status)
+    suspended
+      ? 'Account suspended'
+      : job.mutationKind === 'native-list-membership' && job.status === 'succeeded'
+        ? 'Verified'
+        : formatMutationStatus(job.status)
   )
 }
 
@@ -784,6 +1159,9 @@ function RepositoryInspector(item: LibraryRepository) {
         ? item.nativeLists.map((nativeList) => nativeList.name)
         : ['No synchronized List membership'])
     ),
+    repository.isStarred
+      ? NativeListMembershipControls(appState.val, [repository], 'single')
+      : null,
     DetailGroup(
       'Topics',
       ...(repository.topics.length > 0 ? repository.topics : ['No topics reported'])
@@ -960,17 +1338,21 @@ function WriteAuthorizationCard(state: AppState) {
     return section(
       {class: 'settings-card write-auth-card'},
       p({class: 'eyebrow'}, 'Optional write access'),
-      h2('Review GitHub Starring authorization'),
+      h2('Review GitHub write authorization'),
       p(
-        'GitHub requires the public_repo OAuth scope to change stars on public repositories. That scope grants broader public-repository write access than Star List Manager uses.'
+        'GitHub requires public_repo for Starring changes and user for UpdateUserListsForItem. public_repo grants broader public-repository write access, while user grants broader profile authority than Star List Manager uses.'
       ),
       p(
-        'The extension restricts this credential to confirmed Starring status, star, and unstar endpoints. The token stays in extension-owned browser storage and is excluded from exports, pages, and logs.'
+        'The extension restricts this credential to confirmed authenticated-user Starring status, star, and unstar routes plus one internally constructed UpdateUserListsForItem mutation using a repository node ID and the complete native List ID set. It does not read or change profile, email, or follow data and cannot send caller-provided GraphQL documents or other write requests.'
+      ),
+      p(
+        'The separate account-scoped token stays in extension-owned browser storage and is excluded from exports, rendered pages, and logs.'
       ),
       p(
         'You can disconnect it here or revoke Star List Manager under GitHub Settings, Applications, Authorized OAuth Apps.'
       ),
       span({class: 'scope-pill'}, 'public_repo'),
+      span({class: 'scope-pill'}, 'user'),
       div(
         {class: 'action-row'},
         button(
@@ -997,9 +1379,9 @@ function WriteAuthorizationCard(state: AppState) {
     return section(
       {class: 'settings-card write-auth-card'},
       p({class: 'eyebrow'}, 'Optional write access'),
-      h2('Approve Starring access'),
+      h2('Approve GitHub write access'),
       p(
-        'Open GitHub, enter this code, and approve the disclosed public_repo authorization.'
+        'Open GitHub, enter this code, and approve the disclosed public_repo and user authorization.'
       ),
       write.authorization
         ? div({class: 'auth-code'}, write.authorization.userCode)
@@ -1033,9 +1415,16 @@ function WriteAuthorizationCard(state: AppState) {
     return section(
       {class: 'settings-card write-auth-card'},
       p({class: 'eyebrow'}, 'Optional write access'),
-      h2('Confirmed star changes are authorized'),
+      h2('GitHub write credential is ready'),
       p(
-        'The separate public_repo credential is ready and restricted by the extension to GitHub Starring endpoints.'
+        write.membershipReady
+          ? 'The separate account-scoped public_repo and user credential is ready for confirmed Starring routes and the structured native List membership mutation.'
+          : 'The stored account-scoped public_repo credential remains ready for confirmed Starring routes. Reauthorize to grant user before changing native List membership.'
+      ),
+      p(
+        state.nativeListMembership?.readiness === 'ready'
+          ? 'Native List membership capability is enabled for this build after separate disposable unchanged-set and independent read-back proof.'
+          : 'Native List membership controls remain disabled unless a disposable unchanged-set mutation and independent read-back prove schema, permission, and account ownership.'
       ),
       p(
         'Disconnecting write access preserves GitHub sign-in, synchronization, and all local library data.'
@@ -1055,9 +1444,9 @@ function WriteAuthorizationCard(state: AppState) {
   return section(
     {class: 'settings-card write-auth-card'},
     p({class: 'eyebrow'}, 'Optional write access'),
-    h2('Confirmed star changes'),
+    h2('Confirmed GitHub changes'),
     p(
-      'Read-only synchronization remains available without this authorization. Enable it only when you want Star List Manager to perform a confirmed star or unstar request.'
+      'Read-only synchronization remains available without this authorization. Enable it only for confirmed Starring requests and, after separate capability proof, structured native List membership changes.'
     ),
     write.error ? p({class: 'inline-error', role: 'alert'}, write.error.message) : null,
     button(
@@ -1330,6 +1719,116 @@ async function updateAnnotation(
   selectedRepositoryNodeId.val = repositoryNodeId
 }
 
+function toggleNativeListSelection(listNodeId: string, selected: boolean): void {
+  const next = new Set(selectedNativeListIds.val)
+  if (selected) next.add(listNodeId)
+  else next.delete(listNodeId)
+  selectedNativeListIds.val = next
+  membershipActivity.val = null
+}
+
+function selectedMembershipOperation(): MembershipOperationSelection {
+  if (membershipOperation.val === 'add') {
+    return {kind: 'add', listNodeIds: [...selectedNativeListIds.val]}
+  }
+  if (membershipOperation.val === 'remove') {
+    return {kind: 'remove', listNodeIds: [...selectedNativeListIds.val]}
+  }
+  return {
+    kind: 'move',
+    sourceListNodeId: moveSourceListNodeId.val,
+    destinationListNodeId: moveDestinationListNodeId.val
+  }
+}
+
+async function requestMembershipPreview(
+  repositoryNodeIds: readonly string[],
+  operation: MembershipOperationSelection
+): Promise<void> {
+  membershipActivity.val =
+    'Observing every current native List twice to establish a stable, complete preview...'
+  const response = (await sendRuntimeMessage({
+    type: 'preview-native-list-membership',
+    repositoryNodeIds,
+    operation
+  })) as RuntimeResponse<MembershipPreviewResponse>
+  handleMembershipPreviewResponse(response)
+}
+
+async function refreshMembershipPreview(jobId: string): Promise<void> {
+  membershipActivity.val =
+    'Refreshing the original intent against two complete GitHub observations...'
+  const response = (await sendRuntimeMessage({
+    type: 'refresh-native-list-membership-preview',
+    jobId
+  })) as RuntimeResponse<MembershipPreviewResponse>
+  handleMembershipPreviewResponse(response)
+}
+
+function handleMembershipPreviewResponse(
+  response: RuntimeResponse<MembershipPreviewResponse>
+): void {
+  if (!response.ok) {
+    membershipActivity.val = response.error.message
+    applyState({...appState.val, error: response.error})
+    return
+  }
+  if (response.data.status !== 'stable') {
+    membershipActivity.val = `Safety block: ${response.data.message}`
+    return
+  }
+  membershipActivity.val = `Stable preview captured after ${response.data.attempts} attempts. Confirmation is required.`
+  pendingMembershipPreview.val = response.data
+  window.setTimeout(() => {
+    document.querySelector<HTMLElement>('.membership-confirmation')?.focus()
+  }, 0)
+}
+
+async function confirmMembershipPreview(): Promise<void> {
+  const preview = pendingMembershipPreview.val
+  if (!preview || preview.repositories.every((repository) => !repository.createsJob)) {
+    return
+  }
+  confirmingMembership.val = true
+  try {
+    const response = (await sendRuntimeMessage({
+      type: 'confirm-native-list-membership-preview',
+      previewId: preview.previewId
+    })) as RuntimeResponse<AppState>
+    if (!response.ok) {
+      membershipActivity.val = response.error.message
+      applyState({...appState.val, error: response.error})
+      return
+    }
+    pendingMembershipPreview.val = null
+    selectedNativeListIds.val = new Set()
+    membershipActivity.val = 'Membership work queued for observation and remote verification.'
+    applyState(response.data)
+  } finally {
+    confirmingMembership.val = false
+  }
+}
+
+function cancelMembershipPreview(): void {
+  pendingMembershipPreview.val = null
+  confirmingMembership.val = false
+}
+
+function membershipReadinessMessage(state: AppState): string {
+  if (state.nativeListMembership?.readiness === 'capability-unproven') {
+    return 'Read-only: this build has not recorded a successful disposable no-op membership mutation with independent read-back.'
+  }
+  return 'Native List membership changes require account-matched GitHub write authorization.'
+}
+
+function formatListIds(listNodeIds: readonly string[]): string {
+  if (listNodeIds.length === 0) return 'None'
+  const lists = new Map(
+    (appState.val.library?.nativeLists ?? []).map((list) => [list.listNodeId, list.name])
+  )
+  return listNodeIds.map((listNodeId) => lists.get(listNodeId) ?? listNodeId).join(', ')
+}
+
 function toggleUnstarSelection(repositoryNodeId: string, selected: boolean): void {
   const next = new Set(selectedForUnstar.val)
   if (selected) next.add(repositoryNodeId)
@@ -1447,6 +1946,9 @@ function applyState(state: AppState): void {
     selectedForUnstar.val = new Set()
     pendingUnstarTargets.val = []
     selectedRepositoryNodeId.val = null
+    selectedNativeListIds.val = new Set()
+    membershipActivity.val = null
+    cancelMembershipPreview()
     dashboardAccountId = nextAccountId
   }
   appState.val = state
@@ -1669,6 +2171,9 @@ function isNonterminalMutationStatus(status: MutationJobStatus): boolean {
     status === 'checking' ||
     status === 'deleting' ||
     status === 'verifying' ||
+    status === 'observing-membership' ||
+    status === 'mutating-membership' ||
+    status === 'verifying-membership' ||
     status === 'retry-waiting'
   )
 }
@@ -1679,10 +2184,16 @@ function formatMutationStatus(status: MutationJobStatus): string {
     checking: 'Checking',
     deleting: 'Deleting',
     verifying: 'Verifying',
+    'observing-membership': 'Observing membership',
+    'mutating-membership': 'Changing membership',
+    'verifying-membership': 'Verifying membership',
     succeeded: 'Succeeded',
     'succeeded-external': 'Succeeded externally',
     failed: 'Failed',
     'blocked-unknown': 'Blocked unknown',
+    'needs-confirmation': 'Needs confirmation',
+    'unstable-observation': 'Unstable observation',
+    'verification-conflict': 'Verification conflict',
     'retry-waiting': 'Retry waiting',
     cancelled: 'Cancelled'
   }[status]
@@ -1699,6 +2210,12 @@ function formatVerification(record: OperationHistoryRecord): string {
   if (record.verificationResult === 'already-absent') {
     return 'The star was already absent on GitHub.'
   }
+  if (record.verificationResult === 'verified-membership') {
+    return 'GitHub native List membership was verified.'
+  }
+  if (record.verificationResult === 'membership-conflict') {
+    return 'GitHub native List membership differed from the desired set.'
+  }
   if (record.verificationResult === 'cancelled-before-execution') {
     return 'Cancelled before remote execution.'
   }
@@ -1708,15 +2225,17 @@ function formatVerification(record: OperationHistoryRecord): string {
 function writeReadinessMessage(
   readiness: AppState['writeAuthorization']['readiness']
 ): string {
-  if (readiness === 'pending') return 'GitHub Starring authorization is pending.'
+  if (readiness === 'pending') return 'GitHub write authorization is pending.'
   if (readiness === 'account-mismatch') {
     return 'Write authorization belongs to a different GitHub account.'
   }
-  if (readiness === 'scope-denied') return 'GitHub Starring permission was not granted.'
-  if (readiness === 'credential-rejected') {
-    return 'GitHub rejected the Starring credential.'
+  if (readiness === 'scope-denied') {
+    return 'GitHub public_repo and user permissions were not both granted.'
   }
-  return 'GitHub Starring write authorization is required.'
+  if (readiness === 'credential-rejected') {
+    return 'GitHub rejected the write credential.'
+  }
+  return 'GitHub write authorization is required.'
 }
 
 function formatDate(value: string): string {
@@ -1783,6 +2302,9 @@ export function renderLibraryState(state: AppState): HTMLElement {
   activeView.val = {kind: 'all'}
   selectedForUnstar.val = new Set()
   pendingUnstarTargets.val = []
+  selectedNativeListIds.val = new Set()
+  membershipActivity.val = null
+  cancelMembershipPreview()
   return ReadyState(state) as HTMLElement
 }
 
@@ -1792,6 +2314,12 @@ export function renderOperationsState(state: AppState): HTMLElement {
 
 export function selectedUnstarRepositoryIds(): readonly string[] {
   return [...selectedForUnstar.val]
+}
+
+export function renderMembershipConfirmation(
+  preview: StableMembershipPreviewResponse
+): HTMLElement {
+  return MembershipConfirmation(preview, () => undefined, () => undefined) as HTMLElement
 }
 
 const root = document.getElementById('app')

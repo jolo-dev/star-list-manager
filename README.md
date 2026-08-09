@@ -6,11 +6,12 @@ Star List Manager is a local-first browser extension for searching, triaging, an
 
 - Chromium and Firefox extension-owned dashboard.
 - Read-only GitHub App device-flow authentication without a client secret or pasted token.
-- Optional, separately stored OAuth App authorization for confirmed Starring writes.
+- Optional, separately stored OAuth App authorization restricted to confirmed Starring writes and one structured native List membership mutation.
 - Public starred repositories only. Private repository metadata is not persisted.
-- Read-only native GitHub List import through the public GraphQL schema.
+- Read-only native GitHub List import through GitHub's public-preview GraphQL API.
+- Previewed add, remove, and move membership actions for public starred repositories among existing Lists; native List creation, rename, visibility changes, and deletion are not provided.
 - Explicit single and bulk unstar controls use a durable sequential queue, remote verification, and operation history.
-- No automatic cleanup rules, re-star, Undo, or native List mutation control is included.
+- No automatic cleanup rules, re-star, or Undo. Production native List membership controls are disabled by default until the separate capability gate is deliberately enabled after successful fixture verification.
 - No backend, hosted synchronization, analytics, advertising, or content scripts.
 
 ## Permissions
@@ -22,9 +23,13 @@ Star List Manager is a local-first browser extension for searching, triaging, an
 
 The GitHub App requests user-level Starring read permission and implicit public-resource access. It does not request repository, organization, private-repository, content, Gist, or write permission.
 
-Optional write authorization uses a separate GitHub OAuth App and requests `public_repo`. GitHub defines that scope broadly: it can write more public-repository resources than Star List Manager uses. The extension stores that token separately, validates that it belongs to the active GitHub user, and permits it only through exact authenticated-user Starring status, star, and unstar routes.
+Optional write authorization uses a separate GitHub OAuth App and requests `public_repo user`. GitHub defines both scopes broadly: `public_repo` can write more public-repository resources than Star List Manager uses, while `user` grants read/write profile authority, including email and follow subscopes. The extension stores that token separately, validates that it belongs to the active GitHub user, and permits it only through exact authenticated-user Starring status, star, and unstar routes or one internally constructed `UpdateUserListsForItem` mutation. It implements no profile, email, or follow requests. The native List transport requires the account-bound `user` scope and accepts only an expected account, repository node ID, and complete canonical List ID set; it does not accept caller-provided URLs, documents, operation names, or unrelated variables. Previously stored account-matched `public_repo`-only credentials remain limited to Starring and cannot enable native List membership writes.
 
 Unstar confirmation identifies the operation as a GitHub account change and lists every affected repository. Confirmed jobs are stored before network work, execute one at a time, and keep repositories in active starred views until complete observations verify remote absence. Successful unstars retain metadata, notes, tags, favorites, triage, and history. There is no Undo because restoring a GitHub star requires a separately confirmed remote write.
+
+Native List membership previews show each affected repository's current, resulting, added, removed, and unchanged Lists. Add unions destinations into the observed set, remove excludes only explicit selections, and move removes one source and adds one destination. GitHub's mutation is replace-all rather than additive: every operation submits the complete desired membership set and preserves unrelated memberships from the final stable pre-write observation.
+
+Membership discovery and read-back enumerate the List catalog and paginated items repeatedly, requiring two consecutive complete matching observations. These multi-request observations are not atomic and provide no transactional isolation from concurrent GitHub edits. A changed membership or referenced List before execution pauses without writing and requires a refreshed preview and confirmation; after a write, an independent stable read-back verifies the complete set. A mismatch records desired versus observed memberships, updates the local mirror to the observed GitHub state, and requires a new preview before retry. Native membership changes retain local tags, notes, favorites, triage state, revisit dates, and review history.
 
 ## Local Data
 
@@ -53,6 +58,8 @@ EXTENSION_PUBLIC_GITHUB_WRITE_CLIENT_ID=your_write_oauth_client_id
 
 The client ID is public configuration. Do not add client secrets or tokens.
 
+Native List membership writes remain disabled by default. Development capability verification requires the same-account `user` scope, an explicitly confirmed disposable public star, an unchanged complete membership-set mutation, and an independent stable read-back. See [`docs/native-list-membership-fixture.md`](docs/native-list-membership-fixture.md).
+
 Run development builds:
 
 ```bash
@@ -74,3 +81,4 @@ The check runs the source guard, strict TypeScript, unit and DOM tests, Chromium
 - [`PRIVACY.md`](PRIVACY.md): data handling and deletion policy.
 - [`docs/manual-test-checklist.md`](docs/manual-test-checklist.md): isolated-profile release verification.
 - [`docs/github-app-setup.md`](docs/github-app-setup.md): read-only GitHub App and optional OAuth App configuration.
+- [`docs/native-list-membership-fixture.md`](docs/native-list-membership-fixture.md): disposable fixture setup, capability probe, and cleanup.

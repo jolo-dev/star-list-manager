@@ -40,7 +40,7 @@ Conclusion: the current GitHub App user-token design remains unverified for arbi
 
 ## OAuth App Starring probe
 
-The project now contains a separate OAuth App device-flow implementation requesting `public_repo` and an isolated destructive probe. The probe requires explicit fixture confirmation, stable GitHub user and repository node IDs, complete paginated star observations, two-observation convergence for removal, and verified restoration.
+The project contains a separate OAuth App device-flow implementation and an isolated destructive Starring probe. The original Starring verification requested `public_repo`; the current write flow requests `public_repo user` so the same separately stored credential can also support the narrowly bounded native List mutation. The probe requires explicit fixture confirmation, stable GitHub user and repository node IDs, complete paginated star observations, two-observation convergence for removal, and verified restoration.
 
 Command shape:
 
@@ -63,3 +63,9 @@ The probe successfully:
 - independently confirmed the fixture remained starred afterward
 
 An isolated Chromium profile also verified the local disclosure and Cancel path, matching-account authorization, account-bound `public_repo` storage, absence of token material in the DOM, and write-only disconnect while retaining read authentication. No browser console errors were observed. No access token, device code, authorization header, or raw OAuth response was retained in this evidence.
+
+## OAuth App native List membership probe
+
+On 2026-08-08, a real disposable no-op probe established the OAuth permission boundary for `UpdateUserListsForItem`: an account-matched `public_repo` credential was insufficient, while an account-matched authorization including `user` allowed the unchanged complete membership set mutation and independent stable read-back. The implementation therefore requests and validates the combined `public_repo user` scopes for new write authorizations. Existing account-matched `public_repo`-only credentials remain limited to the already verified Starring boundary.
+
+The successful membership result proves schema availability, `user` permission, account ownership, unchanged-set mutation acceptance, and independent read-back for the disposable fixture. It does not authorize arbitrary GraphQL, persist a capability flag, or by itself enable production controls. No token, authorization header, device code, raw GraphQL error, or raw OAuth response was retained in this evidence.

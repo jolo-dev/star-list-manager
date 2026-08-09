@@ -56,7 +56,7 @@ const FAILURE_DETAILS: Readonly<
   },
   'scope-denied': {
     category: 'permission',
-    message: 'GitHub write authorization did not grant the required public_repo scope.',
+    message: 'GitHub write authorization did not grant the required public_repo and user scopes.',
     retryable: true
   },
   'account-mismatch': {
@@ -119,7 +119,7 @@ export class GitHubWriteDeviceFlow {
   async requestAuthorization(signal: AbortSignal): Promise<WriteDeviceAuthorizationGrant> {
     const response = await this.#postForm(
       'https://github.com/login/device/code',
-      {client_id: this.#clientId, scope: 'public_repo'},
+      {client_id: this.#clientId, scope: 'public_repo user'},
       signal
     )
 
@@ -346,7 +346,10 @@ function decodeCredential(
   }
   if (typeof scope !== 'string') throw new WriteDeviceAuthorizationFailure('failed')
   const grantedScopes = normalizeOAuthScopes(scope)
-  if (!grantedScopes.includes('public_repo')) {
+  if (
+    !grantedScopes.includes('public_repo') ||
+    !grantedScopes.includes('user')
+  ) {
     throw new WriteDeviceAuthorizationFailure('scope-denied')
   }
 

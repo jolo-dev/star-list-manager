@@ -35,7 +35,10 @@ describe('write authorization controller', () => {
     expect(JSON.stringify(pending)).not.toContain('device-secret')
 
     completion.resolve(writeState('42'))
-    expect((await waitForReadiness(controller, 'ready')).readiness).toBe('ready')
+    expect(await waitForReadiness(controller, 'ready')).toMatchObject({
+      readiness: 'ready',
+      membershipReady: true
+    })
     expect(await store.loadAccount('42')).toEqual(writeState('42'))
   })
 
@@ -125,6 +128,40 @@ describe('write authorization controller', () => {
     expect(await store.loadAccount('84')).not.toBeNull()
     expect(read.state?.githubUserId).toBe('42')
   })
+
+  test('keeps a stored public_repo-only credential ready only for Starring', async () => {
+    const controller = new WriteAuthController(
+      {
+        requestAuthorization: async () => grant,
+        completeAuthorization: async () => writeState('42')
+      },
+      new MemoryReadStore(readState('42')),
+      new MemoryWriteStore([writeState('42', ['public_repo'])])
+    )
+
+    expect(await controller.getState()).toMatchObject({
+      readiness: 'ready',
+      membershipReady: false
+    })
+  })
+
+  test('does not store a newly completed authorization unless both scopes are present', async () => {
+    const store = new MemoryWriteStore()
+    const controller = new WriteAuthController(
+      {
+        requestAuthorization: async () => grant,
+        completeAuthorization: async () => writeState('42', ['public_repo'])
+      },
+      new MemoryReadStore(readState('42')),
+      store
+    )
+
+    await controller.startAuthorization()
+    expect(await waitForReadiness(controller, 'scope-denied')).toMatchObject({
+      membershipReady: false
+    })
+    expect(await store.loadAccount('42')).toBeNull()
+  })
 })
 
 class MemoryReadStore {
@@ -195,14 +232,17 @@ function readState(githubUserId: GitHubUserId): AuthStateRecord {
   }
 }
 
-function writeState(githubUserId: GitHubUserId): WriteAuthStateRecord {
+function writeState(
+  githubUserId: GitHubUserId,
+  grantedScopes: readonly string[] = ['public_repo', 'user']
+): WriteAuthStateRecord {
   return {
     githubUserId,
     identity: readState(githubUserId).identity,
     credential: {
       accessToken: 'write-access',
       tokenType: 'bearer',
-      grantedScopes: ['public_repo']
+      grantedScopes
     },
     authorizedAt: '2026-08-04T12:00:00Z',
     lastFailure: null

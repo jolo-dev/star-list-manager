@@ -278,6 +278,7 @@ function historyRecord(
     attemptCount: 1,
     error: null,
     retryEligibility: 'not-retryable' as const,
+    membershipDetails: null,
     occurredAt
   }
 }

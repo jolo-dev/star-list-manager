@@ -231,6 +231,7 @@ function publicAuthorization(
 function unavailableWriteAuthorization(): AppState['writeAuthorization'] {
   return {
     readiness: 'signed-out',
+    membershipReady: false,
     previewVisible: false,
     authorization: null,
     error: null

@@ -26,17 +26,18 @@ The remaining unchecked items below are broader release exploration beyond the c
 - [x] Disconnect and confirm credentials are removed while annotations remain.
 - [x] Sign into another account and confirm namespaces do not merge.
 
-## Optional Starring Authorization
+## Optional Write Authorization
 
-- [x] Confirm Settings discloses that `public_repo` is broader than the Starring-only implementation.
+- [ ] Confirm Settings discloses that `public_repo` grants broader public-repository authority, `user` grants broader profile authority, and neither authority is exposed as a general API surface.
 - [x] Cancel the local disclosure and confirm no write credential is created.
 - [ ] Cancel a pending OAuth device flow and confirm read-only synchronization remains usable.
-- [x] Authorize the same GitHub account and confirm readiness without token material in the DOM or console.
+- [x] Authorize the same GitHub account with `public_repo user` and confirm complete readiness without token material in the DOM or console.
 - [ ] Attempt authorization with another GitHub account and confirm account-mismatch rejection.
 - [x] Disconnect write access and confirm read sign-in remains while the write credential is removed.
 - [ ] Disconnect GitHub and confirm both active credentials are removed while local data remains.
 - [ ] Revoke the OAuth App in GitHub settings and confirm the next write request requires reauthorization.
 - [x] Run the disposable OAuth Starring probe and independently confirm restoration.
+- [ ] Run the disposable native List membership probe with an unchanged complete set and independently confirm the read-back without token material in output or storage.
 
 ## Synchronization
 
@@ -64,11 +65,25 @@ The remaining unchecked items below are broader release exploration beyond the c
 
 ## Native Lists
 
+GitHub native Lists use a public-preview API. Run every membership scenario only against public starred repositories and existing disposable Lists in an isolated profile. The mutation replaces the repository's complete membership set; repeated complete observations reduce ambiguity but are multi-request and non-atomic, so do not treat these checks as evidence of transactional isolation from concurrent GitHub edits.
+
 - [ ] Import multiple Lists and a repository belonging to multiple Lists.
 - [ ] Verify independent List and item pagination with a sufficiently large fixture account.
 - [ ] Verify an account with no Lists.
 - [x] Verify unavailable schema/capability handling without fallback requests.
 - [x] Verify partial List coverage does not disclose inaccessible item details.
+- [ ] In an isolated profile, create only disposable Lists and a disposable public star according to `docs/native-list-membership-fixture.md`; confirm no existing List or membership is used.
+- [ ] Confirm a default production build keeps native List membership controls disabled and Lists read-only when no successful disposable capability proof is available.
+- [ ] After successful fixture verification, use only the documented isolated manual-test build gate and confirm same-account `user` authorization is required; verify a stored `public_repo`-only credential can still serve Starring but cannot enable membership controls.
+- [ ] Preview single and bulk add operations; confirm each repository shows current, resulting, added, removed, and unchanged Lists, existing destinations are no-ops, and unrelated memberships remain in the complete resulting set.
+- [ ] Preview explicit remove and move operations; confirm absent removals are no-ops, an absent move source is rejected, and a valid move removes only its source while preserving unrelated memberships.
+- [ ] For every add, remove, and move confirmation, confirm the UI states that `UpdateUserListsForItem` replaces the complete set, observations are non-atomic, and concurrent GitHub edits may cause reconfirmation, instability, or conflict.
+- [ ] Change membership directly on GitHub after confirmation and confirm the job performs no write, shows refreshed current/resulting sets, and requires reconfirmation. Repeat for referenced List rename, visibility change, and deletion.
+- [ ] Confirm successful mutation is reported only after an independent repeated stable read-back of the complete desired set.
+- [ ] Force a post-write desired-versus-observed mismatch and confirm a verification conflict displays both sets, updates the local mirror to observed GitHub membership, and requires a new preview before retry.
+- [ ] Change membership during List or item pagination and confirm incomplete or non-matching repeated observations block preview, mutation, or verification rather than treating missing data as absence.
+- [ ] Confirm add, remove, move, stale reconfirmation, conflict, restart recovery, and partial bulk outcomes retain tags, notes, favorites, triage state, revisit dates, and review history.
+- [ ] Confirm there are no native List create, rename, visibility, or delete controls.
 
 ## Triage and Discovery
 

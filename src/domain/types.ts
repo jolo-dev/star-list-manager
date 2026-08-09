@@ -1,4 +1,9 @@
 import type {AppError} from '../shared/errors'
+import type {
+  CanonicalListCatalogFingerprint,
+  CanonicalMembershipSet,
+  NativeListMembershipIntent
+} from './native-list-membership'
 
 export type IsoDateTime = string
 export type GitHubUserId = string
@@ -14,7 +19,7 @@ export type MutationBatchId = string
 export type MutationJobId = string
 export type MutationAttemptId = string
 export type OperationHistoryId = string
-export type MutationKind = 'unstar'
+export type MutationKind = 'unstar' | 'native-list-membership'
 export type MutationOrigin = 'single' | 'bulk' | 'manual-retry'
 
 export type MutationJobStatus =
@@ -22,16 +27,29 @@ export type MutationJobStatus =
   | 'checking'
   | 'deleting'
   | 'verifying'
+  | 'observing-membership'
+  | 'mutating-membership'
+  | 'verifying-membership'
   | 'succeeded'
   | 'succeeded-external'
   | 'failed'
   | 'blocked-unknown'
+  | 'needs-confirmation'
+  | 'unstable-observation'
+  | 'verification-conflict'
   | 'retry-waiting'
   | 'cancelled'
 
 export type MutationTerminalStatus = Extract<
   MutationJobStatus,
-  'succeeded' | 'succeeded-external' | 'failed' | 'blocked-unknown' | 'cancelled'
+  | 'succeeded'
+  | 'succeeded-external'
+  | 'failed'
+  | 'blocked-unknown'
+  | 'needs-confirmation'
+  | 'unstable-observation'
+  | 'verification-conflict'
+  | 'cancelled'
 >
 
 export type MutationRecoveryStatus =
@@ -93,6 +111,46 @@ export interface MutationBatchRecord extends AccountScopedRecord {
   readonly updatedAt: IsoDateTime
 }
 
+export interface MembershipNeedsConfirmationDetails {
+  readonly confirmedBefore: CanonicalMembershipSet
+  readonly observed: CanonicalMembershipSet
+  readonly confirmedCatalog: CanonicalListCatalogFingerprint
+  readonly observedCatalog: CanonicalListCatalogFingerprint
+}
+
+export interface MembershipUnstableObservationDetails {
+  readonly status:
+    | 'changing'
+    | 'partial'
+    | 'interrupted'
+    | 'unavailable'
+    | 'rate-limited'
+  readonly attempts: number
+  readonly rateLimitResetAt: IsoDateTime | null
+  readonly occurredAt: IsoDateTime
+}
+
+export interface MembershipVerificationConflictDetails {
+  readonly desired: CanonicalMembershipSet
+  readonly observed: CanonicalMembershipSet
+}
+
+export interface MembershipMutationDetails {
+  readonly intent: NativeListMembershipIntent
+  readonly confirmedBefore: CanonicalMembershipSet
+  readonly desired: CanonicalMembershipSet
+  readonly confirmedCatalog: CanonicalListCatalogFingerprint
+  readonly latestObserved: CanonicalMembershipSet | null
+  readonly latestObservedCatalog: CanonicalListCatalogFingerprint | null
+  readonly membershipFingerprint: string
+  readonly listCatalogFingerprint: string
+  readonly mutationPayload: CanonicalMembershipSet | null
+  readonly recoveryPhase: 'observation' | 'mutation' | 'verification' | null
+  readonly needsConfirmation: MembershipNeedsConfirmationDetails | null
+  readonly unstableObservation: MembershipUnstableObservationDetails | null
+  readonly verificationConflict: MembershipVerificationConflictDetails | null
+}
+
 export interface MutationJobRecord extends AccountScopedRecord {
   readonly jobId: MutationJobId
   readonly batchId: MutationBatchId
@@ -108,6 +166,7 @@ export interface MutationJobRecord extends AccountScopedRecord {
   readonly claimedAt: IsoDateTime | null
   readonly completedAt: IsoDateTime | null
   readonly lastError: SanitizedMutationError | null
+  readonly membershipDetails: MembershipMutationDetails | null
   readonly createdAt: IsoDateTime
   readonly updatedAt: IsoDateTime
 }
@@ -134,6 +193,8 @@ export interface MutationAttemptRecord extends AccountScopedRecord {
 export type MutationVerificationResult =
   | 'verified-absent'
   | 'already-absent'
+  | 'verified-membership'
+  | 'membership-conflict'
   | 'not-verified'
   | 'cancelled-before-execution'
 
@@ -151,6 +212,7 @@ export interface OperationHistoryRecord extends AccountScopedRecord {
   readonly attemptCount: number
   readonly error: SanitizedMutationError | null
   readonly retryEligibility: MutationRetryEligibility
+  readonly membershipDetails: MembershipMutationDetails | null
   readonly occurredAt: IsoDateTime
 }
 

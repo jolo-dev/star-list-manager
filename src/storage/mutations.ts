@@ -11,6 +11,7 @@ import type {
   MutationJobId,
   MutationJobRecord,
   MutationJobStatus,
+  MembershipMutationDetails,
   MutationOrigin,
   MutationRecoveryStatus,
   MutationRetryEligibility,
@@ -18,10 +19,18 @@ import type {
   MutationVerificationResult,
   OperationHistoryId,
   OperationHistoryRecord,
+  NativeMembershipRecord,
   RepositoryNodeId,
   RepositoryRecord,
   SanitizedMutationError
 } from '../domain/types'
+import {
+  canonicalMembershipSet,
+  planMembershipIntent,
+  referencedListNodeIds,
+  type CanonicalListCatalogFingerprint,
+  type MembershipIntentPlan
+} from '../domain/native-list-membership'
 import {
   libraryIndexes,
   libraryStores,
@@ -34,13 +43,19 @@ const activeJobStatuses: ReadonlySet<MutationJobStatus> = new Set([
   'checking',
   'deleting',
   'verifying',
+  'observing-membership',
+  'mutating-membership',
+  'verifying-membership',
   'retry-waiting'
 ])
 
 const executingJobStatuses: ReadonlySet<MutationJobStatus> = new Set([
   'checking',
   'deleting',
-  'verifying'
+  'verifying',
+  'observing-membership',
+  'mutating-membership',
+  'verifying-membership'
 ])
 
 const terminalJobStatuses: ReadonlySet<MutationJobStatus> = new Set([
@@ -48,6 +63,9 @@ const terminalJobStatuses: ReadonlySet<MutationJobStatus> = new Set([
   'succeeded-external',
   'failed',
   'blocked-unknown',
+  'needs-confirmation',
+  'unstable-observation',
+  'verification-conflict',
   'cancelled'
 ])
 
@@ -58,6 +76,7 @@ const allowedTransitions: Readonly<
   checking: new Set([
     'deleting',
     'verifying',
+    'observing-membership',
     'succeeded',
     'succeeded-external',
     'retry-waiting',
@@ -78,11 +97,49 @@ const allowedTransitions: Readonly<
     'failed',
     'blocked-unknown'
   ]),
-  'retry-waiting': new Set(['checking', 'failed', 'blocked-unknown']),
+  'observing-membership': new Set([
+    'mutating-membership',
+    'retry-waiting',
+    'succeeded',
+    'needs-confirmation',
+    'unstable-observation',
+    'verification-conflict',
+    'failed',
+    'blocked-unknown'
+  ]),
+  'mutating-membership': new Set([
+    'observing-membership',
+    'verifying-membership',
+    'retry-waiting',
+    'succeeded',
+    'unstable-observation',
+    'verification-conflict',
+    'failed',
+    'blocked-unknown'
+  ]),
+  'verifying-membership': new Set([
+    'observing-membership',
+    'retry-waiting',
+    'succeeded',
+    'unstable-observation',
+    'verification-conflict',
+    'failed',
+    'blocked-unknown'
+  ]),
+  'retry-waiting': new Set([
+    'checking',
+    'failed',
+    'blocked-unknown',
+    'unstable-observation',
+    'verification-conflict'
+  ]),
   succeeded: new Set(),
   'succeeded-external': new Set(),
   failed: new Set(),
   'blocked-unknown': new Set(),
+  'needs-confirmation': new Set(),
+  'unstable-observation': new Set(),
+  'verification-conflict': new Set(),
   cancelled: new Set()
 }
 
@@ -134,16 +191,18 @@ export async function enqueueMutationBatch(
             repository.repositoryNodeId
           ]) as IDBRequest<MutationJobRecord[]>
         )
-        const existing = matchingJobs
-          .filter(
-            (job) => job.mutationKind === 'unstar' && activeJobStatuses.has(job.status)
-          )
+        const overlapping = matchingJobs
+          .filter((job) => activeJobStatuses.has(job.status))
           .sort(compareJobs)[0]
+        const existing = overlapping?.mutationKind === 'unstar' ? overlapping : null
 
         if (existing) {
           jobs.push(existing)
           reusedJobIds.push(existing.jobId)
           continue
+        }
+        if (overlapping) {
+          throw new Error('An active mutation already exists for this account and repository.')
         }
 
         const job: MutationJobRecord = {
@@ -162,6 +221,7 @@ export async function enqueueMutationBatch(
           claimedAt: null,
           completedAt: null,
           lastError: null,
+          membershipDetails: null,
           createdAt: input.createdAt,
           updatedAt: input.createdAt
         }
@@ -186,6 +246,117 @@ export async function enqueueMutationBatch(
       }
       await requestResult(batchStore.add(batch))
       return {batch, jobs, reusedJobIds}
+    }
+  )
+}
+
+export interface EnqueueMembershipMutationRepository
+  extends EnqueueMutationRepository {
+  readonly plan: MembershipIntentPlan
+  readonly confirmedCatalog: CanonicalListCatalogFingerprint
+}
+
+export interface EnqueueMembershipMutationBatchInput {
+  readonly githubUserId: GitHubUserId
+  readonly batchId: MutationBatchId
+  readonly origin: Exclude<MutationOrigin, 'manual-retry'>
+  readonly createdAt: IsoDateTime
+  readonly repositories: readonly EnqueueMembershipMutationRepository[]
+}
+
+export async function enqueueMembershipMutationBatch(
+  database: IDBDatabase,
+  input: EnqueueMembershipMutationBatchInput
+): Promise<EnqueueMutationBatchResult> {
+  if (input.repositories.length === 0) {
+    throw new Error('A membership mutation batch requires at least one repository.')
+  }
+
+  return runLibraryTransaction(
+    database,
+    [libraryStores.mutationBatches, libraryStores.mutationJobs],
+    'readwrite',
+    async (transaction) => {
+      const batchStore = transaction.objectStore(libraryStores.mutationBatches)
+      const jobStore = transaction.objectStore(libraryStores.mutationJobs)
+      const repositoryIndex = jobStore.index(libraryIndexes.byAccountRepository)
+      const repositories = uniqueMembershipRepositories(input.repositories)
+      const jobs: MutationJobRecord[] = []
+
+      for (const repository of repositories) {
+        if (
+          repository.plan.githubUserId !== input.githubUserId ||
+          repository.plan.repositoryNodeId !== repository.repositoryNodeId
+        ) {
+          throw new Error('Membership plan account or repository does not match its job.')
+        }
+        validateMembershipPlan(repository.plan, repository.confirmedCatalog)
+        const matchingJobs = await requestResult(
+          repositoryIndex.getAll([
+            input.githubUserId,
+            repository.repositoryNodeId
+          ]) as IDBRequest<MutationJobRecord[]>
+        )
+        if (matchingJobs.some((job) => activeJobStatuses.has(job.status))) {
+          throw new Error('An active mutation already exists for this account and repository.')
+        }
+
+        const membershipDetails: MembershipMutationDetails = {
+          intent: repository.plan.intent,
+          confirmedBefore: repository.plan.before,
+          desired: repository.plan.desired,
+          confirmedCatalog: repository.confirmedCatalog,
+          latestObserved: null,
+          latestObservedCatalog: null,
+          membershipFingerprint: repository.plan.before.fingerprint,
+          listCatalogFingerprint: repository.confirmedCatalog.fingerprint,
+          mutationPayload: null,
+          recoveryPhase: null,
+          needsConfirmation: null,
+          unstableObservation: null,
+          verificationConflict: null
+        }
+        const job: MutationJobRecord = {
+          githubUserId: input.githubUserId,
+          jobId: repository.jobId,
+          batchId: input.batchId,
+          mutationKind: 'native-list-membership',
+          repositoryNodeId: repository.repositoryNodeId,
+          ownerLogin: repository.ownerLogin,
+          repositoryName: repository.repositoryName,
+          status: 'queued',
+          recoveryStatus: 'none',
+          retryEligibility: 'automatic',
+          attemptCount: 0,
+          nextEligibleExecutionAt: input.createdAt,
+          claimedAt: null,
+          completedAt: null,
+          lastError: null,
+          membershipDetails,
+          createdAt: input.createdAt,
+          updatedAt: input.createdAt
+        }
+        await requestResult(jobStore.add(job))
+        jobs.push(job)
+      }
+
+      const summary = deriveMutationBatchSummary(jobs)
+      const batch: MutationBatchRecord = {
+        githubUserId: input.githubUserId,
+        batchId: input.batchId,
+        mutationKind: 'native-list-membership',
+        origin: input.origin,
+        repositoryNodeIds: repositories.map(
+          (repository) => repository.repositoryNodeId
+        ),
+        jobIds: jobs.map((job) => job.jobId),
+        status: deriveMutationBatchStatus(summary),
+        summary,
+        createdAt: input.createdAt,
+        updatedAt: input.createdAt
+      }
+      await requestResult(batchStore.add(batch))
+      return {batch, jobs, reusedJobIds: []}
     }
   )
 }
@@ -416,6 +587,7 @@ export interface MutationJobTransitionUpdates {
   readonly retryEligibility?: MutationRetryEligibility
   readonly error?: SanitizedMutationError | null
   readonly recoveryStatus?: MutationRecoveryStatus
+  readonly membershipDetails?: MembershipMutationDetails
 }
 
 export async function transitionMutationJob(
@@ -547,6 +719,8 @@ export interface FinalizeMutationJobInput {
   readonly occurredAt: IsoDateTime
   readonly error: SanitizedMutationError | null
   readonly retryEligibility: MutationRetryEligibility
+  readonly membershipDetails?: MembershipMutationDetails
+  readonly updateLocalMemberships?: boolean
 }
 
 export async function finalizeMutationJob(
@@ -557,6 +731,7 @@ export async function finalizeMutationJob(
     database,
     [
       libraryStores.repositories,
+      libraryStores.nativeMemberships,
       libraryStores.mutationBatches,
       libraryStores.mutationJobs,
       libraryStores.operationHistory
@@ -574,7 +749,10 @@ export async function finalizeMutationJob(
         job.batchId
       )
 
-      if (input.finalStatus === 'succeeded' || input.finalStatus === 'succeeded-external') {
+      if (
+        job.mutationKind === 'unstar' &&
+        (input.finalStatus === 'succeeded' || input.finalStatus === 'succeeded-external')
+      ) {
         const repositoryStore = transaction.objectStore(libraryStores.repositories)
         const repository = await requestResult(
           repositoryStore.get([
@@ -595,6 +773,29 @@ export async function finalizeMutationJob(
         )
       }
 
+      const membershipDetails = input.membershipDetails ?? job.membershipDetails
+      if (job.mutationKind === 'native-list-membership' && !membershipDetails) {
+        throw new Error('A membership mutation job requires membership details.')
+      }
+      if (input.updateLocalMemberships) {
+        if (
+          input.finalStatus !== 'succeeded' &&
+          input.finalStatus !== 'verification-conflict'
+        ) {
+          throw new Error('Only verified or conflicting membership results update the local mirror.')
+        }
+        if (job.mutationKind !== 'native-list-membership' || !membershipDetails?.latestObserved) {
+          throw new Error('A stable membership observation is required for local reconciliation.')
+        }
+        await replaceRepositoryMemberships(
+          transaction.objectStore(libraryStores.nativeMemberships),
+          input.githubUserId,
+          job.repositoryNodeId,
+          membershipDetails.latestObserved.listNodeIds,
+          input.occurredAt
+        )
+      }
+
       const finalized: MutationJobRecord = {
         ...job,
         status: input.finalStatus,
@@ -603,6 +804,7 @@ export async function finalizeMutationJob(
         nextEligibleExecutionAt: null,
         completedAt: input.occurredAt,
         lastError: error,
+        membershipDetails,
         updatedAt: input.occurredAt
       }
       const history = createHistoryRecord(
@@ -770,7 +972,12 @@ export function deriveMutationBatchSummary(
       succeeded += 1
     } else if (job.status === 'failed') {
       failed += 1
-    } else if (job.status === 'blocked-unknown') {
+    } else if (
+      job.status === 'blocked-unknown' ||
+      job.status === 'needs-confirmation' ||
+      job.status === 'unstable-observation' ||
+      job.status === 'verification-conflict'
+    ) {
       blockedUnknown += 1
     } else if (job.status === 'queued') {
       queued += 1
@@ -781,7 +988,11 @@ export function deriveMutationBatchSummary(
     }
 
     if (
-      (job.status === 'failed' || job.status === 'blocked-unknown') &&
+      (job.status === 'failed' ||
+        job.status === 'blocked-unknown' ||
+        job.status === 'needs-confirmation' ||
+        job.status === 'unstable-observation' ||
+        job.status === 'verification-conflict') &&
       job.retryEligibility !== 'not-retryable'
     ) {
       retryEligible += 1
@@ -827,6 +1038,75 @@ function uniqueRepositories(
     }
   }
   return [...unique.values()]
+}
+
+function uniqueMembershipRepositories(
+  repositories: readonly EnqueueMembershipMutationRepository[]
+): readonly EnqueueMembershipMutationRepository[] {
+  const unique = new Map<RepositoryNodeId, EnqueueMembershipMutationRepository>()
+  for (const repository of repositories) {
+    if (!unique.has(repository.repositoryNodeId)) {
+      unique.set(repository.repositoryNodeId, repository)
+    }
+  }
+  return [...unique.values()]
+}
+
+function validateMembershipPlan(
+  plan: MembershipIntentPlan,
+  catalog: CanonicalListCatalogFingerprint
+): void {
+  const replanned = planMembershipIntent(plan.before.listNodeIds, plan.intent)
+  if (
+    !replanned.ok ||
+    canonicalMembershipSet(plan.before.listNodeIds).fingerprint !== plan.before.fingerprint ||
+    canonicalMembershipSet(plan.desired.listNodeIds).fingerprint !== plan.desired.fingerprint ||
+    replanned.value.desired.fingerprint !== plan.desired.fingerprint
+  ) {
+    throw new Error('Membership plan sets must be canonical.')
+  }
+  const referenced = referencedListNodeIds(plan.intent)
+  if (
+    JSON.stringify(catalog.entries.map((entry) => entry.listNodeId)) !==
+      JSON.stringify(referenced) ||
+    catalog.fingerprint !==
+      JSON.stringify(
+        catalog.entries.map((entry) => [
+          entry.listNodeId,
+          entry.exists,
+          entry.name,
+          entry.visibility
+        ])
+      )
+  ) {
+    throw new Error('Membership plan catalog must cover the canonical referenced Lists.')
+  }
+}
+
+async function replaceRepositoryMemberships(
+  store: IDBObjectStore,
+  githubUserId: GitHubUserId,
+  repositoryNodeId: RepositoryNodeId,
+  listNodeIds: readonly string[],
+  observedAt: IsoDateTime
+): Promise<void> {
+  const keys = await requestResult(
+    store.index(libraryIndexes.byRepository).getAllKeys([
+      githubUserId,
+      repositoryNodeId
+    ])
+  )
+  for (const key of keys) await requestResult(store.delete(key))
+  for (const listNodeId of listNodeIds) {
+    await requestResult(
+      store.put({
+        githubUserId,
+        listNodeId,
+        repositoryNodeId,
+        lastObservedAt: observedAt
+      } satisfies NativeMembershipRecord)
+    )
+  }
 }
 
 function compareJobs(left: MutationJobRecord, right: MutationJobRecord): number {
@@ -888,6 +1168,7 @@ function applyTransition(
         ? job.nextEligibleExecutionAt
         : updates.nextEligibleExecutionAt,
     lastError: error,
+    membershipDetails: updates.membershipDetails ?? job.membershipDetails,
     updatedAt: occurredAt
   }
 }
@@ -927,6 +1208,7 @@ function createHistoryRecord(
     attemptCount: job.attemptCount,
     error: job.lastError,
     retryEligibility: job.retryEligibility,
+    membershipDetails: job.membershipDetails,
     occurredAt
   }
 }

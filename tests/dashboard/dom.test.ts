@@ -1,6 +1,7 @@
 import {expect, test} from 'bun:test'
 import {Window} from 'happy-dom'
 import type {
+  MembershipMutationDetails,
   MutationBatchRecord,
   MutationJobRecord,
   MutationJobStatus,
@@ -8,7 +9,11 @@ import type {
   OperationHistoryRecord,
   RepositoryRecord
 } from '../../src/domain/types'
-import type {AppState} from '../../src/shared/messages'
+import type {
+  AppState,
+  MembershipListPreviewItem,
+  StableMembershipPreviewResponse
+} from '../../src/shared/messages'
 
 test('mounts accessible dashboard navigation and loading state', async () => {
   const browserWindow = new Window({url: 'chrome-extension://fixture/dashboard/index.html'})
@@ -52,6 +57,7 @@ test('starts automatic synchronization once per active account', async () => {
     authorization: null,
     writeAuthorization: {
       readiness: 'authorization-required',
+      membershipReady: false,
       previewVisible: false,
       authorization: null,
       error: null
@@ -82,6 +88,7 @@ test('renders broad-scope disclosure before write device authorization', async (
   const {renderSettingsState} = await import('../../src/dashboard/scripts')
   const state = accountState('42', {
     readiness: 'authorization-required',
+    membershipReady: false,
     previewVisible: true,
     authorization: null,
     error: null
@@ -89,10 +96,37 @@ test('renders broad-scope disclosure before write device authorization', async (
 
   const settings = renderSettingsState(state)
   expect(settings.textContent).toContain('public_repo')
+  expect(settings.textContent).toContain('user')
   expect(settings.textContent).toContain('broader public-repository write access')
-  expect(settings.textContent).toContain('Starring status, star, and unstar endpoints')
+  expect(settings.textContent).toContain('broader profile authority')
+  expect(settings.textContent).toContain('Starring status, star, and unstar routes')
+  expect(settings.textContent).toContain('UpdateUserListsForItem')
+  expect(settings.textContent).toContain('complete native List ID set')
+  expect(settings.textContent).toContain('cannot send caller-provided GraphQL documents')
   expect(settings.textContent).toContain('Continue to GitHub')
   expect(settings.textContent).toContain('Cancel')
+  expect(settings.textContent).not.toContain('access-secret')
+})
+
+test('renders non-secret write readiness and keeps native membership capability gated', async () => {
+  const {renderSettingsState} = await import('../../src/dashboard/scripts')
+  const settings = renderSettingsState(
+    accountState('42', {
+      readiness: 'ready',
+      membershipReady: true,
+      previewVisible: false,
+      authorization: null,
+      error: null
+    })
+  )
+
+  expect(settings.textContent).toContain(
+    'account-scoped public_repo and user credential is ready'
+  )
+  expect(settings.textContent).toContain('confirmed Starring routes')
+  expect(settings.textContent).toContain('structured native List membership mutation')
+  expect(settings.textContent).toContain('controls remain disabled')
+  expect(settings.textContent).toContain('independent read-back')
   expect(settings.textContent).not.toContain('access-secret')
 })
 
@@ -112,6 +146,7 @@ test('renders complete unstar confirmation and cancellation does not confirm', a
   const confirmation = renderUnstarConfirmation(
     accountState('42', {
       readiness: 'ready',
+      membershipReady: true,
       previewVisible: false,
       authorization: null,
       error: null
@@ -178,6 +213,7 @@ test('selects rows without changing star state or local annotations', async () =
   const state: AppState = {
     ...accountState('42', {
       readiness: 'ready',
+      membershipReady: true,
       previewVisible: false,
       authorization: null,
       error: null
@@ -230,6 +266,154 @@ test('selects rows without changing star state or local annotations', async () =
   )
   await browserWindow.happyDOM.whenAsyncComplete()
   expect(library.querySelector('[role="dialog"]')).not.toBeNull()
+})
+
+test('mounts existing native List controls separately from local tags', async () => {
+  const browserWindow = new Window({url: 'chrome-extension://fixture/dashboard/index.html'})
+  Object.assign(globalThis, {
+    window: browserWindow,
+    document: browserWindow.document,
+    HTMLElement: browserWindow.HTMLElement,
+    Text: browserWindow.Text,
+    Event: browserWindow.Event,
+    KeyboardEvent: browserWindow.KeyboardEvent
+  })
+  const {renderLibraryState} = await import('../../src/dashboard/scripts')
+  const repository = repositoryRecord('42', 'R_one', 'octocat/one')
+  const state: AppState = {
+    ...accountState('42', {
+      readiness: 'ready',
+      membershipReady: true,
+      previewVisible: false,
+      authorization: null,
+      error: null
+    }),
+    nativeListMembership: {readiness: 'ready'},
+    library: {
+      repositories: [repository],
+      nativeLists: [nativeList('L_current', 'Current List'), nativeList('L_other', 'Other List')],
+      nativeMemberships: [
+        {
+          githubUserId: '42',
+          repositoryNodeId: 'R_one',
+          listNodeId: 'L_current',
+          lastObservedAt: '2026-08-04T10:00:00Z'
+        }
+      ],
+      annotations: [
+        {
+          githubUserId: '42',
+          repositoryNodeId: 'R_one',
+          triageState: 'inbox',
+          tags: ['local-only'],
+          note: '',
+          favorite: false,
+          revisitAt: null,
+          reviewedAt: null,
+          localModifiedAt: '2026-08-04T10:00:00Z'
+        }
+      ]
+    },
+    mutations: {batches: [], jobs: [], history: []}
+  }
+  const library = renderLibraryState(state)
+  browserWindow.document.body.append(
+    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+
+  expect(library.textContent).toContain('Native GitHub Lists')
+  expect(library.textContent).toContain('Local tags are separate')
+  expect(library.textContent).toContain('Current List')
+  expect(library.textContent).toContain('No-op')
+  expect(library.textContent).toContain('Local organization')
+  expect(library.textContent).toContain('Review additive assignment')
+  expect(library.querySelector('.membership-review.primary-action')).not.toBeNull()
+  expect(library.textContent).not.toContain('Create native List')
+  expect(library.textContent).not.toContain('Rename native List')
+  expect(library.textContent).not.toContain('Delete native List')
+})
+
+test('mounts stable bulk and refreshed membership previews with exact effects and safety disclosure', async () => {
+  const browserWindow = new Window({url: 'chrome-extension://fixture/dashboard/index.html'})
+  Object.assign(globalThis, {
+    window: browserWindow,
+    document: browserWindow.document,
+    HTMLElement: browserWindow.HTMLElement,
+    Text: browserWindow.Text,
+    Event: browserWindow.Event,
+    KeyboardEvent: browserWindow.KeyboardEvent
+  })
+  const {renderMembershipConfirmation} = await import('../../src/dashboard/scripts')
+  const preview = membershipPreview('move', 'job-stale')
+  const confirmation = renderMembershipConfirmation(preview)
+  browserWindow.document.body.append(
+    confirmation as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+
+  for (const value of [
+    'octocat/one',
+    'github/two',
+    'Current',
+    'Resulting',
+    'Added',
+    'Removed',
+    'Unchanged',
+    'No-op requests',
+    'GitHub replaces the complete List membership set',
+    'multiple requests, not an atomic snapshot',
+    'between the final observation and mutation',
+    'desired-versus-observed conflict',
+    'original intent is preserved',
+    'require a new confirmation'
+  ]) {
+    expect(confirmation.textContent).toContain(value)
+  }
+  expect(confirmation.querySelectorAll('.membership-preview-card')).toHaveLength(2)
+  expect(confirmation.querySelector('.membership-confirmation.is-destructive')).not.toBeNull()
+  expect(confirmation.querySelector('.danger-action')).not.toBeNull()
+})
+
+test('renders native membership observation, safety, verification, conflict, and partial batch statuses', async () => {
+  const {renderOperationsState} = await import('../../src/dashboard/scripts')
+  const statuses: readonly MutationJobStatus[] = [
+    'queued',
+    'observing-membership',
+    'unstable-observation',
+    'needs-confirmation',
+    'verification-conflict',
+    'succeeded'
+  ]
+  const jobs = statuses.map((status, index): MutationJobRecord => ({
+    ...mutationJob('42', status, index),
+    mutationKind: 'native-list-membership',
+    membershipDetails: membershipMutationDetails(status)
+  }))
+  const baseBatch = mutationBatch('42', jobs)
+  const state: AppState = {
+    ...accountState('42'),
+    mutations: {
+      batches: [{...baseBatch, mutationKind: 'native-list-membership'}],
+      jobs,
+      history: []
+    }
+  }
+  const operations = renderOperationsState(state)
+
+  for (const value of [
+    'Queued',
+    'Observing membership',
+    'Unstable observation',
+    'Needs confirmation',
+    'Verification conflict',
+    'Verified',
+    'Safety block: changing',
+    'Review refreshed preview',
+    'Desired Lists:',
+    'Observed Lists:',
+    'Partial batch outcome'
+  ]) {
+    expect(operations.textContent).toContain(value)
+  }
 })
 
 test('renders account-isolated job states, batch counts, and queued-only cancellation', async () => {
@@ -306,6 +490,7 @@ function accountState(
   githubUserId: string,
   writeAuthorization: AppState['writeAuthorization'] = {
     readiness: 'authorization-required',
+    membershipReady: false,
     previewVisible: false,
     authorization: null,
     error: null
@@ -357,6 +542,125 @@ function repositoryRecord(
   }
 }
 
+function nativeList(listNodeId: string, name: string) {
+  return {
+    githubUserId: '42',
+    listNodeId,
+    name,
+    description: null,
+    visibility: 'public' as const,
+    slug: null,
+    createdAt: null,
+    updatedAt: null,
+    lastAddedAt: null,
+    reportedItemCount: 1,
+    importedItemCount: 1,
+    importStatus: 'complete' as const,
+    lastObservedAt: '2026-08-04T10:00:00Z'
+  }
+}
+
+function membershipPreview(
+  operation: StableMembershipPreviewResponse['operation'],
+  refreshedFromJobId: string | null
+): StableMembershipPreviewResponse {
+  const current = previewList('L_current', 'Current List')
+  const destination = previewList('L_destination', 'Destination List')
+  const retained = previewList('L_retained', 'Retained List')
+  return {
+    status: 'stable',
+    previewId: 'preview-one',
+    operation,
+    nonAtomic: true,
+    attempts: 2,
+    captureInterval: {
+      startedAt: '2026-08-04T10:00:00Z',
+      completedAt: '2026-08-04T10:00:10Z'
+    },
+    repositories: [
+      {
+        repositoryNodeId: 'R_one',
+        fullName: 'octocat/one',
+        current: [current, retained],
+        resulting: [destination, retained],
+        added: [destination],
+        removed: [current],
+        unchanged: [retained],
+        noOps: [],
+        createsJob: true
+      },
+      {
+        repositoryNodeId: 'R_two',
+        fullName: 'github/two',
+        current: [destination],
+        resulting: [destination],
+        added: [],
+        removed: [],
+        unchanged: [destination],
+        noOps: [destination],
+        createsJob: false
+      }
+    ],
+    refreshedFromJobId
+  }
+}
+
+function previewList(listNodeId: string, name: string): MembershipListPreviewItem {
+  return {listNodeId, name, visibility: 'public', exists: true}
+}
+
+function membershipMutationDetails(status: MutationJobStatus): MembershipMutationDetails {
+  const before = {listNodeIds: ['L_current'], fingerprint: '["L_current"]'}
+  const desired = {listNodeIds: ['L_destination'], fingerprint: '["L_destination"]'}
+  const catalog = {
+    entries: [
+      {
+        listNodeId: 'L_destination',
+        exists: true as const,
+        name: 'Destination List',
+        visibility: 'public' as const
+      }
+    ],
+    fingerprint: 'catalog'
+  }
+  return {
+    intent: {
+      kind: 'add',
+      githubUserId: '42',
+      repositoryNodeId: 'R_one',
+      additions: ['L_destination']
+    },
+    confirmedBefore: before,
+    desired,
+    confirmedCatalog: catalog,
+    latestObserved: status === 'queued' ? null : before,
+    latestObservedCatalog: status === 'queued' ? null : catalog,
+    membershipFingerprint: before.fingerprint,
+    listCatalogFingerprint: catalog.fingerprint,
+    mutationPayload: null,
+    recoveryPhase: null,
+    needsConfirmation: status === 'needs-confirmation'
+      ? {
+          confirmedBefore: before,
+          observed: desired,
+          confirmedCatalog: catalog,
+          observedCatalog: catalog
+        }
+      : null,
+    unstableObservation: status === 'unstable-observation'
+      ? {
+          status: 'changing',
+          attempts: 3,
+          rateLimitResetAt: null,
+          occurredAt: '2026-08-04T10:00:00Z'
+        }
+      : null,
+    verificationConflict: status === 'verification-conflict'
+      ? {desired, observed: before}
+      : null
+  }
+}
+
 function mutationJob(
   githubUserId: string,
   status: MutationJobStatus,
@@ -398,6 +702,7 @@ function mutationJob(
             occurredAt: '2026-08-04T10:01:00Z'
           }
         : null,
+    membershipDetails: null,
     createdAt: `2026-08-04T10:00:${String(index).padStart(2, '0')}Z`,
     updatedAt: '2026-08-04T10:01:00Z'
   }
@@ -450,6 +755,7 @@ function operationHistory(
     attemptCount: 1,
     error: null,
     retryEligibility: 'not-retryable',
+    membershipDetails: null,
     occurredAt: '2026-08-04T10:01:00Z'
   }
 }

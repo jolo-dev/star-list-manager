@@ -64,7 +64,11 @@ export class WriteAuthController {
     const stored = await this.#writeStore.loadAccount(active.githubUserId)
     if (stored && validStoredState(stored, active.githubUserId)) {
       this.#stateAccountId = active.githubUserId
-      this.#state = readyState(stored.lastFailure)
+      this.#state = readyState(
+        stored.lastFailure,
+        active.identity.githubUserId === active.githubUserId &&
+          stored.credential.grantedScopes.includes('user')
+      )
       return this.#state
     }
     if (stored) await this.#writeStore.deleteAccount(active.githubUserId)
@@ -82,6 +86,7 @@ export class WriteAuthController {
     this.#stateAccountId = active.githubUserId
     this.#state = {
       readiness: 'authorization-required',
+      membershipReady: false,
       previewVisible: true,
       authorization: null,
       error: null
@@ -97,6 +102,7 @@ export class WriteAuthController {
     this.#stateAccountId = active.githubUserId
     this.#state = {
       readiness: 'pending',
+      membershipReady: false,
       previewVisible: false,
       authorization: null,
       error: null
@@ -153,14 +159,20 @@ export class WriteAuthController {
       )
       if (this.#authorizationController !== controller) return
       const active = await this.#readStore.loadActive()
-      if (active?.githubUserId !== expectedGitHubUserId) {
+      if (
+        active?.githubUserId !== expectedGitHubUserId ||
+        active.identity.githubUserId !== expectedGitHubUserId
+      ) {
         throw new WriteDeviceAuthorizationFailure('account-mismatch')
+      }
+      if (!validCompleteState(completed, expectedGitHubUserId)) {
+        throw new WriteDeviceAuthorizationFailure('scope-denied')
       }
       await this.#writeStore.save(completed)
       if (this.#authorizationController !== controller) return
       this.#authorizationController = null
       this.#stateAccountId = expectedGitHubUserId
-      this.#state = readyState(null)
+      this.#state = readyState(null, true)
     } catch (error: unknown) {
       if (this.#authorizationController !== controller) return
       this.#authorizationController = null
@@ -173,7 +185,7 @@ export class WriteAuthController {
     if (!active) {
       throw new AppFailure({
         category: 'authentication',
-        message: 'Connect GitHub before authorizing Starring access.',
+        message: 'Connect GitHub before authorizing write access.',
         retryable: false
       })
     }
@@ -199,9 +211,20 @@ function validStoredState(
   )
 }
 
+function validCompleteState(
+  state: WriteAuthStateRecord,
+  githubUserId: GitHubUserId
+): boolean {
+  return (
+    validStoredState(state, githubUserId) &&
+    state.credential.grantedScopes.includes('user')
+  )
+}
+
 function signedOutState(): WriteAuthorizationState {
   return {
     readiness: 'signed-out',
+    membershipReady: false,
     previewVisible: false,
     authorization: null,
     error: null
@@ -213,6 +236,7 @@ function authorizationRequiredState(
 ): WriteAuthorizationState {
   return {
     readiness: 'authorization-required',
+    membershipReady: false,
     previewVisible: false,
     authorization: null,
     error
@@ -224,15 +248,20 @@ function pendingState(
 ): WriteAuthorizationState {
   return {
     readiness: 'pending',
+    membershipReady: false,
     previewVisible: false,
     authorization,
     error: null
   }
 }
 
-function readyState(error: WriteAuthorizationState['error']): WriteAuthorizationState {
+function readyState(
+  error: WriteAuthorizationState['error'],
+  membershipReady: boolean
+): WriteAuthorizationState {
   return {
     readiness: 'ready',
+    membershipReady,
     previewVisible: false,
     authorization: null,
     error
@@ -252,6 +281,7 @@ function failureState(error: unknown): WriteAuthorizationState {
       : 'authorization-required'
   return {
     readiness,
+    membershipReady: false,
     previewVisible: false,
     authorization: null,
     error: sanitizeError(error)

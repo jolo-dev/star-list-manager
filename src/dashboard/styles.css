@@ -903,6 +903,232 @@ h1 {
   line-height: 1.55;
 }
 
+.membership-controls {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 20px;
+  padding: 18px;
+  color: #31453a;
+  background: #eef2ec;
+  border: 1px solid #bdcabe;
+  border-top: 4px solid #52705f;
+}
+
+.membership-controls-bulk {
+  flex: 1 1 100%;
+  min-width: min(620px, 100%);
+  margin: 0;
+}
+
+.membership-heading,
+.membership-preview-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.membership-heading h3,
+.membership-heading p,
+.membership-preview-title h3 {
+  margin: 0;
+}
+
+.membership-heading h3,
+.membership-preview-title h3 {
+  font-family: Georgia, serif;
+  font-size: 18px;
+}
+
+.membership-heading p {
+  margin-top: 4px;
+  color: #637168;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.remote-chip,
+.membership-preview-title span,
+.no-op-label {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  color: #42604f;
+  background: #dce7de;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.membership-operation-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+
+.membership-operation-tabs button {
+  min-height: 34px;
+  padding: 7px;
+  color: #516159;
+  background: #f8f6ef;
+  border: 1px solid #bbc5bc;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.membership-operation-tabs button.is-active {
+  color: #fff8e7;
+  background: #314d3f;
+  border-color: #314d3f;
+}
+
+.native-list-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.native-list-choices label {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px;
+  background: #f8f6ef;
+  border: 1px solid #d2d8d0;
+  font-size: 11px;
+}
+
+.native-list-choices label > span:not(.no-op-label) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.no-op-label {
+  margin-left: auto;
+  color: #6b6043;
+  background: #f2e8c9;
+}
+
+.move-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.move-fields label {
+  display: grid;
+  gap: 5px;
+  color: #637168;
+  font-size: 10px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.move-fields select {
+  min-width: 0;
+  padding: 8px;
+  color: #18211d;
+  background: #fffdf7;
+  border: 1px solid #bbc5bc;
+  font: inherit;
+  font-size: 11px;
+  text-transform: none;
+}
+
+.membership-review {
+  width: fit-content;
+}
+
+.membership-block,
+.membership-activity {
+  margin: 0;
+  padding: 8px 10px;
+  color: #655426;
+  background: #f8edc9;
+  border-left: 3px solid #d69b22;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.membership-preview-list {
+  display: grid;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.membership-preview-card {
+  padding: 14px;
+  background: #f3eee3;
+  border: 1px solid #d8d0bf;
+}
+
+.membership-preview-card.is-no-op {
+  opacity: 0.8;
+}
+
+.membership-preview-set {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 10px;
+  padding-top: 7px;
+  color: #59635e;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.membership-preview-set strong {
+  color: #31453a;
+}
+
+.membership-confirmation:not(.is-destructive) {
+  border-color: #8fa295;
+  border-top-color: #52705f;
+}
+
+.replace-all-warning,
+.concurrency-warning,
+.no-op-summary {
+  padding: 11px 13px;
+  background: #f8edc9;
+  border-left: 3px solid #d69b22;
+  font-size: 12px;
+}
+
+.no-op-summary {
+  color: #42604f;
+  background: #e5eee7;
+  border-color: #52705f;
+}
+
+.membership-job-detail {
+  display: grid;
+  gap: 7px;
+  color: #68736d;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.refresh-membership-preview {
+  width: fit-content;
+  padding: 6px 8px;
+  font-size: 10px;
+}
+
+.conflict-detail,
+.partial-batch-note {
+  color: #7b3022;
+}
+
+.partial-batch-note {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: #f6e5de;
+  border-left: 3px solid #a44329;
+  font-size: 12px;
+}
+
 .repository-job-status {
   margin-bottom: 10px;
 }
@@ -1389,6 +1615,19 @@ h1 {
   .operation-history-list li {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .membership-controls-bulk {
+    min-width: 0;
+  }
+
+  .native-list-choices,
+  .move-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .membership-operation-tabs {
+    grid-template-columns: 1fr;
   }
 
   .selection-actions .danger-action,

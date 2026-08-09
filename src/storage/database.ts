@@ -1,5 +1,5 @@
 export const libraryDatabaseName = 'star-list-manager'
-export const libraryDatabaseVersion = 3
+export const libraryDatabaseVersion = 4
 
 export const libraryStores = {
   repositories: 'repositories',
@@ -63,7 +63,7 @@ export function openLibraryDatabase(
       }
 
       try {
-        migrateLibraryDatabase(request.result, event.oldVersion)
+        migrateLibraryDatabase(request.result, transaction, event.oldVersion)
         options.onUpgrade?.(event.oldVersion, event.newVersion ?? libraryDatabaseVersion)
       } catch (error: unknown) {
         transaction.abort()
@@ -123,7 +123,11 @@ export function requestResult<T>(request: IDBRequest<T>): Promise<T> {
   })
 }
 
-function migrateLibraryDatabase(database: IDBDatabase, oldVersion: number): void {
+function migrateLibraryDatabase(
+  database: IDBDatabase,
+  transaction: IDBTransaction,
+  oldVersion: number
+): void {
   if (oldVersion < 1) createLibraryDatabaseVersionOne(database)
   if (oldVersion < 2) {
     database.createObjectStore(libraryStores.writeAuthState, {
@@ -131,6 +135,22 @@ function migrateLibraryDatabase(database: IDBDatabase, oldVersion: number): void
     })
   }
   if (oldVersion < 3) createLibraryDatabaseVersionThree(database)
+  if (oldVersion < 4) migrateLibraryDatabaseVersionFour(transaction)
+}
+
+function migrateLibraryDatabaseVersionFour(transaction: IDBTransaction): void {
+  for (const storeName of [libraryStores.mutationJobs, libraryStores.operationHistory]) {
+    const request = transaction.objectStore(storeName).openCursor()
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) return
+      const value: unknown = cursor.value
+      if (typeof value === 'object' && value !== null) {
+        cursor.update({...value, membershipDetails: null})
+      }
+      cursor.continue()
+    }
+  }
 }
 
 function createLibraryDatabaseVersionThree(database: IDBDatabase): void {

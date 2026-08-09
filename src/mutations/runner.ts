@@ -25,6 +25,10 @@ import {
   transitionMutationJob,
   type ClaimedMutationWork
 } from '../storage/mutations'
+import {
+  MembershipMutationExecutor,
+  type MembershipMutationServices
+} from './membership-runner'
 
 const defaultMaximumAutomaticAttempts = 3
 const defaultRetryDelayMs = 30_000
@@ -38,6 +42,7 @@ export interface MutationQueueRunnerOptions {
   readonly database: IDBDatabase
   readonly authStore: Pick<AuthStore, 'loadActive'>
   readonly service: UnstarQueueService
+  readonly membershipService?: Omit<MembershipMutationServices, 'repositoryGuard'>
   readonly scheduleWake: (nextExecutionAt: IsoDateTime | null) => Promise<void>
   readonly now?: () => number
   readonly createId?: (kind: 'attempt' | 'history') => string
@@ -49,6 +54,7 @@ export class MutationQueueRunner {
   readonly #database: IDBDatabase
   readonly #authStore: Pick<AuthStore, 'loadActive'>
   readonly #service: UnstarQueueService
+  readonly #membershipExecutor: MembershipMutationExecutor | null
   readonly #scheduleWake: (nextExecutionAt: IsoDateTime | null) => Promise<void>
   readonly #now: () => number
   readonly #createId: (kind: 'attempt' | 'history') => string
@@ -76,6 +82,21 @@ export class MutationQueueRunner {
     if (!Number.isFinite(this.#retryDelayMs) || this.#retryDelayMs < 1) {
       throw new TypeError('The mutation retry delay must be positive.')
     }
+    this.#membershipExecutor = options.membershipService
+      ? new MembershipMutationExecutor({
+          database: this.#database,
+          authStore: this.#authStore,
+          services: {
+            ...options.membershipService,
+            repositoryGuard: this.#service
+          },
+          now: this.#now,
+          createId: this.#createId,
+          maximumAutomaticAttempts: this.#maximumAutomaticAttempts,
+          retryDelayMs: this.#retryDelayMs,
+          paused: () => this.#paused
+        })
+      : null
   }
 
   check(): Promise<void> {
@@ -133,6 +154,13 @@ export class MutationQueueRunner {
   }
 
   async #process(work: ClaimedMutationWork): Promise<void> {
+    if (work.job.mutationKind === 'native-list-membership') {
+      if (!this.#membershipExecutor) {
+        throw new Error('Native List membership mutation service is unavailable.')
+      }
+      await this.#membershipExecutor.process(work)
+      return
+    }
     const startedAt = this.#timestamp()
     if (!(await this.#ownerStillActive(work.job))) return
     if (work.recovery) {
