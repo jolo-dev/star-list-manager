@@ -4,7 +4,8 @@ import {
   clearBrowserAlarm,
   createBrowserAlarm,
   onBrowserAlarm,
-  onBrowserStartup
+  onBrowserStartup,
+  openOrFocusDashboard
 } from '../../src/platform/browser'
 
 const originalChrome = Object.getOwnPropertyDescriptor(globalThis, 'chrome')
@@ -64,6 +65,31 @@ describe('browser alarm platform', () => {
       'https://api.github.com/*',
       'https://github.com/login/*'
     ])
+  })
+})
+
+describe('dashboard platform', () => {
+  test('opens the compiled options page when no dashboard tab exists', async () => {
+    const created: string[] = []
+    Object.defineProperty(globalThis, 'chrome', {
+      configurable: true,
+      value: {
+        runtime: {
+          getURL: (path: string) => `chrome-extension://fixture/${path}`
+        },
+        tabs: {
+          query: () => Promise.resolve([]),
+          create: ({url}: {readonly url: string}) => {
+            created.push(url)
+            return Promise.resolve()
+          }
+        }
+      } as unknown as typeof chrome
+    })
+
+    await openOrFocusDashboard()
+
+    expect(created).toEqual(['chrome-extension://fixture/options/index.html'])
   })
 })
 

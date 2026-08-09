@@ -5,7 +5,7 @@ const firefoxLike =
   import.meta.env.EXTENSION_PUBLIC_BROWSER === 'firefox' ||
   import.meta.env.EXTENSION_PUBLIC_BROWSER === 'gecko-based'
 
-const dashboardPath = 'dashboard/index.html'
+const dashboardPath = 'options/index.html'
 
 interface PlatformTab {
   readonly id?: number
