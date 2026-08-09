@@ -43,13 +43,13 @@ Queued jobs may be cancelled only before remote execution begins. Network and se
 
 ## Development
 
-Install with Bun 1.3.14 or a compatible Bun release:
+Install dependencies with Bun 1.3.14:
 
 ```bash
-bun install
+bun install --frozen-lockfile
 ```
 
-Create `.env.local` with public client IDs for a read-only GitHub App and, when testing optional Starring writes, a separate OAuth App. Both apps must have device flow enabled:
+Create `.env.local` with public client IDs for a read-only GitHub App and a separate OAuth App for optional Starring and native List membership writes. Both apps must have device flow enabled:
 
 ```text
 EXTENSION_PUBLIC_GITHUB_CLIENT_ID=your_public_client_id
@@ -66,6 +66,26 @@ Run development builds:
 bun run dev
 bun run dev -- --browser=firefox
 ```
+
+Build production bundles:
+
+```bash
+env -u NODE_OPTIONS bun run build:chrome
+env -u NODE_OPTIONS bun run build:firefox
+```
+
+The unpacked extensions are written to `dist/chrome/` and `dist/firefox/`.
+
+Native List membership controls are disabled by default. Enable them only after completing the capability and isolated-profile checks in [`docs/native-list-membership-fixture.md`](docs/native-list-membership-fixture.md):
+
+```bash
+EXTENSION_PUBLIC_GITHUB_LIST_MEMBERSHIP_WRITE_ENABLED=true \
+  env -u NODE_OPTIONS bun run build:chrome
+```
+
+To load the Chromium build, open `chrome://extensions`, enable Developer mode, select **Load unpacked**, and choose `dist/chrome/`.
+
+To load the Firefox build, open `about:debugging#/runtime/this-firefox`, select **Load Temporary Add-on**, and choose `dist/firefox/manifest.json`.
 
 Run the complete verification suite:
 
