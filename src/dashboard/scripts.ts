@@ -47,6 +47,7 @@ const {
   h1,
   h2,
   h3,
+  h4,
   header,
   input,
   label,
@@ -108,6 +109,10 @@ const membershipActivity = van.state<string | null>(null)
 const pendingMembershipPreview = van.state<StableMembershipPreviewResponse | null>(null)
 const confirmingMembership = van.state(false)
 const syncing = van.state(false)
+let unstarDialogInvoker: DialogInvoker | null = null
+let membershipDialogInvoker: DialogInvoker | null = null
+let nextMembershipPreviewRequestToken = 0
+let activeMembershipPreviewRequestToken: number | null = null
 let pollTimer: number | null = null
 let autoSyncAccountId: string | null = null
 let dashboardAccountId: string | null = null
@@ -115,6 +120,11 @@ let dashboardAccountId: string | null = null
 export interface UnstarConfirmationTarget {
   readonly repositoryNodeId: string
   readonly fullName: string
+}
+
+interface DialogInvoker {
+  readonly element: HTMLElement
+  readonly id: string | null
 }
 
 function Dashboard() {
@@ -145,19 +155,22 @@ function Navigation() {
       span({class: 'brand-mark', 'aria-hidden': 'true'}, 'S'),
       div(span({class: 'brand-name'}, 'Star List'), span('Manager'))
     ),
-    p({class: 'nav-heading'}, 'Library'),
-    ul(
-      {class: 'nav-list'},
-      NavItem('Inbox', {kind: 'inbox'}, counts.inbox),
-      NavItem('Backlog', {kind: 'backlog'}, counts.backlog),
-      NavItem('Due', {kind: 'due'}, counts.due),
-      NavItem('Organized', {kind: 'organized'}, counts.organized),
-      NavItem('All stars', {kind: 'all'}, counts.all),
-      NavItem('Unstarred history', {kind: 'history'}, counts.history)
+    details(
+      {class: 'nav-group', open: true},
+      summary('Triage'),
+      ul(
+        {class: 'nav-list nav-list-primary'},
+        NavItem('Inbox', {kind: 'inbox'}, counts.inbox),
+        NavItem('Backlog', {kind: 'backlog'}, counts.backlog),
+        NavItem('Due', {kind: 'due'}, counts.due),
+        NavItem('Organized', {kind: 'organized'}, counts.organized),
+        NavItem('All stars', {kind: 'all'}, counts.all)
+      )
     ),
     lists.length > 0
-      ? div(
-          p({class: 'nav-heading'}, 'GitHub Lists'),
+      ? details(
+          {class: 'nav-group'},
+          summary('GitHub Lists'),
           ul(
             {class: 'nav-list nav-list-secondary'},
             ...lists.map((nativeList) =>
@@ -171,8 +184,9 @@ function Navigation() {
         )
       : null,
     tags.length > 0
-      ? div(
-          p({class: 'nav-heading'}, 'Local tags'),
+      ? details(
+          {class: 'nav-group'},
+          summary('Local tags'),
           ul(
             {class: 'nav-list nav-list-secondary'},
             ...tags.map(([tag, count]) =>
@@ -181,10 +195,12 @@ function Navigation() {
           )
         )
       : null,
-    div(
-      {class: 'sidebar-footer'},
+    details(
+      {class: 'nav-group', open: true},
+      summary('Utilities'),
       ul(
-        {class: 'nav-list'},
+        {class: 'nav-list nav-list-secondary'},
+        NavItem('Unstarred history', {kind: 'history'}, counts.history),
         NavItem(
           'Operations',
           {kind: 'operations'},
@@ -192,7 +208,6 @@ function Navigation() {
         ),
         NavItem('Settings', {kind: 'settings'}, null)
       ),
-      p({class: 'local-note'}, 'Private notes and tags stay in this browser profile.')
     )
   )
 }
@@ -205,11 +220,12 @@ function NavItem(title: string, view: LibraryView, count: number | null) {
         type: 'button',
         ...(isActiveView(view) ? {'aria-current': 'page'} : {}),
         onclick: () => {
+          if (enqueueingUnstars.val || confirmingMembership.val) return
           activeView.val = view
           selectedRepositoryNodeId.val = null
           selectedForUnstar.val = new Set()
-          pendingUnstarTargets.val = []
-          cancelMembershipPreview()
+          resetUnstarConfirmation()
+          resetMembershipPreview()
         }
       },
       span({class: 'nav-label'}, title),
@@ -271,7 +287,7 @@ function ReadyState(state: AppState) {
             appState.val,
             pendingUnstarTargets.val,
             () => void confirmPendingUnstars(),
-            cancelUnstarConfirmation
+            () => cancelUnstarConfirmation(true)
           )
         : '',
     () =>
@@ -279,7 +295,7 @@ function ReadyState(state: AppState) {
         ? MembershipConfirmation(
             pendingMembershipPreview.val,
             () => void confirmMembershipPreview(),
-            cancelMembershipPreview
+            () => cancelMembershipPreview(true)
           )
         : ''
   )
@@ -294,17 +310,16 @@ function LibraryResults(repositories: readonly LibraryRepository[]) {
   return div(
     {class: 'library-grid'},
     section(
-      {
-        class: 'results-panel',
-        'aria-label': 'Repositories',
-        tabindex: 0,
-        onkeydown: (event: KeyboardEvent) =>
-          handleResultKey(event, visibleResults)
-      },
+      {class: 'results-panel'},
       results.length === 0
         ? NoResultsState(query.search.length > 0)
         : ul(
-            {class: 'repository-list', role: 'listbox'},
+            {
+              class: 'repository-list',
+              'aria-label': 'Repositories',
+              onkeydown: (event: KeyboardEvent) =>
+                handleResultKey(event, visibleResults)
+            },
             ...visibleResults.map((item) => RepositoryRow(item, selected))
           ),
       results.length > visibleResults.length
@@ -338,7 +353,7 @@ function LibraryHeader(
       {class: 'library-actions'},
       label(
         {class: 'search-field'},
-        span({class: 'sr-only'}, 'Search repositories'),
+        span('Search'),
         input({
           id: 'library-search',
           type: 'search',
@@ -350,57 +365,6 @@ function LibraryHeader(
           }
         })
       ),
-      label(
-        span('Language'),
-        select(
-          {
-            value: language.val ?? '',
-            onchange: (event: Event) => {
-              language.val = (event.currentTarget as HTMLSelectElement).value || null
-            }
-          },
-          option({value: ''}, 'All'),
-          ...languages.map((value) => option({value}, value))
-        )
-      ),
-      label(
-        span('Sort'),
-        select(
-          {
-            value: sort,
-            onchange: (event: Event) => {
-              sort.val = (event.currentTarget as HTMLSelectElement)
-                .value as RepositorySort
-            }
-          },
-          option({value: 'starred-at'}, 'Star date'),
-          option({value: 'pushed-at'}, 'Push date'),
-          option({value: 'reviewed-at'}, 'Review date'),
-          option({value: 'name'}, 'Name')
-        )
-      ),
-      button(
-        {
-          class: 'filter-toggle',
-          type: 'button',
-          'aria-pressed': ascending,
-          onclick: () => {
-            ascending.val = !ascending.val
-          }
-        },
-        () => (ascending.val ? 'Ascending' : 'Descending')
-      ),
-      button(
-        {
-          class: 'filter-toggle',
-          type: 'button',
-          'aria-pressed': hideArchived,
-          onclick: () => {
-            hideArchived.val = !hideArchived.val
-          }
-        },
-        () => (hideArchived.val ? 'Archived hidden' : 'Archived shown')
-      ),
       button(
         {
           class: 'refresh-button',
@@ -409,6 +373,64 @@ function LibraryHeader(
           onclick: () => void sendAction({type: 'start-sync', force: true})
         },
         () => (syncing.val ? 'Syncing…' : 'Refresh')
+      ),
+      details(
+        {class: 'view-options'},
+        summary('View options'),
+        div(
+          {class: 'view-options-controls'},
+          label(
+            span('Language'),
+            select(
+              {
+                value: language.val ?? '',
+                onchange: (event: Event) => {
+                  language.val = (event.currentTarget as HTMLSelectElement).value || null
+                }
+              },
+              option({value: ''}, 'All'),
+              ...languages.map((value) => option({value}, value))
+            )
+          ),
+          label(
+            span('Sort'),
+            select(
+              {
+                value: sort,
+                onchange: (event: Event) => {
+                  sort.val = (event.currentTarget as HTMLSelectElement)
+                    .value as RepositorySort
+                }
+              },
+              option({value: 'starred-at'}, 'Star date'),
+              option({value: 'pushed-at'}, 'Push date'),
+              option({value: 'reviewed-at'}, 'Review date'),
+              option({value: 'name'}, 'Name')
+            )
+          ),
+          button(
+            {
+              class: 'filter-toggle',
+              type: 'button',
+              'aria-pressed': ascending,
+              onclick: () => {
+                ascending.val = !ascending.val
+              }
+            },
+            () => (ascending.val ? 'Ascending' : 'Descending')
+          ),
+          button(
+            {
+              class: 'filter-toggle',
+              type: 'button',
+              'aria-pressed': hideArchived,
+              onclick: () => {
+                hideArchived.val = !hideArchived.val
+              }
+            },
+            () => (hideArchived.val ? 'Archived hidden' : 'Archived shown')
+          )
+        )
       ),
       state.identity
         ? span(
@@ -450,12 +472,14 @@ function SelectionActions(
         {
           class: 'danger-action',
           type: 'button',
+          'data-dialog-invoker': `unstar-bulk-${selected.map((repository) => repository.repositoryNodeId).join('-')}`,
           disabled:
             state.writeAuthorization.readiness !== 'ready' ||
             selected.some((repository) =>
               hasActiveRepositoryJob(repository.repositoryNodeId)
-            ),
-          onclick: () => openUnstarConfirmation(selected)
+          ),
+          onclick: (event: MouseEvent) =>
+            openUnstarConfirmation(selected, event.currentTarget as HTMLElement)
         },
         `Review unstar for ${selected.length}`
       ),
@@ -509,6 +533,7 @@ function NativeListMembershipControls(
       moveDestinationListNodeId.val.length > 0 &&
       moveSourceListNodeId.val !== moveDestinationListNodeId.val
     : selected.size > 0
+  const heading = context === 'single' ? h4 : h3
 
   return div(
     {
@@ -518,7 +543,7 @@ function NativeListMembershipControls(
     div(
       {class: 'membership-heading'},
       div(
-        h3('Native GitHub Lists'),
+        heading('Native GitHub Lists'),
         p('Remote membership among existing Lists. Local tags are separate and stay unchanged.')
       ),
       span({class: 'remote-chip'}, 'GitHub account')
@@ -633,11 +658,13 @@ function NativeListMembershipControls(
           ? 'primary-action membership-review'
           : 'danger-action membership-review',
         type: 'button',
+        'data-dialog-invoker': `membership-${context}-${repositories.map((repository) => repository.repositoryNodeId).join('-')}`,
         disabled: !ready || blockedByJob || !selectionReady,
-        onclick: () =>
+        onclick: (event: MouseEvent) =>
           void requestMembershipPreview(
             repositories.map((repository) => repository.repositoryNodeId),
-            selectedMembershipOperation()
+            selectedMembershipOperation(),
+            event.currentTarget as HTMLElement
           )
       },
       operation === 'add'
@@ -656,6 +683,13 @@ function MembershipConfirmation(
 ) {
   const changed = preview.repositories.filter((repository) => repository.createsJob)
   const destructive = preview.operation !== 'add'
+  const repositoryCount = preview.repositories.length
+  const repositoryNoun = repositoryCount === 1 ? 'repository' : 'repositories'
+  const changeSummary = {
+    add: 'will be added to the selected GitHub Lists',
+    remove: 'will be removed from the selected GitHub Lists',
+    move: 'will move between GitHub Lists'
+  }[preview.operation]
   return div(
     {class: 'dialog-backdrop', role: 'presentation'},
     section(
@@ -664,7 +698,9 @@ function MembershipConfirmation(
         role: 'dialog',
         'aria-modal': 'true',
         'aria-labelledby': 'membership-confirmation-title',
-        tabindex: -1
+        tabindex: -1,
+        onkeydown: (event: KeyboardEvent) =>
+          handleDialogKeydown(event, !confirmingMembership.val, onCancel)
       },
       p(
         {class: 'eyebrow'},
@@ -672,19 +708,22 @@ function MembershipConfirmation(
           ? 'Refreshed confirmation required'
           : 'Remote GitHub List change'
       ),
-      h2(
-        {id: 'membership-confirmation-title'},
-        preview.refreshedFromJobId
-          ? 'GitHub changed after your earlier confirmation'
-          : `${preview.operation === 'add' ? 'Add' : preview.operation === 'remove' ? 'Remove' : 'Move'} native List membership?`
+      h2({id: 'membership-confirmation-title'}, `Review List memberships for ${repositoryCount} ${repositoryNoun}`),
+      p({class: 'membership-preview-scope'}, `Preview scope: ${repositoryCount} ${repositoryNoun}.`),
+      p(
+        {class: 'membership-outcome'},
+        changed.length === 0
+          ? '0 repositories will change. 0 jobs will be queued. Review the current and resulting complete List sets below; no confirmation is required.'
+          : `${changed.length} ${changed.length === 1 ? 'repository' : 'repositories'} ${changeSummary}. Review the current and resulting complete List sets below, then confirm${preview.refreshedFromJobId ? ' the refreshed preview' : ''} to queue the preserved original intent.`
       ),
       preview.refreshedFromJobId
         ? p(
-            'The original intent is preserved below, but the refreshed current and resulting sets require a new confirmation. The earlier confirmation will not execute.'
+            {class: 'membership-refreshed-notice'},
+            'GitHub List membership changed after your earlier confirmation. The original intent is preserved, but a fresh stable observation produced this updated preview and requires a new confirmation; the earlier confirmation will not execute.'
           )
         : null,
       p(
-        `Stable after ${preview.attempts} complete observations. This preview covers exactly ${preview.repositories.length} ${preview.repositories.length === 1 ? 'repository' : 'repositories'}; ${changed.length} will create queued jobs.`
+        `Stable after ${preview.attempts} complete observations. This preview covers exactly ${repositoryCount} ${repositoryNoun}; ${changed.length} will create queued jobs.`
       ),
       div(
         {class: 'membership-preview-list'},
@@ -719,10 +758,12 @@ function MembershipConfirmation(
         ),
         button(
           {
-            class: 'secondary-action',
+            class: 'secondary-action dialog-cancel',
             type: 'button',
             disabled: confirmingMembership.val,
-            onclick: onCancel
+            onclick: () => {
+              if (!confirmingMembership.val) onCancel()
+            }
           },
           'Cancel'
         )
@@ -770,18 +811,17 @@ function UnstarConfirmation(
   return div(
     {
       class: 'dialog-backdrop',
-      role: 'presentation',
-      onkeydown: (event: KeyboardEvent) => {
-        if (event.key === 'Escape') onCancel()
-      }
+      role: 'presentation'
     },
     section(
       {
-        class: 'confirmation-dialog',
+        class: 'confirmation-dialog unstar-confirmation',
         role: 'dialog',
         'aria-modal': 'true',
         'aria-labelledby': 'unstar-confirmation-title',
-        tabindex: -1
+        tabindex: -1,
+        onkeydown: (event: KeyboardEvent) =>
+          handleDialogKeydown(event, !enqueueingUnstars.val, onCancel)
       },
       p({class: 'eyebrow'}, 'Remote GitHub account change'),
       h2(
@@ -818,10 +858,12 @@ function UnstarConfirmation(
         ),
         button(
           {
-            class: 'secondary-action',
+            class: 'secondary-action dialog-cancel',
             type: 'button',
             disabled: enqueueingUnstars.val,
-            onclick: onCancel
+            onclick: () => {
+              if (!enqueueingUnstars.val) onCancel()
+            }
           },
           'Cancel'
         )
@@ -836,7 +878,9 @@ export function renderUnstarConfirmation(
   onConfirm: () => void,
   onCancel: () => void
 ): HTMLElement {
-  return UnstarConfirmation(state, targets, onConfirm, onCancel) as HTMLElement
+  const confirmation = UnstarConfirmation(state, targets, onConfirm, onCancel) as HTMLElement
+  focusInitialDialogAction('.unstar-confirmation')
+  return confirmation
 }
 
 function OperationsState(state: AppState) {
@@ -892,7 +936,7 @@ function OperationsState(state: AppState) {
         ? MembershipConfirmation(
             pendingMembershipPreview.val,
             () => void confirmMembershipPreview(),
-            cancelMembershipPreview
+            () => cancelMembershipPreview(true)
           )
         : ''
   )
@@ -960,7 +1004,7 @@ function MutationBatchCard(
     batch.summary.blockedUnknown > 0
       ? p(
           {class: 'blocked-note'},
-          'Blocked-unknown jobs are not retried automatically. Refresh the library before deciding on a later manual attempt.'
+          `Blocked result for ${batch.summary.blockedUnknown} ${batch.summary.blockedUnknown === 1 ? 'repository: its' : 'repositories: their'} final GitHub ${batch.summary.blockedUnknown === 1 ? 'state is' : 'states are'} unknown. ${batch.summary.blockedUnknown === 1 ? 'This job is' : 'These jobs are'} not retried automatically. Refresh the library, review the affected ${batch.summary.blockedUnknown === 1 ? 'repository' : 'repositories'}, then decide whether to make a separate manual attempt.`
         )
       : null,
     batch.status === 'partially-completed'
@@ -979,15 +1023,20 @@ function SummaryCount(title: string, count: number) {
 function MembershipJobDetails(job: MutationJobRecord) {
   const details = job.membershipDetails
   if (job.mutationKind !== 'native-list-membership' || !details) return null
+  const repository = `${job.ownerLogin}/${job.repositoryName}`
   if (job.status === 'needs-confirmation') {
     return div(
-      {class: 'membership-job-detail'},
-      span('A fresh stable observation changed the preview. Original intent is retained; no write occurred.'),
+      {class: 'membership-job-detail membership-recovery-detail'},
+      span(
+        `${repository}: GitHub List membership changed after the earlier confirmation. A fresh stable observation produced a new preview; no write occurred.`
+      ),
       button(
         {
           class: 'secondary-action refresh-membership-preview',
           type: 'button',
-          onclick: () => void refreshMembershipPreview(job.jobId)
+          'data-dialog-invoker': `membership-refresh-${job.jobId}`,
+          onclick: (event: MouseEvent) =>
+            void refreshMembershipPreview(job.jobId, event.currentTarget as HTMLElement)
         },
         'Review refreshed preview'
       )
@@ -995,14 +1044,20 @@ function MembershipJobDetails(job: MutationJobRecord) {
   }
   if (job.status === 'unstable-observation' && details.unstableObservation) {
     return span(
-      {class: 'membership-job-detail'},
-      `Safety block: ${details.unstableObservation.status} after ${details.unstableObservation.attempts} observation attempts. No membership write was verified.`
+      {class: 'membership-job-detail membership-recovery-detail'},
+      `${repository}: List membership did not reach a stable observation after ${details.unstableObservation.attempts} attempts, so no membership write was verified. Refresh the library and review the current Lists before making a new request.`
     )
   }
   if (job.status === 'verification-conflict' && details.verificationConflict) {
     return span(
-      {class: 'membership-job-detail conflict-detail'},
-      `Desired Lists: ${formatListIds(details.verificationConflict.desired.listNodeIds)}. Observed Lists: ${formatListIds(details.verificationConflict.observed.listNodeIds)}.`
+      {class: 'membership-job-detail membership-recovery-detail conflict-detail'},
+      `${repository}: GitHub's observed Lists do not match the requested result. Desired Lists: ${formatListIds(details.verificationConflict.desired.listNodeIds)}. Observed Lists: ${formatListIds(details.verificationConflict.observed.listNodeIds)}. Refresh the library and review before making a new request.`
+    )
+  }
+  if (job.status === 'blocked-unknown') {
+    return span(
+      {class: 'membership-job-detail membership-recovery-detail'},
+      `${repository}: GitHub's final List membership is unknown. This job is not retried automatically. Refresh the library, review the affected repository, then decide whether to make a separate manual attempt.`
     )
   }
   if (job.status === 'succeeded') {
@@ -1047,7 +1102,7 @@ function RepositoryOperationDetails(repositoryNodeId: string) {
   if (jobs.length === 0 && history.length === 0) return null
   return div(
     {class: 'detail-group repository-operations'},
-    h3('Remote operation outcomes'),
+    h4('Remote operation outcomes'),
     jobs[0] ? div({class: 'repository-job-status'}, MutationStatus(jobs[0])) : null,
     ...history.map((record) =>
       p(
@@ -1103,8 +1158,7 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
       {
         class: active ? 'repository-row is-selected' : 'repository-row',
         type: 'button',
-        role: 'option',
-        'aria-selected': active,
+        'data-repository-node-id': repository.repositoryNodeId,
         onclick: () => {
           selectedRepositoryNodeId.val = repository.repositoryNodeId
         }
@@ -1145,53 +1199,30 @@ function RepositoryInspector(item: LibraryRepository) {
         : null
     ),
     p({class: 'inspector-description'}, repository.description ?? 'No description provided.'),
-    DetailGroup(
-      'Repository',
-      repository.primaryLanguage ? `Language: ${repository.primaryLanguage}` : 'Language: not reported',
-      `Starred: ${formatDate(repository.starredAt)}`,
-      repository.pushedAt ? `Last push: ${formatDate(repository.pushedAt)}` : 'Last push: not reported',
-      repository.archived ? 'Archived' : 'Active',
-      repository.disabled ? 'Disabled by GitHub' : null
+    section(
+      {class: 'inspector-section', 'aria-label': 'Repository facts'},
+      h3('Repository facts'),
+      DetailGroup(
+        'Repository',
+        repository.primaryLanguage ? `Language: ${repository.primaryLanguage}` : 'Language: not reported',
+        `Starred: ${formatDate(repository.starredAt)}`,
+        repository.pushedAt ? `Last push: ${formatDate(repository.pushedAt)}` : 'Last push: not reported',
+        repository.archived ? 'Archived' : 'Active',
+        repository.disabled ? 'Disabled by GitHub' : null
+      ),
+      DetailGroup(
+        'GitHub Lists',
+        ...(item.nativeLists.length > 0
+          ? item.nativeLists.map((nativeList) => nativeList.name)
+          : ['No synchronized List membership'])
+      ),
+      DetailGroup(
+        'Topics',
+        ...(repository.topics.length > 0 ? repository.topics : ['No topics reported'])
+      )
     ),
-    DetailGroup(
-      'GitHub Lists',
-      ...(item.nativeLists.length > 0
-        ? item.nativeLists.map((nativeList) => nativeList.name)
-        : ['No synchronized List membership'])
-    ),
-    repository.isStarred
-      ? NativeListMembershipControls(appState.val, [repository], 'single')
-      : null,
-    DetailGroup(
-      'Topics',
-      ...(repository.topics.length > 0 ? repository.topics : ['No topics reported'])
-    ),
-    RepositoryOperationDetails(repository.repositoryNodeId),
-    repository.isStarred
-      ? div(
-          {class: 'remote-action-card'},
-          h3('GitHub account change'),
-          p('Remove this repository from your GitHub stars after explicit confirmation and remote verification.'),
-          button(
-            {
-              class: 'danger-action',
-              type: 'button',
-              disabled:
-                appState.val.writeAuthorization.readiness !== 'ready' ||
-                hasActiveRepositoryJob(repository.repositoryNodeId),
-              onclick: () => openUnstarConfirmation([repository])
-            },
-            hasActiveRepositoryJob(repository.repositoryNodeId)
-              ? 'Unstar already queued'
-              : 'Review unstar'
-          ),
-          appState.val.writeAuthorization.readiness !== 'ready'
-            ? WriteReadinessNotice(appState.val)
-            : null
-        )
-      : null,
-    div(
-      {class: 'annotation-editor'},
+    section(
+      {class: 'inspector-section annotation-editor', 'aria-label': 'Local organization'},
       h3('Local organization'),
       div(
         {class: 'triage-actions'},
@@ -1253,6 +1284,43 @@ function RepositoryInspector(item: LibraryRepository) {
         },
         annotation?.favorite ? 'Remove local favorite' : 'Add local favorite'
       )
+    ),
+    section(
+      {class: 'inspector-section github-account-section', 'aria-label': 'GitHub account changes'},
+      h3('GitHub account changes'),
+      p(
+        {class: 'inspector-section-intro'},
+        'List membership and starring controls below change your connected GitHub account. Local organization stays in this browser.'
+      ),
+      repository.isStarred
+        ? NativeListMembershipControls(appState.val, [repository], 'single')
+        : null,
+      repository.isStarred
+        ? div(
+            {class: 'github-unstar-action'},
+            h4('Unstar this repository'),
+            p('Remove this repository from your GitHub stars after explicit confirmation and remote verification.'),
+            button(
+              {
+                class: 'danger-action',
+                type: 'button',
+                'data-dialog-invoker': `unstar-${repository.repositoryNodeId}`,
+                disabled:
+                  appState.val.writeAuthorization.readiness !== 'ready' ||
+                  hasActiveRepositoryJob(repository.repositoryNodeId),
+                onclick: (event: MouseEvent) =>
+                  openUnstarConfirmation([repository], event.currentTarget as HTMLElement)
+              },
+              hasActiveRepositoryJob(repository.repositoryNodeId)
+                ? 'Unstar already queued'
+                : 'Review unstar'
+            ),
+            appState.val.writeAuthorization.readiness !== 'ready'
+              ? WriteReadinessNotice(appState.val)
+              : null
+          )
+        : null,
+      RepositoryOperationDetails(repository.repositoryNodeId)
     )
   )
 }
@@ -1277,7 +1345,7 @@ function TriageButton(
 function DetailGroup(title: string, ...values: Array<string | null>) {
   return div(
     {class: 'detail-group'},
-    h3(title),
+    h4(title),
     ul(...values.flatMap((value) => (value ? [li(value)] : [])))
   )
 }
@@ -1699,16 +1767,104 @@ function handleResultKey(
   results: readonly LibraryRepository[]
 ): void {
   if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+  const row = event.target as HTMLElement | null
+  const repositoryNodeId = row?.closest<HTMLButtonElement>('.repository-row')?.dataset.repositoryNodeId
+  if (!repositoryNodeId) return
   event.preventDefault()
   const currentIndex = results.findIndex(
-    (item) => item.repository.repositoryNodeId === selectedRepositoryNodeId.val
+    (item) => item.repository.repositoryNodeId === repositoryNodeId
   )
   const index = nextSelectionIndex(
     currentIndex,
     results.length,
     event.key as 'ArrowDown' | 'ArrowUp' | 'Home' | 'End'
   )
-  selectedRepositoryNodeId.val = results[index]?.repository.repositoryNodeId ?? null
+  const nextRepositoryNodeId = results[index]?.repository.repositoryNodeId ?? null
+  if (!nextRepositoryNodeId) return
+  selectedRepositoryNodeId.val = nextRepositoryNodeId
+  window.setTimeout(() => {
+    [...document.querySelectorAll<HTMLButtonElement>('.repository-list .repository-row')]
+      .find((button) => button.dataset.repositoryNodeId === nextRepositoryNodeId)
+      ?.focus()
+  }, 0)
+}
+
+function handleDialogKeydown(
+  event: KeyboardEvent,
+  cancellable: boolean,
+  onCancel: () => void
+): void {
+  if (event.key === 'Escape') {
+    if (!cancellable) return
+    event.preventDefault()
+    onCancel()
+    return
+  }
+  if (event.key !== 'Tab') return
+
+  const dialog = event.currentTarget as HTMLElement
+  const controls = [
+    ...dialog.querySelectorAll<HTMLElement>(
+      'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+    )
+  ].filter((control) => control.getAttribute('aria-hidden') !== 'true')
+  if (controls.length === 0) {
+    event.preventDefault()
+    dialog.focus()
+    return
+  }
+
+  const first = controls[0]
+  const last = controls.at(-1)
+  const active = document.activeElement
+  if (
+    (event.shiftKey && (active === dialog || active === first)) ||
+    (!event.shiftKey && active === last)
+  ) {
+    event.preventDefault()
+    const target = event.shiftKey ? last : first
+    target?.focus()
+  }
+}
+
+function focusInitialDialogAction(dialogSelector: string): void {
+  window.setTimeout(() => {
+    const dialog = document.querySelector<HTMLElement>(dialogSelector)
+    const cancel = dialog?.querySelector<HTMLElement>('.dialog-cancel:not(:disabled)')
+    if (cancel) cancel.focus()
+    else dialog?.focus()
+  }, 0)
+}
+
+function captureDialogInvoker(element: HTMLElement): DialogInvoker {
+  return {element, id: element.dataset.dialogInvoker ?? null}
+}
+
+function beginMembershipPreviewRequest(invoker: HTMLElement): number | null {
+  if (
+    activeMembershipPreviewRequestToken !== null ||
+    pendingMembershipPreview.val !== null ||
+    confirmingMembership.val
+  ) {
+    return null
+  }
+  const requestToken = ++nextMembershipPreviewRequestToken
+  activeMembershipPreviewRequestToken = requestToken
+  membershipDialogInvoker = captureDialogInvoker(invoker)
+  return requestToken
+}
+
+function restoreDialogInvoker(invoker: DialogInvoker | null): void {
+  window.setTimeout(() => {
+    if (!invoker) return
+    const current = invoker.element.isConnected
+      ? invoker.element
+      : [...document.querySelectorAll<HTMLElement>('[data-dialog-invoker]')].find(
+          (element) => element.dataset.dialogInvoker === invoker.id
+        )
+    if (!current || current.matches(':disabled')) return
+    current.focus()
+  }, 0)
 }
 
 async function updateAnnotation(
@@ -1743,26 +1899,47 @@ function selectedMembershipOperation(): MembershipOperationSelection {
 
 async function requestMembershipPreview(
   repositoryNodeIds: readonly string[],
-  operation: MembershipOperationSelection
+  operation: MembershipOperationSelection,
+  invoker: HTMLElement
 ): Promise<void> {
+  const requestToken = beginMembershipPreviewRequest(invoker)
+  if (requestToken === null) return
   membershipActivity.val =
     'Observing every current native List twice to establish a stable, complete preview...'
-  const response = (await sendRuntimeMessage({
-    type: 'preview-native-list-membership',
-    repositoryNodeIds,
-    operation
-  })) as RuntimeResponse<MembershipPreviewResponse>
-  handleMembershipPreviewResponse(response)
+  try {
+    const response = (await sendRuntimeMessage({
+      type: 'preview-native-list-membership',
+      repositoryNodeIds,
+      operation
+    })) as RuntimeResponse<MembershipPreviewResponse>
+    if (activeMembershipPreviewRequestToken !== requestToken) return
+    activeMembershipPreviewRequestToken = null
+    handleMembershipPreviewResponse(response)
+  } finally {
+    if (activeMembershipPreviewRequestToken === requestToken) {
+      activeMembershipPreviewRequestToken = null
+    }
+  }
 }
 
-async function refreshMembershipPreview(jobId: string): Promise<void> {
+async function refreshMembershipPreview(jobId: string, invoker: HTMLElement): Promise<void> {
+  const requestToken = beginMembershipPreviewRequest(invoker)
+  if (requestToken === null) return
   membershipActivity.val =
     'Refreshing the original intent against two complete GitHub observations...'
-  const response = (await sendRuntimeMessage({
-    type: 'refresh-native-list-membership-preview',
-    jobId
-  })) as RuntimeResponse<MembershipPreviewResponse>
-  handleMembershipPreviewResponse(response)
+  try {
+    const response = (await sendRuntimeMessage({
+      type: 'refresh-native-list-membership-preview',
+      jobId
+    })) as RuntimeResponse<MembershipPreviewResponse>
+    if (activeMembershipPreviewRequestToken !== requestToken) return
+    activeMembershipPreviewRequestToken = null
+    handleMembershipPreviewResponse(response)
+  } finally {
+    if (activeMembershipPreviewRequestToken === requestToken) {
+      activeMembershipPreviewRequestToken = null
+    }
+  }
 }
 
 function handleMembershipPreviewResponse(
@@ -1770,18 +1947,18 @@ function handleMembershipPreviewResponse(
 ): void {
   if (!response.ok) {
     membershipActivity.val = response.error.message
+    membershipDialogInvoker = null
     applyState({...appState.val, error: response.error})
     return
   }
   if (response.data.status !== 'stable') {
     membershipActivity.val = `Safety block: ${response.data.message}`
+    membershipDialogInvoker = null
     return
   }
   membershipActivity.val = `Stable preview captured after ${response.data.attempts} attempts. Confirmation is required.`
   pendingMembershipPreview.val = response.data
-  window.setTimeout(() => {
-    document.querySelector<HTMLElement>('.membership-confirmation')?.focus()
-  }, 0)
+  focusInitialDialogAction('.membership-confirmation')
 }
 
 async function confirmMembershipPreview(): Promise<void> {
@@ -1800,7 +1977,7 @@ async function confirmMembershipPreview(): Promise<void> {
       applyState({...appState.val, error: response.error})
       return
     }
-    pendingMembershipPreview.val = null
+    resetMembershipPreview()
     selectedNativeListIds.val = new Set()
     membershipActivity.val = 'Membership work queued for observation and remote verification.'
     applyState(response.data)
@@ -1809,9 +1986,17 @@ async function confirmMembershipPreview(): Promise<void> {
   }
 }
 
-function cancelMembershipPreview(): void {
+function cancelMembershipPreview(restoreFocus = false): void {
+  if (confirmingMembership.val) return
+  const invoker = membershipDialogInvoker
+  resetMembershipPreview()
+  if (restoreFocus) restoreDialogInvoker(invoker)
+}
+
+function resetMembershipPreview(): void {
+  activeMembershipPreviewRequestToken = null
   pendingMembershipPreview.val = null
-  confirmingMembership.val = false
+  membershipDialogInvoker = null
 }
 
 function membershipReadinessMessage(state: AppState): string {
@@ -1836,18 +2021,29 @@ function toggleUnstarSelection(repositoryNodeId: string, selected: boolean): voi
   selectedForUnstar.val = next
 }
 
-function openUnstarConfirmation(repositories: readonly RepositoryRecord[]): void {
+function openUnstarConfirmation(
+  repositories: readonly RepositoryRecord[],
+  invoker: HTMLElement
+): void {
+  if (pendingUnstarTargets.val.length > 0 || enqueueingUnstars.val) return
+  unstarDialogInvoker = captureDialogInvoker(invoker)
   pendingUnstarTargets.val = repositories.map((repository) => ({
     repositoryNodeId: repository.repositoryNodeId,
     fullName: repository.fullName
   }))
-  window.setTimeout(() => {
-    document.querySelector<HTMLElement>('.confirmation-dialog')?.focus()
-  }, 0)
+  focusInitialDialogAction('.unstar-confirmation')
 }
 
-function cancelUnstarConfirmation(): void {
+function cancelUnstarConfirmation(restoreFocus = false): void {
+  if (enqueueingUnstars.val) return
+  const invoker = unstarDialogInvoker
+  resetUnstarConfirmation()
+  if (restoreFocus) restoreDialogInvoker(invoker)
+}
+
+function resetUnstarConfirmation(): void {
   pendingUnstarTargets.val = []
+  unstarDialogInvoker = null
 }
 
 async function confirmPendingUnstars(): Promise<void> {
@@ -1867,7 +2063,7 @@ async function confirmPendingUnstars(): Promise<void> {
       repositoryNodeIds
     })
     if (queued) {
-      pendingUnstarTargets.val = []
+      resetUnstarConfirmation()
       selectedForUnstar.val = new Set()
     }
   } finally {
@@ -1944,11 +2140,11 @@ function applyState(state: AppState): void {
   const nextAccountId = state.identity?.githubUserId ?? null
   if (dashboardAccountId !== nextAccountId) {
     selectedForUnstar.val = new Set()
-    pendingUnstarTargets.val = []
+    resetUnstarConfirmation()
     selectedRepositoryNodeId.val = null
     selectedNativeListIds.val = new Set()
     membershipActivity.val = null
-    cancelMembershipPreview()
+    resetMembershipPreview()
     dashboardAccountId = nextAccountId
   }
   appState.val = state
@@ -2301,10 +2497,10 @@ export function renderLibraryState(state: AppState): HTMLElement {
   appState.val = state
   activeView.val = {kind: 'all'}
   selectedForUnstar.val = new Set()
-  pendingUnstarTargets.val = []
+  resetUnstarConfirmation()
   selectedNativeListIds.val = new Set()
   membershipActivity.val = null
-  cancelMembershipPreview()
+  resetMembershipPreview()
   return ReadyState(state) as HTMLElement
 }
 
@@ -2319,7 +2515,9 @@ export function selectedUnstarRepositoryIds(): readonly string[] {
 export function renderMembershipConfirmation(
   preview: StableMembershipPreviewResponse
 ): HTMLElement {
-  return MembershipConfirmation(preview, () => undefined, () => undefined) as HTMLElement
+  const confirmation = MembershipConfirmation(preview, () => undefined, () => undefined) as HTMLElement
+  focusInitialDialogAction('.membership-confirmation')
+  return confirmation
 }
 
 const root = document.getElementById('app')

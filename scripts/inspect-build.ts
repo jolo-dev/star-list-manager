@@ -1,10 +1,19 @@
 import {readdir, readFile} from 'node:fs/promises'
-import {extname, join, relative} from 'node:path'
+import {basename, extname, join, relative} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
 const root = fileURLToPath(new URL('../dist', import.meta.url))
-const browsers = ['chrome', 'firefox'] as const
-const pathSeparator = '/'
+const defaultBrowsers = ['chrome', 'firefox'] as const
+const supportedBrowsers = ['chrome', 'firefox', 'chromium-based'] as const
+type Browser = (typeof supportedBrowsers)[number]
+const requestedBrowsers = Bun.argv.slice(2)
+if (requestedBrowsers.length > 1) {
+  throw new Error('Expected at most one inspection target')
+}
+const browsers: readonly Browser[] =
+  requestedBrowsers.length === 0
+    ? defaultBrowsers
+    : [requireSupportedBrowser(requestedBrowsers[0]!)]
 const forbiddenManifestText = [
   '<all_urls>',
   'content_scripts',
@@ -55,7 +64,7 @@ for (const browser of browsers) {
     `${browser} permissions`
   )
   const hosts =
-    browser === 'chrome'
+    browser === 'chrome' || browser === 'chromium-based'
       ? requireStringArray(manifestRecord.host_permissions, 'chrome host permissions')
       : permissions.filter((permission) => permission.startsWith('https://'))
   const browserPermissions = permissions.filter(
@@ -68,23 +77,32 @@ for (const browser of browsers) {
   if (files.some((file) => file.includes('.env'))) {
     throw new Error(`${browser} build contains an environment file`)
   }
+  if (
+    !files.some(
+      (file) =>
+        basename(file).startsWith('GeistMono-Variable') && extname(file) === '.woff2'
+    )
+  ) {
+    throw new Error(`${browser} build is missing a local GeistMono-Variable font asset`)
+  }
   for (const file of files.filter((path) => ['.js', '.html'].includes(extname(path)))) {
+    const relativePath = relative(directory, file).replaceAll('\\', '/')
     const text = await readFile(file, 'utf8')
     for (const forbidden of forbiddenBundleText) {
       if (text.toLocaleLowerCase().includes(forbidden)) {
         throw new Error(
-          `${browser}/${relative(directory, file)} contains forbidden ${forbidden}`
+          `${browser}/${relativePath} contains forbidden ${forbidden}`
         )
       }
     }
     if (extname(file) === '.html' && /<script[^>]+src=["']https?:/i.test(text)) {
-      throw new Error(`${browser}/${relative(directory, file)} loads remote code`)
+      throw new Error(`${browser}/${relativePath} loads remote code`)
     }
-    if (relative(directory, file).startsWith(`options${pathSeparator}`)) {
+    if (relativePath.startsWith('options/')) {
       for (const forbidden of forbiddenDashboardText) {
         if (text.includes(forbidden)) {
           throw new Error(
-            `${browser}/${relative(directory, file)} exposes write credential machinery in the dashboard bundle`
+            `${browser}/${relativePath} exposes write credential machinery in the dashboard bundle`
           )
         }
       }
@@ -127,6 +145,13 @@ function requireStringArray(value: unknown, label: string): readonly string[] {
     throw new Error(`${label} is invalid`)
   }
   return value
+}
+
+function requireSupportedBrowser(value: string): Browser {
+  if ((supportedBrowsers as readonly string[]).includes(value)) {
+    return value as Browser
+  }
+  throw new Error(`Unsupported inspection target ${value}`)
 }
 
 function assertExactValues(
