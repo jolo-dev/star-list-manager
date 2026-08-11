@@ -6,6 +6,11 @@ The dashboard SHALL render GitHub Lists as its only sidebar navigation section. 
 
 Unlist SHALL include every locally stored repository, whether currently starred or retained after unstar, that has zero currently stored native-List memberships. Unlist SHALL be a local derived view rather than a GitHub List and SHALL NOT create, modify, or synchronize a remote List. The dashboard SHALL make Unlist its initial view and identify it as derived from the local library.
 
+#### Scenario: User opens a saved view
+
+- **WHEN** the user selects a library view
+- **THEN** the repository result set updates locally and clearly identifies the active view
+
 #### Scenario: User opens Unlist
 
 - **WHEN** the user selects Unlist
