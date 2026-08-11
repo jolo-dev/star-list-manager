@@ -14,6 +14,7 @@ export type BuiltInView =
   | 'due'
   | 'organized'
   | 'all'
+  | 'unlist'
   | 'history'
 export type LibraryView =
   | {readonly kind: BuiltInView}
@@ -59,6 +60,7 @@ export interface ViewCounts {
   readonly due: number
   readonly organized: number
   readonly all: number
+  readonly unlist: number
   readonly history: number
   readonly lists: Readonly<Record<string, number>>
   readonly tags: Readonly<Record<string, number>>
@@ -130,9 +132,11 @@ export function deriveViewCounts(
   let due = 0
   let organized = 0
   let all = 0
+  let unlist = 0
   let history = 0
 
   for (const item of repositories) {
+    if (item.nativeLists.length === 0) unlist += 1
     if (!item.repository.isStarred) {
       history += 1
       continue
@@ -149,7 +153,7 @@ export function deriveViewCounts(
       tags[tag] = (tags[tag] ?? 0) + 1
     }
   }
-  return {inbox, backlog, due, organized, all, history, lists, tags}
+  return {inbox, backlog, due, organized, all, unlist, history, lists, tags}
 }
 
 export function operationHistoryForRepository(
@@ -217,6 +221,7 @@ function matchesView(item: LibraryRepository, view: LibraryView, now: number): b
         )
       )
   }
+  if (view.kind === 'unlist') return item.nativeLists.length === 0
   if (view.kind === 'all') return true
   if (view.kind === 'history') return !item.repository.isStarred
   if (!item.repository.isStarred) return false
