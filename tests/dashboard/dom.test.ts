@@ -33,76 +33,66 @@ test('mounts accessible dashboard navigation and loading state', async () => {
   expect(root.querySelector('nav')?.getAttribute('aria-label')).toBe('Library')
   expect(root.querySelector('[aria-busy="true"]')).not.toBeNull()
   expect(root.textContent).toContain('Star List')
-  expect(root.textContent).toContain('Inbox')
-
-  const backlog = [...root.querySelectorAll('button')].find(
-    (element) => element.textContent?.includes('Backlog')
+  const unlist = [...root.querySelectorAll('button')].find(
+    (element) => element.textContent?.includes('Unlist')
   )
-  backlog?.dispatchEvent(new browserWindow.MouseEvent('click', {bubbles: true}))
-  await browserWindow.happyDOM.whenAsyncComplete()
-  const active = root.querySelector('[aria-current="page"]')
-  expect(active?.textContent).toContain('Backlog')
+  expect(unlist?.getAttribute('aria-current')).toBe('page')
 })
 
-test('renders the five triage destinations in a labelled navigation group', async () => {
+test('renders one open GitHub Lists navigation group with Unlist before alphabetized native Lists', async () => {
   const root = await mountReadyDashboard()
   const sidebar = sidebarNavigation(root)
-  const triageGroup = navigationGroup(sidebar, 'Triage')
-  const triageNavigation = directNavigationList(triageGroup)
+  const groups = [...(sidebar?.querySelectorAll('details.nav-group') ?? [])]
+  const githubLists = navigationGroup(sidebar, 'GitHub Lists')
 
-  expect(triageGroup).not.toBeNull()
-  expect(navigationGroupSummary(triageGroup)?.textContent).toBe('Triage')
-  expect(navigationLabels(triageNavigation)).toEqual([
-    'Inbox',
-    'Backlog',
-    'Due',
-    'Organized',
-    'All stars'
-  ])
+  expect(groups).toHaveLength(1)
+  expect(navigationGroupSummary(githubLists)?.textContent).toBe('GitHub Lists')
+  expect(githubLists?.hasAttribute('open')).toBe(true)
+  expect(navigationLabels(directNavigationList(githubLists))).toEqual(['Unlist', 'Current List'])
 })
 
-test('places history with Operations and Settings in a labelled utility group', async () => {
+test('selects Unlist as the active ready view with a derived local header', async () => {
   const root = await mountReadyDashboard()
   const sidebar = sidebarNavigation(root)
-  const utilityGroup = navigationGroup(sidebar, 'Utilities')
-  const utilityNavigation = directNavigationList(utilityGroup)
+  const active = sidebar?.querySelector('[aria-current="page"]')
 
-  expect(utilityGroup).not.toBeNull()
-  expect(navigationGroupSummary(utilityGroup)?.textContent).toBe('Utilities')
-  expect(navigationLabels(utilityNavigation)).toEqual([
-    'Unstarred history',
+  expect(active?.textContent).toContain('Unlist')
+  expect(root.querySelector('.library-header h1')?.textContent).toBe('Unlist')
+  expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Derived local view')
+})
+
+test('removes triage, local tag, and utility destinations from the sidebar', async () => {
+  const root = await mountReadyDashboard()
+  const sidebar = sidebarNavigation(root)
+
+  for (const label of [
+    'Triage',
+    'Local tags',
+    'Utilities',
     'Operations',
-    'Settings'
-  ])
-})
-
-test('renders GitHub Lists and local tags in labelled, discoverable navigation groups', async () => {
-  const root = await mountReadyDashboard()
-  const sidebar = sidebarNavigation(root)
-  const namedGroups = ['GitHub Lists', 'Local tags'].map((label) => {
-    const group = navigationGroup(sidebar, label)
-    return {
-      label: navigationGroupSummary(group)?.textContent ?? null,
-      items: navigationLabels(directNavigationList(group))
-    }
-  })
-
-  expect(namedGroups).toEqual([
-    {label: 'GitHub Lists', items: ['Current List']},
-    {label: 'Local tags', items: ['#local-only']}
-  ])
-})
-
-test('starts dynamic navigation groups collapsed', async () => {
-  const root = await mountReadyDashboard()
-  const sidebar = sidebarNavigation(root)
-
-  for (const label of ['GitHub Lists', 'Local tags']) {
-    const group = navigationGroup(sidebar, label)
-    expect(group).not.toBeNull()
-    expect(navigationGroupSummary(group)?.textContent).toBe(label)
-    expect(group?.hasAttribute('open')).toBe(false)
+    'Settings',
+    'Unstarred history'
+  ]) {
+    expect(sidebar?.textContent).not.toContain(label)
   }
+})
+
+test('renders GitHub Lists and Unlist without imported native Lists', async () => {
+  const readyState = readyDashboardState()
+  const state: AppState = {
+    ...readyState,
+    library: {
+      ...readyState.library!,
+      nativeLists: [],
+      nativeMemberships: []
+    }
+  }
+  const root = await mountReadyDashboard(state)
+  const sidebar = sidebarNavigation(root)
+  const githubLists = navigationGroup(sidebar, 'GitHub Lists')
+
+  expect(githubLists).not.toBeNull()
+  expect(navigationLabels(directNavigationList(githubLists))).toEqual(['Unlist'])
 })
 
 test('keeps a visible Search label beside the prominent Refresh control', async () => {
@@ -675,7 +665,7 @@ test('mounts existing native List controls separately from local tags', async ()
     Event: browserWindow.Event,
     KeyboardEvent: browserWindow.KeyboardEvent
   })
-  const {renderLibraryState} = await import('../../src/dashboard/scripts')
+  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
   const repository = repositoryRecord('42', 'R_one', 'octocat/one')
   const state: AppState = {
     ...accountState('42', {
@@ -713,10 +703,16 @@ test('mounts existing native List controls separately from local tags', async ()
     },
     mutations: {batches: [], jobs: [], history: []}
   }
-  const library = renderLibraryState(state)
-  browserWindow.document.body.append(
-    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  renderLibraryState(state)
+  const root = browserWindow.document.createElement('main')
+  browserWindow.document.body.append(root)
+  mountDashboard(root as unknown as HTMLElement)
+  const currentListNavigationItem = [...root.querySelectorAll('button')].find(
+    (element) => element.textContent?.includes('Current List')
   )
+  currentListNavigationItem?.dispatchEvent(new browserWindow.MouseEvent('click', {bubbles: true}))
+  await browserWindow.happyDOM.whenAsyncComplete()
+  const library = root
 
   expect(library.textContent).toContain('Native GitHub Lists')
   expect(library.textContent).toContain('Local tags are separate')
@@ -1628,10 +1624,10 @@ function deferred(): {readonly promise: Promise<void>; readonly resolve: () => v
   return {promise, resolve}
 }
 
-async function mountReadyDashboard(): Promise<HTMLElement> {
+async function mountReadyDashboard(state: AppState = readyDashboardState()): Promise<HTMLElement> {
   const browserWindow = createDashboardWindow()
   const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
-  renderLibraryState(readyDashboardState())
+  renderLibraryState(state)
   const root = browserWindow.document.createElement('main')
   browserWindow.document.body.append(root)
   mountDashboard(root as unknown as HTMLElement)
