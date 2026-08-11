@@ -1,44 +1,53 @@
 import {type ListMembershipCapabilityProof} from './list-membership-capability'
 
-const releaseEvidence = {
+const canonicalReleaseEvidence = Object.freeze({
   schema: 'available',
   oauthUserScope: 'verified',
   accountOwnership: 'verified',
   unchangedSetMutation: 'verified',
   independentReadBack: 'verified'
-} as const satisfies ListMembershipCapabilityProof
+} as const satisfies ListMembershipCapabilityProof)
 
-const evidenceKeys = [
-  'schema',
-  'oauthUserScope',
-  'accountOwnership',
-  'unchangedSetMutation',
-  'independentReadBack'
+// This is a release-time build input. Set it to null when the evidence is absent or unverified.
+const reviewedReleaseEvidenceBuildInput: unknown | null = canonicalReleaseEvidence
+
+const evidenceRequirements = [
+  ['schema', 'available'],
+  ['oauthUserScope', 'verified'],
+  ['accountOwnership', 'verified'],
+  ['unchangedSetMutation', 'verified'],
+  ['independentReadBack', 'verified']
 ] as const
 
 export function validateNativeListMembershipReleaseEvidence(
   value: unknown
 ): ListMembershipCapabilityProof | null {
-  if (typeof value !== 'object' || value === null || Reflect.ownKeys(value).length !== evidenceKeys.length) {
+  if (typeof value !== 'object' || value === null) return null
+
+  try {
+    if (Object.getPrototypeOf(value) !== Object.prototype) return null
+
+    const ownKeys = Reflect.ownKeys(value)
+    if (ownKeys.length !== evidenceRequirements.length) return null
+
+    for (const [key, expectedValue] of evidenceRequirements) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      if (
+        descriptor === undefined ||
+        !descriptor.enumerable ||
+        !('value' in descriptor) ||
+        descriptor.value !== expectedValue
+      ) {
+        return null
+      }
+    }
+  } catch {
     return null
   }
 
-  const evidence = value as Record<string, unknown>
-  if (!evidenceKeys.every((key) => Object.hasOwn(evidence, key))) return null
-
-  if (
-    evidence.schema === 'available' &&
-    evidence.oauthUserScope === 'verified' &&
-    evidence.accountOwnership === 'verified' &&
-    evidence.unchangedSetMutation === 'verified' &&
-    evidence.independentReadBack === 'verified'
-  ) {
-    return releaseEvidence
-  }
-
-  return null
+  return canonicalReleaseEvidence
 }
 
-export function releaseNativeListMembershipCapabilityProof(): ListMembershipCapabilityProof {
-  return releaseEvidence
+export function releaseNativeListMembershipCapabilityProof(): ListMembershipCapabilityProof | null {
+  return validateNativeListMembershipReleaseEvidence(reviewedReleaseEvidenceBuildInput)
 }
