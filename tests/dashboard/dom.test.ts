@@ -39,8 +39,20 @@ test('mounts accessible dashboard navigation and loading state', async () => {
   expect(unlist?.getAttribute('aria-current')).toBe('page')
 })
 
-test('renders one open GitHub Lists navigation group with Unlist before alphabetized native Lists', async () => {
-  const root = await mountReadyDashboard()
+test('renders Unlist before alphabetized imported native Lists regardless of input order', async () => {
+  const readyState = readyDashboardState()
+  const state: AppState = {
+    ...readyState,
+    library: {
+      ...readyState.library!,
+      nativeLists: [
+        nativeList('L_zulu', 'Zulu List'),
+        nativeList('L_alpha', 'Alpha List'),
+        nativeList('L_middle', 'Middle List')
+      ]
+    }
+  }
+  const root = await mountReadyDashboard(state)
   const sidebar = sidebarNavigation(root)
   const groups = [...(sidebar?.querySelectorAll('details.nav-group') ?? [])]
   const githubLists = navigationGroup(sidebar, 'GitHub Lists')
@@ -48,7 +60,12 @@ test('renders one open GitHub Lists navigation group with Unlist before alphabet
   expect(groups).toHaveLength(1)
   expect(navigationGroupSummary(githubLists)?.textContent).toBe('GitHub Lists')
   expect(githubLists?.hasAttribute('open')).toBe(true)
-  expect(navigationLabels(directNavigationList(githubLists))).toEqual(['Unlist', 'Current List'])
+  expect(navigationLabels(directNavigationList(githubLists))).toEqual([
+    'Unlist',
+    'Alpha List',
+    'Middle List',
+    'Zulu List'
+  ])
 })
 
 test('selects Unlist as the active ready view with a derived local header', async () => {
@@ -59,6 +76,162 @@ test('selects Unlist as the active ready view with a derived local header', asyn
   expect(active?.textContent).toContain('Unlist')
   expect(root.querySelector('.library-header h1')?.textContent).toBe('Unlist')
   expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Derived local view')
+})
+
+test('shows unstarred unlisted repositories in Unlist and applies an explicitly selected star-state filter to a normal view', async () => {
+  const readyState = readyDashboardState()
+  const starredUnlisted = repositoryRecord('42', 'R_starred-unlisted', 'octocat/starred-unlisted')
+  const unstarredUnlisted = {
+    ...repositoryRecord('42', 'R_unstarred-unlisted', 'octocat/unstarred-unlisted'),
+    isStarred: false,
+    unstarredAt: '2026-08-05T10:00:00Z'
+  }
+  const starredListed = repositoryRecord('42', 'R_starred-listed', 'octocat/starred-listed')
+  const state: AppState = {
+    ...readyState,
+    library: {
+      ...readyState.library!,
+      repositories: [starredUnlisted, unstarredUnlisted, starredListed],
+      nativeLists: [nativeList('L_current', 'Current List')],
+      nativeMemberships: [
+        {
+          githubUserId: '42',
+          repositoryNodeId: 'R_starred-listed',
+          listNodeId: 'L_current',
+          lastObservedAt: '2026-08-04T10:00:00Z'
+        }
+      ],
+      annotations: []
+    }
+  }
+  const browserWindow = createDashboardWindow()
+  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
+  renderLibraryState(state)
+  const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+  browserWindow.document.body.append(
+    root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  mountDashboard(root)
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  expect(visibleRepositoryIds(root)).toEqual(
+    expect.arrayContaining(['R_starred-unlisted', 'R_unstarred-unlisted'])
+  )
+  expect(visibleRepositoryIds(root)).not.toContain('R_starred-listed')
+
+  const starStateSelect = [...root.querySelectorAll('label')].find(
+    (label) => label.textContent?.includes('Star state')
+  )?.querySelector('select') as HTMLSelectElement | null
+  expect(starStateSelect).not.toBeNull()
+  if (starStateSelect === null) return
+
+  starStateSelect.value = 'unstarred'
+  starStateSelect.dispatchEvent(
+    new browserWindow.Event('change', {bubbles: true}) as unknown as Event
+  )
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  expect(visibleRepositoryIds(root)).toEqual(['R_unstarred-unlisted'])
+
+  // Module-level dashboard filter state is shared by this DOM suite; restore its default.
+  starStateSelect.value = 'starred'
+  starStateSelect.dispatchEvent(
+    new browserWindow.Event('change', {bubbles: true}) as unknown as Event
+  )
+  await browserWindow.happyDOM.whenAsyncComplete()
+})
+
+test('resets a rendered ready dashboard to Unlist after another native List became active', async () => {
+  const root = await mountReadyDashboard()
+  const currentList = [...root.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent?.includes('Current List')
+  ) ?? null
+  expect(currentList).not.toBeNull()
+  if (currentList === null) return
+
+  currentList.dispatchEvent(new window.MouseEvent('click', {bubbles: true}) as unknown as Event)
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.library-header h1')?.textContent).toBe('Current List')
+
+  const {renderLibraryState} = await import('../../src/dashboard/scripts')
+  const library = renderLibraryState(readyDashboardState())
+  expect(library.querySelector('.library-header h1')?.textContent).toBe('Unlist')
+})
+
+test('returns sidebar selection to Unlist after disconnect and complete-data removal', async () => {
+  for (const transition of [
+    {actionLabel: 'Disconnect GitHub', messageType: 'disconnect'},
+    {actionLabel: 'Delete all local data', messageType: 'clear-all-data'}
+  ] as const) {
+    const browserWindow = createDashboardWindow()
+    const {mountDashboard, renderLibraryState, renderSettingsState} = await import(
+      '../../src/dashboard/scripts'
+    )
+    const state = readyDashboardState()
+    renderLibraryState(state)
+    const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(root)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    const currentList = [...root.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.includes('Current List')
+    ) ?? null
+    expect(currentList).not.toBeNull()
+    if (currentList === null) return
+    currentList.dispatchEvent(
+      new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
+    )
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(root.querySelector('.library-header h1')?.textContent).toBe('Current List')
+
+    const messages: string[] = []
+    const previousChrome = (globalThis as {chrome?: unknown}).chrome
+    const confirmationWindow = browserWindow as unknown as {
+      confirm: (message?: string) => boolean
+    }
+    const previousConfirm = confirmationWindow.confirm
+    Object.assign(confirmationWindow, {confirm: () => true})
+    Object.assign(globalThis, {
+      chrome: {
+        runtime: {
+          sendMessage: async (message: {readonly type: string}) => {
+            messages.push(message.type)
+            return {ok: true, data: signedOutDashboardState()}
+          }
+        }
+      }
+    })
+
+    try {
+      const settings = renderSettingsState(state)
+      browserWindow.document.body.append(
+        settings as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+      )
+      const action = [...settings.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent === transition.actionLabel
+      ) ?? null
+      expect(action).not.toBeNull()
+      if (action === null) return
+
+      action.dispatchEvent(
+        new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
+      )
+      await browserWindow.happyDOM.whenAsyncComplete()
+
+      expect(messages).toEqual([transition.messageType])
+      const active = sidebarNavigation(root)?.querySelector('[aria-current="page"]')
+      expect(active?.textContent).toContain('Unlist')
+    } finally {
+      Object.assign(confirmationWindow, {confirm: previousConfirm})
+      if (previousChrome === undefined) {
+        delete (globalThis as {chrome?: unknown}).chrome
+      } else {
+        Object.assign(globalThis, {chrome: previousChrome})
+      }
+    }
+  }
 })
 
 test('removes triage, local tag, and utility destinations from the sidebar', async () => {
@@ -1628,9 +1801,11 @@ async function mountReadyDashboard(state: AppState = readyDashboardState()): Pro
   const browserWindow = createDashboardWindow()
   const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
   renderLibraryState(state)
-  const root = browserWindow.document.createElement('main')
-  browserWindow.document.body.append(root)
-  mountDashboard(root as unknown as HTMLElement)
+  const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+  browserWindow.document.body.append(
+    root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  mountDashboard(root)
   await browserWindow.happyDOM.whenAsyncComplete()
   return root as unknown as HTMLElement
 }
@@ -1673,6 +1848,25 @@ function membershipReadyDashboardState(): AppState {
       error: null
     }
   }
+}
+
+function signedOutDashboardState(): AppState {
+  return {
+    ...readyDashboardState(),
+    phase: 'signed-out',
+    identity: null,
+    sync: null,
+    nativeListSync: null,
+    triageCounts: null,
+    library: null,
+    mutations: null
+  }
+}
+
+function visibleRepositoryIds(root: Element): string[] {
+  return [...root.querySelectorAll('.repository-row')].map(
+    (row) => row.getAttribute('data-repository-node-id') ?? ''
+  )
 }
 
 function navigationLabels(group: Element | null): string[] {
