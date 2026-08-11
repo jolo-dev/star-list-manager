@@ -1,12 +1,17 @@
 import {type ListMembershipCapabilityProof} from './list-membership-capability'
 
-const canonicalReleaseEvidence = Object.freeze({
-  schema: 'available',
-  oauthUserScope: 'verified',
-  accountOwnership: 'verified',
-  unchangedSetMutation: 'verified',
-  independentReadBack: 'verified'
-} as const satisfies ListMembershipCapabilityProof)
+const canonicalReleaseEvidence = Object.freeze(
+  Object.assign(
+    Object.create(null) as object,
+    {
+      schema: 'available',
+      oauthUserScope: 'verified',
+      accountOwnership: 'verified',
+      unchangedSetMutation: 'verified',
+      independentReadBack: 'verified'
+    } as const satisfies ListMembershipCapabilityProof
+  )
+)
 
 // This is a release-time build input. Set it to null when the evidence is absent or unverified.
 const reviewedReleaseEvidenceBuildInput: unknown | null = canonicalReleaseEvidence
@@ -25,7 +30,7 @@ export function validateNativeListMembershipReleaseEvidence(
   if (typeof value !== 'object' || value === null) return null
 
   try {
-    if (Object.getPrototypeOf(value) !== Object.prototype) return null
+    if (Object.getPrototypeOf(value) !== null) return null
 
     const ownKeys = Reflect.ownKeys(value)
     if (ownKeys.length !== evidenceRequirements.length) return null

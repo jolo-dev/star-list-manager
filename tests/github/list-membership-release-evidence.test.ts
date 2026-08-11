@@ -20,8 +20,37 @@ describe('native List membership release evidence', () => {
     expect(proof).toEqual(completeEvidence)
     expect(proof).not.toBeNull()
     expect(Object.isFrozen(proof)).toBe(true)
-    expect(validateNativeListMembershipReleaseEvidence(completeEvidence)).toEqual(completeEvidence)
     expect(validateNativeListMembershipReleaseEvidence(proof)).toBe(proof)
+  })
+
+  test('rejects a normal Object.prototype-backed proof', () => {
+    expect(validateNativeListMembershipReleaseEvidence(completeEvidence)).toBeNull()
+  })
+
+  test('accepts an exact null-prototype proof', () => {
+    const evidence = Object.assign(Object.create(null) as object, completeEvidence)
+
+    expect(validateNativeListMembershipReleaseEvidence(evidence)).not.toBeNull()
+  })
+
+  test('rejects a normal proof while Object.prototype is polluted', () => {
+    const inheritedCredentialKey = 'taskTwoInheritedCredential'
+    const originalDescriptor = Object.getOwnPropertyDescriptor(Object.prototype, inheritedCredentialKey)
+    Object.defineProperty(Object.prototype, inheritedCredentialKey, {
+      configurable: true,
+      enumerable: true,
+      value: 'secret'
+    })
+
+    try {
+      expect(validateNativeListMembershipReleaseEvidence(completeEvidence)).toBeNull()
+    } finally {
+      if (originalDescriptor === undefined) {
+        Reflect.deleteProperty(Object.prototype, inheritedCredentialKey)
+      } else {
+        Object.defineProperty(Object.prototype, inheritedCredentialKey, originalDescriptor)
+      }
+    }
   })
 
   test('rejects partial and malformed evidence', () => {
