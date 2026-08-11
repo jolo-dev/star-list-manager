@@ -364,6 +364,47 @@ test('disables native membership review when membership readiness is unavailable
   expect(membershipActions.every((action) => action.disabled)).toBe(true)
 })
 
+test('explains an active native List operation when membership review is disabled', async () => {
+  const browserWindow = createDashboardWindow()
+  const {renderLibraryState} = await import('../../src/dashboard/scripts')
+  const activeMembershipJob: MutationJobRecord = {
+    ...mutationJob('42', 'queued', 0),
+    repositoryNodeId: 'R_one',
+    mutationKind: 'native-list-membership',
+    membershipDetails: membershipMutationDetails('queued')
+  }
+  const library = renderLibraryState({
+    ...membershipReadyDashboardState(),
+    mutations: {batches: [], jobs: [activeMembershipJob], history: []}
+  })
+  browserWindow.document.body.append(
+    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  const listChoice = library.querySelector(
+    '.inspector .native-list-choices input[type="checkbox"]'
+  ) as HTMLInputElement | null
+
+  expect(listChoice).not.toBeNull()
+  if (listChoice === null) return
+
+  listChoice.checked = true
+  listChoice.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  const review = library.querySelector<HTMLButtonElement>('.inspector .membership-review')
+  const descriptionId = review?.getAttribute('aria-describedby') ?? null
+  const description = descriptionId === null
+    ? null
+    : library.querySelector(`#${descriptionId}`)
+
+  expect(review?.disabled).toBe(true)
+  expect(description).not.toBeNull()
+  expect(description?.getAttribute('role')).toBe('status')
+  expect(description?.textContent).toBe(
+    'A native GitHub List membership operation is already active or queued for this repository. Wait for it to complete before reviewing another change.'
+  )
+})
+
 test('selects rows without changing star state or local annotations', async () => {
   const browserWindow = new Window({url: 'chrome-extension://fixture/dashboard/index.html'})
   Object.assign(globalThis, {

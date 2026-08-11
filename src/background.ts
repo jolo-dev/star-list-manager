@@ -383,9 +383,9 @@ addRuntimeMessageListener(async (message) => {
         const active = await services.authSession.loadActive()
         if (!active) return failureResponse(authenticationRequired())
         const impact = await services.portability.applyImport(
-          active.githubUserId,
-          request.value.document,
-          request.value.replaceSettings
+        active.githubUserId,
+        request.value.document,
+        request.value.replaceSettings
         )
         await services.triage.refreshBadge(active.githubUserId)
         return successResponse(impact)

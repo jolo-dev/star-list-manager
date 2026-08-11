@@ -513,6 +513,7 @@ function NativeListMembershipControls(
   const blockedByJob = repositories.some((repository) =>
     hasActiveRepositoryJob(repository.repositoryNodeId)
   )
+  const activeOperationNoticeId = `membership-active-operation-${context}-${repositories.map((repository) => repository.repositoryNodeId).join('-')}`
   const selected = selectedNativeListIds.val
   const commonMemberships = new Set(
     lists
@@ -652,6 +653,16 @@ function NativeListMembershipControls(
           membershipReadinessMessage(state)
         )
       : null,
+    blockedByJob
+      ? p(
+          {
+            class: 'membership-block',
+            id: activeOperationNoticeId,
+            role: 'status'
+          },
+          `A native GitHub List membership operation is already active or queued for ${repositories.length === 1 ? 'this repository' : 'one or more selected repositories'}. Wait for it to complete before reviewing another change.`
+        )
+      : null,
     button(
       {
         class: operation === 'add'
@@ -660,6 +671,7 @@ function NativeListMembershipControls(
         type: 'button',
         'data-dialog-invoker': `membership-${context}-${repositories.map((repository) => repository.repositoryNodeId).join('-')}`,
         disabled: !ready || blockedByJob || !selectionReady,
+        ...(blockedByJob ? {'aria-describedby': activeOperationNoticeId} : {}),
         onclick: (event: MouseEvent) =>
           void requestMembershipPreview(
             repositories.map((repository) => repository.repositoryNodeId),
