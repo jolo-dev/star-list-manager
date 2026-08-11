@@ -1,9 +1,15 @@
 import {describe, expect, test} from 'bun:test'
+import {readFile} from 'node:fs/promises'
+import {fileURLToPath} from 'node:url'
 import {nativeListMembershipControlsEnabled} from '../../src/github/list-membership-capability'
 import {
   releaseNativeListMembershipCapabilityProof,
   validateNativeListMembershipReleaseEvidence
 } from '../../src/github/list-membership-release-evidence'
+
+const backgroundSourcePath = fileURLToPath(
+  new URL('../../src/background.ts', import.meta.url)
+)
 
 const completeEvidence = {
   schema: 'available',
@@ -116,5 +122,19 @@ describe('native List membership release evidence', () => {
 
   test('enables native List membership controls with reviewed release evidence', () => {
     expect(nativeListMembershipControlsEnabled(releaseNativeListMembershipCapabilityProof())).toBe(true)
+  })
+
+  test('uses the reviewed release provider rather than a runtime environment flag', async () => {
+    const backgroundSource = await readFile(backgroundSourcePath, 'utf8')
+
+    expect(backgroundSource).toContain(
+      "import {releaseNativeListMembershipCapabilityProof} from './github/list-membership-release-evidence'"
+    )
+    expect(backgroundSource).toMatch(
+      /nativeListMembershipControlsEnabled\(\s*releaseNativeListMembershipCapabilityProof\(\)\s*\)/
+    )
+    expect(backgroundSource).not.toContain(
+      'EXTENSION_PUBLIC_GITHUB_LIST_MEMBERSHIP_WRITE_ENABLED'
+    )
   })
 })

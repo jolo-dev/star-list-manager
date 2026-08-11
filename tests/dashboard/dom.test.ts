@@ -213,25 +213,43 @@ test('renders broad-scope disclosure before write device authorization', async (
 })
 
 test('renders non-secret write readiness and keeps native membership capability gated', async () => {
+  createDashboardWindow()
   const {renderSettingsState} = await import('../../src/dashboard/scripts')
-  const settings = renderSettingsState(
-    accountState('42', {
+  const unverifiedBuildSettings = renderSettingsState({
+    ...accountState('42', {
       readiness: 'ready',
       membershipReady: true,
       previewVisible: false,
       authorization: null,
       error: null
-    })
-  )
+    }),
+    nativeListMembership: {readiness: 'capability-unproven'}
+  })
+  const verifiedReleaseSettings = renderSettingsState({
+    ...accountState('42', {
+      readiness: 'authorization-required',
+      membershipReady: false,
+      previewVisible: false,
+      authorization: null,
+      error: null
+    }),
+    nativeListMembership: {readiness: 'write-authorization-required'}
+  })
 
-  expect(settings.textContent).toContain(
+  expect(unverifiedBuildSettings.textContent).toContain(
     'account-scoped public_repo and user credential is ready'
   )
-  expect(settings.textContent).toContain('confirmed Starring routes')
-  expect(settings.textContent).toContain('structured native List membership mutation')
-  expect(settings.textContent).toContain('controls remain disabled')
-  expect(settings.textContent).toContain('independent read-back')
-  expect(settings.textContent).not.toContain('access-secret')
+  expect(unverifiedBuildSettings.textContent).toContain('confirmed Starring routes')
+  expect(unverifiedBuildSettings.textContent).toContain(
+    'This build does not enable verified native List membership writes.'
+  )
+  expect(unverifiedBuildSettings.textContent).toContain(
+    'GitHub write authorization alone does not prove a successful native List membership mutation.'
+  )
+  expect(verifiedReleaseSettings.textContent).toContain(
+    'This verified release still needs GitHub write authorization before it can offer native List membership writes.'
+  )
+  expect(unverifiedBuildSettings.textContent).not.toContain('access-secret')
 })
 
 test('renders complete unstar confirmation and cancellation does not confirm', async () => {
