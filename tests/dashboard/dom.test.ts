@@ -376,25 +376,43 @@ test('renders broad-scope disclosure before write device authorization', async (
 })
 
 test('renders non-secret write readiness and keeps native membership capability gated', async () => {
+  createDashboardWindow()
   const {renderSettingsState} = await import('../../src/dashboard/scripts')
-  const settings = renderSettingsState(
-    accountState('42', {
+  const unverifiedBuildSettings = renderSettingsState({
+    ...accountState('42', {
       readiness: 'ready',
       membershipReady: true,
       previewVisible: false,
       authorization: null,
       error: null
-    })
-  )
+    }),
+    nativeListMembership: {readiness: 'capability-unproven'}
+  })
+  const verifiedReleaseSettings = renderSettingsState({
+    ...accountState('42', {
+      readiness: 'authorization-required',
+      membershipReady: false,
+      previewVisible: false,
+      authorization: null,
+      error: null
+    }),
+    nativeListMembership: {readiness: 'write-authorization-required'}
+  })
 
-  expect(settings.textContent).toContain(
+  expect(unverifiedBuildSettings.textContent).toContain(
     'account-scoped public_repo and user credential is ready'
   )
-  expect(settings.textContent).toContain('confirmed Starring routes')
-  expect(settings.textContent).toContain('structured native List membership mutation')
-  expect(settings.textContent).toContain('controls remain disabled')
-  expect(settings.textContent).toContain('independent read-back')
-  expect(settings.textContent).not.toContain('access-secret')
+  expect(unverifiedBuildSettings.textContent).toContain('confirmed Starring routes')
+  expect(unverifiedBuildSettings.textContent).toContain(
+    'This build does not enable verified native List membership writes.'
+  )
+  expect(unverifiedBuildSettings.textContent).toContain(
+    'GitHub write authorization alone does not prove a successful native List membership mutation.'
+  )
+  expect(verifiedReleaseSettings.textContent).toContain(
+    'This verified release still needs GitHub write authorization before it can offer native List membership writes.'
+  )
+  expect(unverifiedBuildSettings.textContent).not.toContain('access-secret')
 })
 
 test('renders complete unstar confirmation and cancellation does not confirm', async () => {
@@ -507,6 +525,47 @@ test('disables native membership review when membership readiness is unavailable
   ]
   expect(membershipActions).not.toHaveLength(0)
   expect(membershipActions.every((action) => action.disabled)).toBe(true)
+})
+
+test('explains an active native List operation when membership review is disabled', async () => {
+  const browserWindow = createDashboardWindow()
+  const {renderLibraryState} = await import('../../src/dashboard/scripts')
+  const activeMembershipJob: MutationJobRecord = {
+    ...mutationJob('42', 'queued', 0),
+    repositoryNodeId: 'R_one',
+    mutationKind: 'native-list-membership',
+    membershipDetails: membershipMutationDetails('queued')
+  }
+  const library = renderLibraryState({
+    ...membershipReadyDashboardState(),
+    mutations: {batches: [], jobs: [activeMembershipJob], history: []}
+  })
+  browserWindow.document.body.append(
+    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  const listChoice = library.querySelector(
+    '.inspector .native-list-choices input[type="checkbox"]'
+  ) as HTMLInputElement | null
+
+  expect(listChoice).not.toBeNull()
+  if (listChoice === null) return
+
+  listChoice.checked = true
+  listChoice.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  const review = library.querySelector<HTMLButtonElement>('.inspector .membership-review')
+  const descriptionId = review?.getAttribute('aria-describedby') ?? null
+  const description = descriptionId === null
+    ? null
+    : library.querySelector(`#${descriptionId}`)
+
+  expect(review?.disabled).toBe(true)
+  expect(description).not.toBeNull()
+  expect(description?.getAttribute('role')).toBe('status')
+  expect(description?.textContent).toBe(
+    'A native GitHub List membership operation is already active or queued for this repository. Wait for it to complete before reviewing another change.'
+  )
 })
 
 test('selects rows without changing star state or local annotations', async () => {

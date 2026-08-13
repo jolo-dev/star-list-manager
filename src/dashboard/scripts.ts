@@ -470,6 +470,7 @@ function NativeListMembershipControls(
   const blockedByJob = repositories.some((repository) =>
     hasActiveRepositoryJob(repository.repositoryNodeId)
   )
+  const activeOperationNoticeId = `membership-active-operation-${context}-${repositories.map((repository) => repository.repositoryNodeId).join('-')}`
   const selected = selectedNativeListIds.val
   const commonMemberships = new Set(
     lists
@@ -609,6 +610,16 @@ function NativeListMembershipControls(
           membershipReadinessMessage(state)
         )
       : null,
+    blockedByJob
+      ? p(
+          {
+            class: 'membership-block',
+            id: activeOperationNoticeId,
+            role: 'status'
+          },
+          `A native GitHub List membership operation is already active or queued for ${repositories.length === 1 ? 'this repository' : 'one or more selected repositories'}. Wait for it to complete before reviewing another change.`
+        )
+      : null,
     button(
       {
         class: operation === 'add'
@@ -617,6 +628,7 @@ function NativeListMembershipControls(
         type: 'button',
         'data-dialog-invoker': `membership-${context}-${repositories.map((repository) => repository.repositoryNodeId).join('-')}`,
         disabled: !ready || blockedByJob || !selectionReady,
+        ...(blockedByJob ? {'aria-describedby': activeOperationNoticeId} : {}),
         onclick: (event: MouseEvent) =>
           void requestMembershipPreview(
             repositories.map((repository) => repository.repositoryNodeId),
@@ -1370,6 +1382,7 @@ function WriteAuthorizationCard(state: AppState) {
       p(
         'The extension restricts this credential to confirmed authenticated-user Starring status, star, and unstar routes plus one internally constructed UpdateUserListsForItem mutation using a repository node ID and the complete native List ID set. It does not read or change profile, email, or follow data and cannot send caller-provided GraphQL documents or other write requests.'
       ),
+      p(nativeListMembershipWriteReadinessCopy(state)),
       p(
         'The separate account-scoped token stays in extension-owned browser storage and is excluded from exports, rendered pages, and logs.'
       ),
@@ -1411,6 +1424,7 @@ function WriteAuthorizationCard(state: AppState) {
       write.authorization
         ? div({class: 'auth-code'}, write.authorization.userCode)
         : p('Requesting a GitHub device code...'),
+      p(nativeListMembershipWriteReadinessCopy(state)),
       div(
         {class: 'action-row'},
         write.authorization
@@ -1443,14 +1457,10 @@ function WriteAuthorizationCard(state: AppState) {
       h2('GitHub write credential is ready'),
       p(
         write.membershipReady
-          ? 'The separate account-scoped public_repo and user credential is ready for confirmed Starring routes and the structured native List membership mutation.'
+          ? 'The separate account-scoped public_repo and user credential is ready for confirmed Starring routes. Native List membership writes also require the reviewed release proof and retain preview, confirmation, queue, and independent read-back safeguards.'
           : 'The stored account-scoped public_repo credential remains ready for confirmed Starring routes. Reauthorize to grant user before changing native List membership.'
       ),
-      p(
-        state.nativeListMembership?.readiness === 'ready'
-          ? 'Native List membership capability is enabled for this build after separate disposable unchanged-set and independent read-back proof.'
-          : 'Native List membership controls remain disabled unless a disposable unchanged-set mutation and independent read-back prove schema, permission, and account ownership.'
-      ),
+      p(nativeListMembershipWriteReadinessCopy(state)),
       p(
         'Disconnecting write access preserves GitHub sign-in, synchronization, and all local library data.'
       ),
@@ -1473,6 +1483,7 @@ function WriteAuthorizationCard(state: AppState) {
     p(
       'Read-only synchronization remains available without this authorization. Enable it only for confirmed Starring requests and, after separate capability proof, structured native List membership changes.'
     ),
+    p(nativeListMembershipWriteReadinessCopy(state)),
     write.error ? p({class: 'inline-error', role: 'alert'}, write.error.message) : null,
     button(
       {
@@ -1485,6 +1496,18 @@ function WriteAuthorizationCard(state: AppState) {
         : 'Review authorization again'
     )
   )
+}
+
+function nativeListMembershipWriteReadinessCopy(state: AppState): string {
+  switch (state.nativeListMembership?.readiness) {
+    case 'ready':
+      return 'This verified release has reviewed native List membership evidence. This account has separate write authorization; OAuth authorization alone does not prove a successful native List membership mutation.'
+    case 'write-authorization-required':
+      return 'This verified release still needs GitHub write authorization before it can offer native List membership writes. GitHub sign-in alone does not prove a successful native List membership mutation.'
+    case 'capability-unproven':
+    default:
+      return 'This build does not enable verified native List membership writes. GitHub write authorization alone does not prove a successful native List membership mutation.'
+  }
 }
 
 function AdvancedFilters() {
