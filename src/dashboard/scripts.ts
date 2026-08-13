@@ -84,7 +84,7 @@ const emptyState: AppState = {
   error: null
 }
 const appState = van.state<AppState>(emptyState)
-const activeView = van.state<LibraryView>({kind: 'inbox'})
+const activeView = van.state<LibraryView>({kind: 'unlist'})
 const searchText = van.state('')
 const sort = van.state<RepositorySort>('starred-at')
 const ascending = van.state(false)
@@ -144,10 +144,6 @@ function Navigation() {
   const lists = state.library?.nativeLists.toSorted((left, right) =>
     left.name.localeCompare(right.name)
   ) ?? []
-  const tags = Object.entries(counts.tags).toSorted(([left], [right]) =>
-    left.localeCompare(right)
-  )
-
   return nav(
     {class: 'sidebar', 'aria-label': 'Library'},
     div(
@@ -157,57 +153,18 @@ function Navigation() {
     ),
     details(
       {class: 'nav-group', open: true},
-      summary('Triage'),
-      ul(
-        {class: 'nav-list nav-list-primary'},
-        NavItem('Inbox', {kind: 'inbox'}, counts.inbox),
-        NavItem('Backlog', {kind: 'backlog'}, counts.backlog),
-        NavItem('Due', {kind: 'due'}, counts.due),
-        NavItem('Organized', {kind: 'organized'}, counts.organized),
-        NavItem('All stars', {kind: 'all'}, counts.all)
-      )
-    ),
-    lists.length > 0
-      ? details(
-          {class: 'nav-group'},
-          summary('GitHub Lists'),
-          ul(
-            {class: 'nav-list nav-list-secondary'},
-            ...lists.map((nativeList) =>
-              NavItem(
-                nativeList.name,
-                {kind: 'list', listNodeId: nativeList.listNodeId},
-                counts.lists[nativeList.listNodeId] ?? 0
-              )
-            )
-          )
-        )
-      : null,
-    tags.length > 0
-      ? details(
-          {class: 'nav-group'},
-          summary('Local tags'),
-          ul(
-            {class: 'nav-list nav-list-secondary'},
-            ...tags.map(([tag, count]) =>
-              NavItem(`#${tag}`, {kind: 'tag', tag}, count)
-            )
-          )
-        )
-      : null,
-    details(
-      {class: 'nav-group', open: true},
-      summary('Utilities'),
+      summary('GitHub Lists'),
       ul(
         {class: 'nav-list nav-list-secondary'},
-        NavItem('Unstarred history', {kind: 'history'}, counts.history),
-        NavItem(
-          'Operations',
-          {kind: 'operations'},
-          state.mutations?.batches.length ?? 0
-        ),
-        NavItem('Settings', {kind: 'settings'}, null)
-      ),
+        NavItem('Unlist', {kind: 'unlist'}, counts.unlist),
+        ...lists.map((nativeList) =>
+          NavItem(
+            nativeList.name,
+            {kind: 'list', listNodeId: nativeList.listNodeId},
+            counts.lists[nativeList.listNodeId] ?? 0
+          )
+        )
+      )
     )
   )
 }
@@ -1738,7 +1695,12 @@ function currentQuery(): RepositoryQuery {
     filters: {
       ...filters,
       triageStates: triageState.val ? [triageState.val] : [],
-      starState: activeView.val.kind === 'history' ? 'unstarred' : starState.val,
+      starState:
+        activeView.val.kind === 'history'
+          ? 'unstarred'
+          : activeView.val.kind === 'unlist'
+            ? 'all'
+            : starState.val,
       language: language.val,
       archived: hideArchived.val ? 'exclude' : 'all',
       disabled: disabled.val,
@@ -2198,7 +2160,7 @@ export function shouldStartAutoSync(
 async function confirmDisconnect(): Promise<void> {
   if (window.confirm('Disconnect GitHub? Local annotations will be retained.')) {
     await sendAction({type: 'disconnect'})
-    activeView.val = {kind: 'inbox'}
+    activeView.val = {kind: 'unlist'}
   }
 }
 
@@ -2286,7 +2248,7 @@ async function confirmCompleteRemoval(): Promise<void> {
     type: 'clear-all-data'
   })) as RuntimeResponse<AppState>
   if (response.ok) {
-    activeView.val = {kind: 'inbox'}
+    activeView.val = {kind: 'unlist'}
     applyState(response.data)
   } else {
     applyState({...appState.val, error: response.error})
@@ -2344,12 +2306,14 @@ function viewTitle(view: LibraryView): string {
     due: 'Due for review',
     organized: 'Organized',
     all: 'All stars',
+    unlist: 'Unlist',
     history: 'Unstarred history'
   }[view.kind]
 }
 
 function viewEyebrow(view: LibraryView): string {
   if (view.kind === 'operations') return 'Mutation history'
+  if (view.kind === 'unlist') return 'Derived local view'
   if (view.kind === 'list') return 'Native GitHub List'
   if (view.kind === 'tag') return 'Local tag'
   return 'Your GitHub library'
@@ -2495,7 +2459,7 @@ export function renderSettingsState(state: AppState): HTMLElement {
 
 export function renderLibraryState(state: AppState): HTMLElement {
   appState.val = state
-  activeView.val = {kind: 'all'}
+  activeView.val = {kind: 'unlist'}
   selectedForUnstar.val = new Set()
   resetUnstarConfirmation()
   selectedNativeListIds.val = new Set()
