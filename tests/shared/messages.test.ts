@@ -188,4 +188,44 @@ describe('dashboard message decoding', () => {
       }).ok
     ).toBe(false)
   })
+
+  test('accepts only an exact credential-free native List rename request', () => {
+    expect(
+      decodeDashboardRequest({
+        type: 'rename-native-list',
+        listNodeId: 'L_fixture',
+        name: '  Ｔools  '
+      })
+    ).toEqual({
+      ok: true,
+      value: {
+        type: 'rename-native-list',
+        listNodeId: 'L_fixture',
+        name: '  Ｔools  '
+      }
+    })
+
+    for (const value of [
+      {type: 'rename-native-list', listNodeId: '', name: 'Tools'},
+      {type: 'rename-native-list', listNodeId: '   ', name: 'Tools'},
+      {type: 'rename-native-list', listNodeId: 42, name: 'Tools'},
+      {type: 'rename-native-list', listNodeId: 'L_fixture', name: ''},
+      {type: 'rename-native-list', listNodeId: 'L_fixture', name: ' \t '},
+      {type: 'rename-native-list', listNodeId: 'L_fixture', name: ['Tools']},
+      {
+        type: 'rename-native-list',
+        listNodeId: 'L_fixture',
+        name: 'Tools',
+        operation: {kind: 'add', listNodeIds: ['L_other']}
+      },
+      {
+        type: 'rename-native-list',
+        listNodeId: 'L_fixture',
+        name: 'Tools',
+        accessToken: 'secret'
+      }
+    ]) {
+      expect(decodeDashboardRequest(value).ok).toBe(false)
+    }
+  })
 })
