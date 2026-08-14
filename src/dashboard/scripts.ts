@@ -98,6 +98,7 @@ const starredBefore = van.state<string | null>(null)
 const pushedAfter = van.state<string | null>(null)
 const pushedBefore = van.state<string | null>(null)
 const selectedRepositoryNodeId = van.state<string | null>(null)
+const inspectedRepositoryNodeId = van.state<string | null>(null)
 const selectedForUnstar = van.state<ReadonlySet<string>>(new Set())
 const pendingUnstarTargets = van.state<readonly UnstarConfirmationTarget[]>([])
 const enqueueingUnstars = van.state(false)
@@ -111,6 +112,7 @@ const confirmingMembership = van.state(false)
 const syncing = van.state(false)
 let unstarDialogInvoker: DialogInvoker | null = null
 let membershipDialogInvoker: DialogInvoker | null = null
+let repositoryDialogInvoker: DialogInvoker | null = null
 let nextMembershipPreviewRequestToken = 0
 let activeMembershipPreviewRequestToken: number | null = null
 let pollTimer: number | null = null
@@ -180,6 +182,8 @@ function NavItem(title: string, view: LibraryView, count: number | null) {
           if (enqueueingUnstars.val || confirmingMembership.val) return
           activeView.val = view
           selectedRepositoryNodeId.val = null
+          inspectedRepositoryNodeId.val = null
+          repositoryDialogInvoker = null
           selectedForUnstar.val = new Set()
           resetUnstarConfirmation()
           resetMembershipPreview()
@@ -263,30 +267,41 @@ function LibraryResults(repositories: readonly LibraryRepository[]) {
   const results = queryRepositories(repositories, query, Date.now())
   const visibleResults = results.slice(0, 200)
   const selected = selectCurrentRepository(visibleResults)
+  const inspected = inspectedRepositoryNodeId.val
+    ? visibleResults.find(
+        (item) => item.repository.repositoryNodeId === inspectedRepositoryNodeId.val
+      ) ?? null
+    : null
+  if (inspectedRepositoryNodeId.val && !inspected) {
+    dismissStaleRepositoryInspection()
+  }
 
   return div(
-    {class: 'library-grid'},
-    section(
-      {class: 'results-panel'},
-      results.length === 0
-        ? NoResultsState(query.search.length > 0)
-        : ul(
-            {
-              class: 'repository-list',
-              'aria-label': 'Repositories',
-              onkeydown: (event: KeyboardEvent) =>
-                handleResultKey(event, visibleResults)
-            },
-            ...visibleResults.map((item) => RepositoryRow(item, selected))
-          ),
-      results.length > visibleResults.length
-        ? p(
-            {class: 'result-limit'},
-            `Showing the first ${visibleResults.length} of ${results.length} matches. Refine the local search to narrow the list.`
-          )
-        : null
+    {class: 'library-results'},
+    div(
+      {class: 'library-grid'},
+      section(
+        {class: 'results-panel'},
+        results.length === 0
+          ? NoResultsState(query.search.length > 0)
+          : ul(
+              {
+                class: 'repository-list',
+                'aria-label': 'Repositories',
+                onkeydown: (event: KeyboardEvent) =>
+                  handleResultKey(event, visibleResults)
+              },
+              ...visibleResults.map((item) => RepositoryRow(item, selected))
+            ),
+        results.length > visibleResults.length
+          ? p(
+              {class: 'result-limit'},
+              `Showing the first ${visibleResults.length} of ${results.length} matches. Refine the local search to narrow the list.`
+            )
+          : null
+      )
     ),
-    selected ? RepositoryInspector(selected) : InspectionPlaceholder()
+    inspected ? RepositoryInspectionDialog(inspected) : null
   )
 }
 
@@ -319,6 +334,15 @@ function LibraryHeader(
           oninput: (event: Event) => {
             searchText.val = (event.currentTarget as HTMLInputElement).value
             selectedRepositoryNodeId.val = null
+            const inspectedRepository = inspectedRepositoryNodeId.val
+            const inspectedRemainsVisible = inspectedRepository
+              ? queryRepositories(repositories, currentQuery(), Date.now()).some(
+                  (item) => item.repository.repositoryNodeId === inspectedRepository
+                )
+              : false
+            if (inspectedRepository && !inspectedRemainsVisible) {
+              dismissStaleRepositoryInspection()
+            }
           }
         })
       ),
@@ -1128,9 +1152,12 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
         class: active ? 'repository-row is-selected' : 'repository-row',
         type: 'button',
         'data-repository-node-id': repository.repositoryNodeId,
-        onclick: () => {
-          selectedRepositoryNodeId.val = repository.repositoryNodeId
-        }
+        'data-dialog-invoker': `repository-${repository.repositoryNodeId}`,
+        onclick: (event: MouseEvent) =>
+          openRepositoryInspection(
+            repository.repositoryNodeId,
+            event.currentTarget as HTMLElement
+          )
       },
       div(
         {class: 'repository-row-main'},
@@ -1154,18 +1181,50 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
   )
 }
 
+function RepositoryInspectionDialog(item: LibraryRepository) {
+  return div(
+    {
+      class: 'dialog-backdrop',
+      role: 'presentation',
+      onclick: (event: MouseEvent) => {
+        if (event.target === event.currentTarget) closeRepositoryInspection()
+      }
+    },
+    RepositoryInspector(item)
+  )
+}
+
 function RepositoryInspector(item: LibraryRepository) {
   const repository = item.repository
   const annotation = item.annotation
   const githubUrl = safeGitHubUrl(repository.htmlUrl)
   return section(
-    {class: 'inspector', 'aria-label': `${repository.fullName} details`},
+    {
+      class: 'inspector repository-inspection-dialog',
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-labelledby': 'repository-inspection-title',
+      tabindex: -1,
+      onkeydown: (event: KeyboardEvent) =>
+        handleDialogKeydown(event, true, closeRepositoryInspection)
+    },
     div(
       {class: 'inspector-heading'},
-      div(p({class: 'eyebrow'}, repository.ownerLogin), h2(repository.name)),
-      githubUrl
-        ? a({class: 'github-link', href: githubUrl, target: '_blank', rel: 'noopener noreferrer'}, 'Open GitHub')
-        : null
+      div(p({class: 'eyebrow'}, repository.ownerLogin), h2({id: 'repository-inspection-title'}, repository.name)),
+      div(
+        {class: 'inspector-actions'},
+        githubUrl
+          ? a({class: 'github-link', href: githubUrl, target: '_blank', rel: 'noopener noreferrer'}, 'Open GitHub')
+          : null,
+        button(
+          {
+            class: 'secondary-action dialog-cancel',
+            type: 'button',
+            onclick: closeRepositoryInspection
+          },
+          'Close details'
+        )
+      )
     ),
     p({class: 'inspector-description'}, repository.description ?? 'No description provided.'),
     section(
@@ -1649,14 +1708,6 @@ function EmptyLibraryState() {
   )
 }
 
-function InspectionPlaceholder() {
-  return section(
-    {class: 'inspector inspector-empty'},
-    p({class: 'eyebrow'}, 'Repository details'),
-    h2('Select a repository'),
-    p('Use the mouse or arrow keys to inspect synchronized metadata and edit local organization.')
-  )
-}
 
 function LoadingState(copy: string) {
   return section(
@@ -1825,6 +1876,44 @@ function captureDialogInvoker(element: HTMLElement): DialogInvoker {
   return {element, id: element.dataset.dialogInvoker ?? null}
 }
 
+function openRepositoryInspection(repositoryNodeId: string, invoker: HTMLElement): void {
+  selectedRepositoryNodeId.val = repositoryNodeId
+  inspectedRepositoryNodeId.val = repositoryNodeId
+  repositoryDialogInvoker = captureDialogInvoker(invoker)
+  focusInitialDialogAction('.repository-inspection-dialog')
+}
+
+function closeRepositoryInspection(): void {
+  restoreDialogInvoker(dismissRepositoryInspection())
+}
+
+function dismissStaleRepositoryInspection(): void {
+  const invoker = repositoryDialogInvoker
+  const ownerDocument = invoker?.element.ownerDocument ?? document
+  const MutationObserverConstructor = ownerDocument.defaultView?.MutationObserver
+  const fallbackSelector = '.repository-list .repository-row:not(:disabled)'
+
+  if (invoker?.element.isConnected && MutationObserverConstructor && ownerDocument.body) {
+    const observer = new MutationObserverConstructor(() => {
+      if (invoker.element.isConnected) return
+      observer.disconnect()
+      focusDialogInvoker(invoker, fallbackSelector, true)
+    })
+    observer.observe(ownerDocument.body, {childList: true, subtree: true})
+    dismissRepositoryInspection()
+    return
+  }
+
+  restoreDialogInvoker(dismissRepositoryInspection(), fallbackSelector, true)
+}
+
+function dismissRepositoryInspection(): DialogInvoker | null {
+  const invoker = repositoryDialogInvoker
+  inspectedRepositoryNodeId.val = null
+  repositoryDialogInvoker = null
+  return invoker
+}
+
 function beginMembershipPreviewRequest(invoker: HTMLElement): number | null {
   if (
     activeMembershipPreviewRequestToken !== null ||
@@ -1839,17 +1928,38 @@ function beginMembershipPreviewRequest(invoker: HTMLElement): number | null {
   return requestToken
 }
 
-function restoreDialogInvoker(invoker: DialogInvoker | null): void {
-  window.setTimeout(() => {
-    if (!invoker) return
-    const current = invoker.element.isConnected
+function focusDialogInvoker(
+  invoker: DialogInvoker | null,
+  fallbackSelector?: string,
+  preferFallback = false
+): void {
+  const ownerDocument = invoker?.element.ownerDocument ?? document
+  const current = invoker
+    ? invoker.element.isConnected
       ? invoker.element
-      : [...document.querySelectorAll<HTMLElement>('[data-dialog-invoker]')].find(
+      : [...ownerDocument.querySelectorAll<HTMLElement>('[data-dialog-invoker]')].find(
           (element) => element.dataset.dialogInvoker === invoker.id
         )
-    if (!current || current.matches(':disabled')) return
-    current.focus()
-  }, 0)
+    : null
+  const fallback = fallbackSelector
+    ? ownerDocument.querySelector<HTMLElement>(fallbackSelector)
+    : null
+  const target = preferFallback
+    ? fallback
+    : current && !current.matches(':disabled')
+      ? current
+      : fallback
+  if (target && !target.matches(':disabled')) target.focus()
+}
+
+function restoreDialogInvoker(
+  invoker: DialogInvoker | null,
+  fallbackSelector?: string,
+  preferFallback = false
+): void {
+  const ownerDocument = invoker?.element.ownerDocument ?? document
+  const ownerWindow = ownerDocument.defaultView ?? window
+  ownerWindow.setTimeout(() => focusDialogInvoker(invoker, fallbackSelector, preferFallback), 0)
 }
 
 async function updateAnnotation(
@@ -1942,6 +2052,8 @@ function handleMembershipPreviewResponse(
     return
   }
   membershipActivity.val = `Stable preview captured after ${response.data.attempts} attempts. Confirmation is required.`
+  const repositoryInvoker = dismissRepositoryInspection()
+  if (repositoryInvoker) membershipDialogInvoker = repositoryInvoker
   pendingMembershipPreview.val = response.data
   focusInitialDialogAction('.membership-confirmation')
 }
@@ -2011,7 +2123,8 @@ function openUnstarConfirmation(
   invoker: HTMLElement
 ): void {
   if (pendingUnstarTargets.val.length > 0 || enqueueingUnstars.val) return
-  unstarDialogInvoker = captureDialogInvoker(invoker)
+  const repositoryInvoker = dismissRepositoryInspection()
+  unstarDialogInvoker = repositoryInvoker ?? captureDialogInvoker(invoker)
   pendingUnstarTargets.val = repositories.map((repository) => ({
     repositoryNodeId: repository.repositoryNodeId,
     fullName: repository.fullName
@@ -2127,6 +2240,8 @@ function applyState(state: AppState): void {
     selectedForUnstar.val = new Set()
     resetUnstarConfirmation()
     selectedRepositoryNodeId.val = null
+    inspectedRepositoryNodeId.val = null
+    repositoryDialogInvoker = null
     selectedNativeListIds.val = new Set()
     membershipActivity.val = null
     resetMembershipPreview()
@@ -2483,6 +2598,9 @@ export function renderSettingsState(state: AppState): HTMLElement {
 export function renderLibraryState(state: AppState): HTMLElement {
   appState.val = state
   activeView.val = {kind: 'unlist'}
+  selectedRepositoryNodeId.val = null
+  inspectedRepositoryNodeId.val = null
+  repositoryDialogInvoker = null
   selectedForUnstar.val = new Set()
   resetUnstarConfirmation()
   selectedNativeListIds.val = new Set()
