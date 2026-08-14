@@ -550,6 +550,7 @@ test('explains an active native List operation when membership review is disable
   browserWindow.document.body.append(
     library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
+  await openRepositoryDetails(library, browserWindow)
   const listChoice = library.querySelector(
     '.inspector .native-list-choices input[type="checkbox"]'
   ) as HTMLInputElement | null
@@ -1047,7 +1048,7 @@ test('mounts existing native List controls separately from local tags', async ()
   )
   currentListNavigationItem?.dispatchEvent(new browserWindow.MouseEvent('click', {bubbles: true}))
   await browserWindow.happyDOM.whenAsyncComplete()
-  const library = root
+  const library = root as unknown as HTMLElement
   await openRepositoryDetails(library, browserWindow)
 
   expect(library.textContent).toContain('Native GitHub Lists')
@@ -1063,12 +1064,8 @@ test('mounts existing native List controls separately from local tags', async ()
 })
 
 test('organizes inspector facts, local fields, and GitHub changes into labelled sections', async () => {
-  const browserWindow = createDashboardWindow()
-  const {renderLibraryState} = await import('../../src/dashboard/scripts')
-  const library = renderLibraryState(membershipReadyDashboardState())
-  browserWindow.document.body.append(
-    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
-  )
+  const library = await mountReadyDashboard(membershipReadyDashboardState())
+  const browserWindow = window as unknown as Window
   await openRepositoryDetails(library, browserWindow)
   const inspector = library.querySelector<HTMLElement>('.inspector')
   const sections = [...(inspector?.children ?? [])].filter((child) =>
@@ -1958,6 +1955,114 @@ function operationHistory(
     occurredAt: '2026-08-04T10:01:00Z'
   }
 }
+
+test('restores focus to an available result when filtering removes the inspected repository', async () => {
+  const browserWindow = createDashboardWindow()
+  // @ts-expect-error Bun query strings create a test-only module instance.
+  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts?stale-focus')
+  const inspected = {
+    ...repositoryRecord('42', 'R_inspected', 'octocat/inspected'),
+    primaryLanguage: 'TypeScript'
+  }
+  const fallback = {
+    ...repositoryRecord('42', 'R_fallback', 'github/fallback'),
+    primaryLanguage: 'JavaScript'
+  }
+  renderLibraryState({
+    ...membershipReadyDashboardState(),
+    library: {
+      repositories: [inspected, fallback],
+      nativeLists: [],
+      nativeMemberships: [],
+      annotations: []
+    },
+    mutations: {batches: [], jobs: [], history: []}
+  })
+  const library = browserWindow.document.createElement('main') as unknown as HTMLElement
+  browserWindow.document.body.append(
+    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  mountDashboard(library)
+  const inspectedRow = library.querySelector<HTMLButtonElement>(
+    '[data-repository-node-id="R_inspected"]'
+  )
+  expect(inspectedRow).not.toBeNull()
+  if (inspectedRow === null) return
+  inspectedRow.dispatchEvent(
+    new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
+  )
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  const language = [...library.querySelectorAll('label')]
+    .find((label) => label.textContent?.includes('Language'))
+    ?.querySelector<HTMLSelectElement>('select') ?? null
+  expect(language).not.toBeNull()
+  if (language === null) return
+
+  language.value = 'JavaScript'
+  language.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  const fallbackRow = library.querySelector<HTMLButtonElement>(
+    '[data-repository-node-id="R_fallback"]'
+  )
+  expect(library.querySelector('.repository-inspection-dialog')).toBeNull()
+  expect((browserWindow.document.activeElement as unknown) === fallbackRow).toBe(true)
+
+  language.value = ''
+  language.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  library.remove()
+})
+
+test('restores focus to an available result when search removes the inspected repository', async () => {
+  const browserWindow = createDashboardWindow()
+  // @ts-expect-error Bun query strings create a test-only module instance.
+  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts?stale-search-focus')
+  const inspected = repositoryRecord('42', 'R_inspected', 'octocat/inspected')
+  const fallback = repositoryRecord('42', 'R_fallback', 'github/fallback')
+  renderLibraryState({
+    ...membershipReadyDashboardState(),
+    library: {
+      repositories: [inspected, fallback],
+      nativeLists: [],
+      nativeMemberships: [],
+      annotations: []
+    },
+    mutations: {batches: [], jobs: [], history: []}
+  })
+  const library = browserWindow.document.createElement('main') as unknown as HTMLElement
+  browserWindow.document.body.append(
+    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  mountDashboard(library)
+  const inspectedRow = library.querySelector<HTMLButtonElement>(
+    '[data-repository-node-id="R_inspected"]'
+  )
+  expect(inspectedRow).not.toBeNull()
+  if (inspectedRow === null) return
+  inspectedRow.dispatchEvent(
+    new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
+  )
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  const search = library.querySelector<HTMLInputElement>('#library-search')
+  expect(search).not.toBeNull()
+  if (search === null) return
+  search.value = 'github/fallback'
+  search.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+
+  const fallbackRow = library.querySelector<HTMLButtonElement>(
+    '[data-repository-node-id="R_fallback"]'
+  )
+  expect(library.querySelector('.repository-inspection-dialog')).toBeNull()
+  expect((browserWindow.document.activeElement as unknown) === fallbackRow).toBe(true)
+  library.remove()
+})
 
 function createDashboardWindow(): Window {
   const browserWindow = new Window({url: 'chrome-extension://fixture/dashboard/index.html'})

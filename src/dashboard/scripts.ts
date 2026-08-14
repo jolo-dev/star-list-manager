@@ -273,8 +273,7 @@ function LibraryResults(repositories: readonly LibraryRepository[]) {
       ) ?? null
     : null
   if (inspectedRepositoryNodeId.val && !inspected) {
-    inspectedRepositoryNodeId.val = null
-    repositoryDialogInvoker = null
+    dismissStaleRepositoryInspection()
   }
 
   return div(
@@ -335,8 +334,15 @@ function LibraryHeader(
           oninput: (event: Event) => {
             searchText.val = (event.currentTarget as HTMLInputElement).value
             selectedRepositoryNodeId.val = null
-            inspectedRepositoryNodeId.val = null
-            repositoryDialogInvoker = null
+            const inspectedRepository = inspectedRepositoryNodeId.val
+            const inspectedRemainsVisible = inspectedRepository
+              ? queryRepositories(repositories, currentQuery(), Date.now()).some(
+                  (item) => item.repository.repositoryNodeId === inspectedRepository
+                )
+              : false
+            if (inspectedRepository && !inspectedRemainsVisible) {
+              dismissStaleRepositoryInspection()
+            }
           }
         })
       ),
@@ -1881,6 +1887,26 @@ function closeRepositoryInspection(): void {
   restoreDialogInvoker(dismissRepositoryInspection())
 }
 
+function dismissStaleRepositoryInspection(): void {
+  const invoker = repositoryDialogInvoker
+  const ownerDocument = invoker?.element.ownerDocument ?? document
+  const MutationObserverConstructor = ownerDocument.defaultView?.MutationObserver
+  const fallbackSelector = '.repository-list .repository-row:not(:disabled)'
+
+  if (invoker?.element.isConnected && MutationObserverConstructor && ownerDocument.body) {
+    const observer = new MutationObserverConstructor(() => {
+      if (invoker.element.isConnected) return
+      observer.disconnect()
+      focusDialogInvoker(invoker, fallbackSelector, true)
+    })
+    observer.observe(ownerDocument.body, {childList: true, subtree: true})
+    dismissRepositoryInspection()
+    return
+  }
+
+  restoreDialogInvoker(dismissRepositoryInspection(), fallbackSelector, true)
+}
+
 function dismissRepositoryInspection(): DialogInvoker | null {
   const invoker = repositoryDialogInvoker
   inspectedRepositoryNodeId.val = null
@@ -1902,17 +1928,38 @@ function beginMembershipPreviewRequest(invoker: HTMLElement): number | null {
   return requestToken
 }
 
-function restoreDialogInvoker(invoker: DialogInvoker | null): void {
-  window.setTimeout(() => {
-    if (!invoker) return
-    const current = invoker.element.isConnected
+function focusDialogInvoker(
+  invoker: DialogInvoker | null,
+  fallbackSelector?: string,
+  preferFallback = false
+): void {
+  const ownerDocument = invoker?.element.ownerDocument ?? document
+  const current = invoker
+    ? invoker.element.isConnected
       ? invoker.element
-      : [...document.querySelectorAll<HTMLElement>('[data-dialog-invoker]')].find(
+      : [...ownerDocument.querySelectorAll<HTMLElement>('[data-dialog-invoker]')].find(
           (element) => element.dataset.dialogInvoker === invoker.id
         )
-    if (!current || current.matches(':disabled')) return
-    current.focus()
-  }, 0)
+    : null
+  const fallback = fallbackSelector
+    ? ownerDocument.querySelector<HTMLElement>(fallbackSelector)
+    : null
+  const target = preferFallback
+    ? fallback
+    : current && !current.matches(':disabled')
+      ? current
+      : fallback
+  if (target && !target.matches(':disabled')) target.focus()
+}
+
+function restoreDialogInvoker(
+  invoker: DialogInvoker | null,
+  fallbackSelector?: string,
+  preferFallback = false
+): void {
+  const ownerDocument = invoker?.element.ownerDocument ?? document
+  const ownerWindow = ownerDocument.defaultView ?? window
+  ownerWindow.setTimeout(() => focusDialogInvoker(invoker, fallbackSelector, preferFallback), 0)
 }
 
 async function updateAnnotation(
