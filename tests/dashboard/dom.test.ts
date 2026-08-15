@@ -1058,6 +1058,94 @@ test('preserves native List header editor and prior rendered name after a runtim
   }
 })
 
+test('applies divergent native List state while retaining the sanitized rename result inline', async () => {
+  const state = renameReadyDashboardState()
+  const observed = {
+    ...state,
+    library: {
+      ...state.library!,
+      nativeLists: [nativeList('L_current', 'Observed List'), nativeList('L_other', 'Other List')]
+    }
+  }
+  const {browserWindow, root, cleanup} = await mountNativeListRenameDashboard(
+    state,
+    async () => ({
+      ok: false as const,
+      data: observed,
+      error: {
+        category: 'validation',
+        message: 'GitHub did not verify the requested native List name.',
+        retryable: true
+      }
+    })
+  )
+  try {
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    const name = nativeListHeader(root)?.querySelector<HTMLInputElement>('input') ?? null
+    expect(name).not.toBeNull()
+    if (name === null) throw new Error('The native List editor must contain its name field.')
+    name.value = 'Desired List'
+    name.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    submitNativeListRename(browserWindow, root)
+    await nextTurn(browserWindow)
+
+    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Observed List')
+    expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+      'Observed List',
+      'Other List'
+    ])
+    const retainedEditor = nativeListHeader(root)?.querySelector<HTMLInputElement>('input') ?? null
+    expect(retainedEditor?.value).toBe('Desired List')
+    expect(nativeListHeader(root)?.querySelector('[role="alert"]')?.textContent).toBe(
+      'GitHub did not verify the requested native List name.'
+    )
+    expect(nativeListHeader(root)?.querySelector('.primary-action')?.textContent).toBe('Save')
+  } finally {
+    cleanup()
+  }
+})
+
+test('removes a missing native List editor and shows its sanitized rename result', async () => {
+  const state = renameReadyDashboardState()
+  const observed = {
+    ...state,
+    library: {
+      ...state.library!,
+      nativeLists: [nativeList('L_other', 'Other List')]
+    }
+  }
+  const {browserWindow, root, cleanup} = await mountNativeListRenameDashboard(
+    state,
+    async () => ({
+      ok: false as const,
+      data: observed,
+      error: {
+        category: 'validation',
+        message: 'GitHub no longer reports the renamed native List.',
+        retryable: true
+      }
+    })
+  )
+  try {
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    submitNativeListRename(browserWindow, root)
+    await nextTurn(browserWindow)
+
+    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Inbox')
+    expect(nativeListHeader(root)?.querySelector('form.native-list-rename-editor')).toBeNull()
+    expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+      'Other List'
+    ])
+    expect(root.querySelector('.status-banner.is-error')?.textContent).toBe(
+      'GitHub no longer reports the renamed native List.'
+    )
+  } finally {
+    cleanup()
+  }
+})
+
 test('organizes inspector facts, local fields, and GitHub changes into labelled sections', async () => {
   createDashboardWindow()
   const {renderLibraryState} = await import('../../src/dashboard/scripts')

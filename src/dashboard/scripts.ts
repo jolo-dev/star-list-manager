@@ -620,6 +620,27 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
       name: validation.value
     })) as RuntimeResponse<AppState>
     if (!response.ok) {
+      if (
+        response.data !== undefined &&
+        isCurrentNativeListRenameAccount(request) &&
+        response.data.identity?.githubUserId === request.accountId
+      ) {
+        const targetExists = response.data.library?.nativeLists.some(
+          (list) => list.listNodeId === listNodeId
+        ) ?? false
+        if (
+          !targetExists &&
+          activeView.val.kind === 'list' &&
+          activeView.val.listNodeId === listNodeId
+        ) {
+          setActiveView({kind: 'inbox'})
+        }
+        applyState({...response.data, error: response.error})
+        if (targetExists && isCurrentNativeListRenameEditor(request, listNodeId)) {
+          nativeListRenameError.val = response.error.message
+        }
+        return
+      }
       if (isCurrentNativeListRenameEditor(request, listNodeId)) {
         nativeListRenameError.val = response.error.message
       }

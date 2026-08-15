@@ -1,5 +1,6 @@
 import type {ListRenameMutationRequest} from './github/list-rename-write-session'
 import {failureResponse, successResponse} from './shared/messages'
+import {NativeListRenameServiceFailure} from './sync/native-list-rename-service'
 import type {
   AppState,
   DashboardRequest,
@@ -100,7 +101,13 @@ export async function handleNativeListRename(
       name: request.name
     })
   } catch (error: unknown) {
-    return failureResponse(sanitizeError(error))
+    const publicError = sanitizeError(error)
+    if (!isReconciledNativeListRenameFailure(error)) return failureResponse(publicError)
+    try {
+      return failureResponse(publicError, await dependencies.getDashboardState())
+    } catch {
+      return failureResponse(publicError)
+    }
   }
 
   try {
@@ -139,4 +146,13 @@ function renameCompletedRefreshFailed() {
       'Native List rename succeeded, but the dashboard state could not be refreshed. Reload to view the verified result.',
     retryable: false
   }
+}
+
+function isReconciledNativeListRenameFailure(
+  error: unknown
+): error is NativeListRenameServiceFailure {
+  return (
+    error instanceof NativeListRenameServiceFailure &&
+    (error.reason === 'read-back-name-mismatch' || error.reason === 'read-back-target-missing')
+  )
 }

@@ -211,7 +211,7 @@ export type RuntimeMessage = DashboardRequest
 
 export type RuntimeResponse<T = unknown> =
   | {readonly ok: true; readonly data: T}
-  | {readonly ok: false; readonly error: AppError}
+  | {readonly ok: false; readonly error: AppError; readonly data?: T}
 
 export function decodeDashboardRequest(
   value: unknown
@@ -318,8 +318,8 @@ export function successResponse<T>(data: T): RuntimeResponse<T> {
   return {ok: true, data}
 }
 
-export function failureResponse(error: AppError): RuntimeResponse<never> {
-  return {ok: false, error}
+export function failureResponse<T = never>(error: AppError, data?: T): RuntimeResponse<T> {
+  return data === undefined ? {ok: false, error} : {ok: false, error, data}
 }
 
 function invalidRequest(): Result<never, AppError> {

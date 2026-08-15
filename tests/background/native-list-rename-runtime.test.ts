@@ -1,6 +1,7 @@
 import {describe, expect, test} from 'bun:test'
 import {AppFailure} from '../../src/shared/errors'
 import type {AppState, WriteAuthorizationState} from '../../src/shared/messages'
+import {NativeListRenameServiceFailure} from '../../src/sync/native-list-rename-service'
 import {
   handleNativeListRename,
   nativeListRenameReadiness,
@@ -181,6 +182,66 @@ describe('native List rename background runtime', () => {
       }
     })
     expect(persistedName).toBe('Observed externally renamed List')
+  })
+
+  test('returns refreshed dashboard state with a typed reconciled rename failure', async () => {
+    let dashboardReads = 0
+    const services = runtimeServices({
+      rename: async () => {
+        throw new NativeListRenameServiceFailure('read-back-name-mismatch', {
+          category: 'validation',
+          message: 'GitHub did not verify the requested native List name.',
+          retryable: true
+        })
+      }
+    })
+
+    const response = await handleNativeListRename(services, request, {
+      capabilityProven: true,
+      getDashboardState: async () => {
+        dashboardReads += 1
+        return dashboardState('Observed externally renamed List')
+      }
+    })
+
+    expect(response).toEqual({
+      ok: false,
+      data: dashboardState('Observed externally renamed List'),
+      error: {
+        category: 'validation',
+        message: 'GitHub did not verify the requested native List name.',
+        retryable: true
+      }
+    })
+    expect(dashboardReads).toBe(1)
+  })
+
+  test('keeps a typed reconciled rename failure error-only when dashboard refresh fails', async () => {
+    const services = runtimeServices({
+      rename: async () => {
+        throw new NativeListRenameServiceFailure('read-back-target-missing', {
+          category: 'validation',
+          message: 'GitHub no longer reports the renamed native List.',
+          retryable: true
+        })
+      }
+    })
+
+    const response = await handleNativeListRename(services, request, {
+      capabilityProven: true,
+      getDashboardState: async () => {
+        throw new Error('secret dashboard refresh failure')
+      }
+    })
+
+    expect(response).toEqual({
+      ok: false,
+      error: {
+        category: 'validation',
+        message: 'GitHub no longer reports the renamed native List.',
+        retryable: true
+      }
+    })
   })
 
   test('reports verified completion without retry when dashboard refresh fails', async () => {

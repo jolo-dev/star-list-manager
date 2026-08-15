@@ -1,7 +1,28 @@
 import {describe, expect, test} from 'bun:test'
-import {decodeDashboardRequest} from '../../src/shared/messages'
+import {decodeDashboardRequest, failureResponse} from '../../src/shared/messages'
 
 describe('dashboard message decoding', () => {
+  test('allows a sanitized failure to carry authoritative response data', () => {
+    expect(
+      failureResponse(
+        {
+          category: 'validation',
+          message: 'GitHub did not verify the requested native List name.',
+          retryable: true
+        },
+        {authoritative: true}
+      )
+    ).toEqual({
+      ok: false,
+      data: {authoritative: true},
+      error: {
+        category: 'validation',
+        message: 'GitHub did not verify the requested native List name.',
+        retryable: true
+      }
+    })
+  })
+
   test('accepts an exact typed annotation patch', () => {
     expect(
       decodeDashboardRequest({
