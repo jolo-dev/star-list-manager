@@ -6,10 +6,11 @@ Star List Manager is a local-first browser extension for searching, triaging, an
 
 - Chromium and Firefox extension-owned dashboard.
 - Read-only GitHub App device-flow authentication without a client secret or pasted token.
-- Optional, separately stored OAuth App authorization restricted to confirmed Starring writes and one structured native List membership mutation.
+- Optional, separately stored OAuth App authorization restricted to confirmed Starring writes, one structured native List membership mutation, and one owner-bound native List rename mutation.
 - Public starred repositories only. Private repository metadata is not persisted.
 - Read-only native GitHub List import through GitHub's public-preview GraphQL API.
-- Previewed add, remove, and move membership actions for public starred repositories among existing Lists; native List creation, rename, visibility changes, and deletion are not provided.
+- Previewed add, remove, and move membership actions for public starred repositories among existing Lists. There are no native List create, delete, or visibility functions.
+- A guarded native List rename implementation exists for an existing List, but it is disabled by default. It remains unavailable unless a separate disposable rename probe has succeeded and a manual, isolated-build gate has been deliberately applied; membership proof never enables rename.
 - Explicit single and bulk unstar controls use a durable sequential queue, remote verification, and operation history.
 - No automatic cleanup rules, re-star, or Undo. Production native List membership controls are disabled by default until the separate capability gate is deliberately enabled after successful fixture verification.
 - No backend, hosted synchronization, analytics, advertising, or content scripts.
@@ -23,7 +24,7 @@ Star List Manager is a local-first browser extension for searching, triaging, an
 
 The GitHub App requests user-level Starring read permission and implicit public-resource access. It does not request repository, organization, private-repository, content, Gist, or write permission.
 
-Optional write authorization uses a separate GitHub OAuth App and requests `public_repo user`. GitHub defines both scopes broadly: `public_repo` can write more public-repository resources than Star List Manager uses, while `user` grants read/write profile authority, including email and follow subscopes. The extension stores that token separately, validates that it belongs to the active GitHub user, and permits it only through exact authenticated-user Starring status, star, and unstar routes or one internally constructed `UpdateUserListsForItem` mutation. It implements no profile, email, or follow requests. The native List transport requires the account-bound `user` scope and accepts only an expected account, repository node ID, and complete canonical List ID set; it does not accept caller-provided URLs, documents, operation names, or unrelated variables. Previously stored account-matched `public_repo`-only credentials remain limited to Starring and cannot enable native List membership writes.
+Optional write authorization uses a separate GitHub OAuth App and requests `public_repo user`. GitHub defines both scopes broadly: `public_repo` can write more public-repository resources than Star List Manager uses, while `user` grants read/write profile authority, including email and follow subscopes. The extension stores that token separately, validates that it belongs to the active GitHub user, and permits it only through exact authenticated-user Starring status, star, and unstar routes; the static `UpdateUserListsForItem` membership mutation; or the static owner-bound `UpdateUserList` rename mutation. It implements no profile, email, or follow requests, arbitrary GraphQL, or caller-provided URLs. The membership transport accepts only an expected account, repository node ID, and complete canonical List ID set. The rename transport accepts only the expected account, an existing List node ID, and a validated name. Neither accepts caller-provided documents, operation names, or unrelated variables. Previously stored account-matched `public_repo`-only credentials remain limited to Starring and cannot enable membership or rename writes.
 
 Unstar confirmation identifies the operation as a GitHub account change and lists every affected repository. Confirmed jobs are stored before network work, execute one at a time, and keep repositories in active starred views until complete observations verify remote absence. Successful unstars retain metadata, notes, tags, favorites, triage, and history. There is no Undo because restoring a GitHub star requires a separately confirmed remote write.
 
@@ -33,7 +34,7 @@ Membership discovery and read-back enumerate the List catalog and paginated item
 
 ## Local Data
 
-Credentials and library data remain in extension-owned browser storage. Browser-profile storage is not an operating-system keychain. Read and optional write tokens are stored separately and isolated from rendered pages, logs, exports, and unrelated hosts, but a compromised browser profile can expose extension storage.
+Credentials and library data remain in extension-owned browser storage. Browser-profile storage is not an operating-system keychain. Read and optional write tokens are stored separately and never rendered in the dashboard, written to logs, or included in exports; they are isolated from unrelated hosts, but a compromised browser profile can expose extension storage. Never paste tokens into issues, screenshots, or other reports.
 
 Settings can disconnect only optional write access while retaining read-only synchronization. Disconnect GitHub removes both active credentials while retaining local library data. A separate confirmed action removes all credentials and extension-owned data. Versioned JSON export/import supports moving one active account namespace between browser profiles; see [`docs/export-format.md`](docs/export-format.md).
 
@@ -49,7 +50,7 @@ Install dependencies with Bun 1.3.14:
 bun install --frozen-lockfile
 ```
 
-Create `.env.local` with public client IDs for a read-only GitHub App and a separate OAuth App for optional Starring and native List membership writes. Both apps must have device flow enabled:
+Create `.env.local` with public client IDs for a read-only GitHub App and a separate OAuth App for optional Starring, native List membership, and guarded rename writes. Both apps must have device flow enabled:
 
 ```text
 EXTENSION_PUBLIC_GITHUB_CLIENT_ID=your_public_client_id
@@ -59,6 +60,8 @@ EXTENSION_PUBLIC_GITHUB_WRITE_CLIENT_ID=your_write_oauth_client_id
 The client ID is public configuration. Do not add client secrets or tokens.
 
 Native List membership writes remain disabled by default. Development capability verification requires the same-account `user` scope, an explicitly confirmed disposable public star, an unchanged complete membership-set mutation, and an independent stable read-back. See [`docs/native-list-membership-fixture.md`](docs/native-list-membership-fixture.md).
+
+Native List rename is independently disabled by default: `.env.example` sets `EXTENSION_PUBLIC_GITHUB_LIST_RENAME_ENABLED=false`. Do not change that flag for a general-user or release build. It can be considered only for an isolated manual-test build after a separate disposable rename probe has proven the required schema, `user` permission, same-account ownership, unique temporary rename, exact independent catalog read-backs, and restoration. Membership capability evidence does not enable rename.
 
 Run development builds:
 
