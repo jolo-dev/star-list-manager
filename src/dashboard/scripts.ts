@@ -1,6 +1,5 @@
 import van from 'vanjs-core'
 import {validateNativeListRename} from '../domain/native-list-rename'
-import {sanitizeError} from '../shared/errors'
 import {sendRuntimeMessage} from '../platform/browser'
 import type {
   AppState,
@@ -636,9 +635,9 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
     if (activeView.val.kind === 'list' && activeView.val.listNodeId === listNodeId) {
       resetNativeListRenameEditor()
     }
-  } catch (error) {
+  } catch {
     if (isCurrentNativeListRenameEditor(request, listNodeId)) {
-      nativeListRenameError.val = sanitizeError(error).message
+      nativeListRenameError.val = 'Unable to rename the GitHub List. Please try again.'
     }
   } finally {
     releaseNativeListRenameRequest(request)

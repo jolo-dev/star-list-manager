@@ -992,6 +992,37 @@ test('sends one valid native List header rename and renders only verified return
   }
 })
 
+test('shows a fixed safe message when native List rename dispatch throws', async () => {
+  const {browserWindow, root, cleanup} = await mountNativeListRenameDashboard(
+    renameReadyDashboardState(),
+    async () => {
+      throw new Error('Unexpected remote failure: ghp_exampleSecretValue')
+    }
+  )
+  try {
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    const name = nativeListHeader(root)?.querySelector<HTMLInputElement>('input') ?? null
+    expect(name).not.toBeNull()
+    if (name === null) throw new Error('The native List editor must contain its name field.')
+    name.value = 'Unverified Name'
+    name.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    submitNativeListRename(browserWindow, root)
+    await nextTurn(browserWindow)
+
+    const error = nativeListHeader(root)?.querySelector('[role="alert"]')?.textContent ?? ''
+    expect(name.value).toBe('Unverified Name')
+    expect(error).toBe('Unable to rename the GitHub List. Please try again.')
+    expect(error).not.toContain('ghp_exampleSecretValue')
+    expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+      'Current List',
+      'Other List'
+    ])
+  } finally {
+    cleanup()
+  }
+})
+
 test('preserves native List header editor and prior rendered name after a runtime failure', async () => {
   const {browserWindow, root, cleanup} = await mountNativeListRenameDashboard(
     renameReadyDashboardState(),
