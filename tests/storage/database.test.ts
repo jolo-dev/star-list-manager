@@ -34,6 +34,7 @@ import {
   putWriteAuthState,
   replaceAuthStateIfGeneration,
   deleteAuthStateIfGeneration,
+  deleteNativeList,
   deleteWriteAuthState,
   clearWriteAuthStates,
   clearAllLibraryData
@@ -236,6 +237,28 @@ describe('library IndexedDB', () => {
       annotation
     ])
     expect(await listRepositories(database, 'another-account')).toEqual([])
+    database.close()
+  })
+
+  test('deletes only the requested account-scoped native List record', async () => {
+    const database = await openLibraryDatabase({
+      name: 'native-list-targeted-delete-test',
+      factory: new IDBFactory()
+    })
+    const target = nativeListFixture()
+    const companion = {...nativeListFixture(), listNodeId: 'UL_companion', name: 'Companion'}
+    const anotherAccount = {...nativeListFixture(), githubUserId: '84', name: 'Another account'}
+    await putNativeList(database, target)
+    await putNativeList(database, companion)
+    await putNativeList(database, anotherAccount)
+
+    await deleteNativeList(database, githubUserId, target.listNodeId)
+
+    expect(await getNativeList(database, githubUserId, target.listNodeId)).toBeNull()
+    expect(await getNativeList(database, githubUserId, companion.listNodeId)).toEqual(companion)
+    expect(await getNativeList(database, anotherAccount.githubUserId, anotherAccount.listNodeId)).toEqual(
+      anotherAccount
+    )
     database.close()
   })
 

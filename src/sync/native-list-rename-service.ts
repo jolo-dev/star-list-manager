@@ -54,6 +54,11 @@ export interface NativeListRenameStorage {
     githubUserId: GitHubUserId
   ) => Promise<readonly NativeListRecord[]>
   readonly putNativeList: (database: IDBDatabase, list: NativeListRecord) => Promise<void>
+  readonly deleteNativeList: (
+    database: IDBDatabase,
+    githubUserId: GitHubUserId,
+    listNodeId: NativeListNodeId
+  ) => Promise<void>
 }
 
 export interface NativeListRenameServiceOptions {
@@ -157,6 +162,11 @@ export class NativeListRenameService {
     const catalog = await this.#readCompleteCatalog()
     const verifiedTarget = catalog.get(canonicalRequest.listNodeId)
     if (!verifiedTarget) {
+      await this.#storage.deleteNativeList(
+        this.#database,
+        canonicalRequest.expectedGitHubUserId,
+        canonicalRequest.listNodeId
+      )
       throw failure(
         'read-back-target-missing',
         'validation',
@@ -164,7 +174,18 @@ export class NativeListRenameService {
         true
       )
     }
-    if (canonicalNativeListName(verifiedTarget.name) !== canonicalRequest.name) {
+    const verifiedName = canonicalNativeListName(verifiedTarget.name)
+    if (verifiedName !== canonicalRequest.name) {
+      await this.#storage.putNativeList(
+        this.#database,
+        verifiedRecord(
+          localTarget,
+          canonicalRequest.expectedGitHubUserId,
+          verifiedTarget,
+          verifiedName,
+          this.#timestamp()
+        )
+      )
       throw failure(
         'read-back-name-mismatch',
         'validation',

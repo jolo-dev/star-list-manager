@@ -131,6 +131,18 @@ export async function putNativeList(
   await putRecord(database, libraryStores.nativeLists, list)
 }
 
+export async function deleteNativeList(
+  database: IDBDatabase,
+  githubUserId: GitHubUserId,
+  listNodeId: NativeListNodeId
+): Promise<void> {
+  await runLibraryTransaction(database, libraryStores.nativeLists, 'readwrite', (transaction) =>
+    requestResult(
+      transaction.objectStore(libraryStores.nativeLists).delete([githubUserId, listNodeId])
+    )
+  )
+}
+
 export async function getNativeList(
   database: IDBDatabase,
   githubUserId: GitHubUserId,

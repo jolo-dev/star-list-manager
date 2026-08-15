@@ -9,6 +9,7 @@ import type {ListRenameMutationRequest} from '../../src/github/list-rename-write
 import type {NativeListCatalogPage} from '../../src/github/graphql-client'
 import {openLibraryDatabase} from '../../src/storage/database'
 import {
+  deleteNativeList,
   getAnnotation,
   getNativeList,
   listMembershipsForList,
@@ -97,18 +98,72 @@ describe('native List rename reconciliation', () => {
     database.close()
   })
 
-  test('does not trust the direct mutation response without exact verified catalog read-back', async () => {
-    const database = await databaseWithTarget('rename-untrusted-response')
+  test('reconciles only a divergent target to authoritative catalog metadata without preserving an optimistic name', async () => {
+    const database = await databaseWithTarget('rename-divergent-read-back')
+    await putNativeList(database, companion)
+    const membership = nativeMembership()
+    const annotation = annotationFixture()
+    await putNativeMembership(database, membership)
+    await putAnnotation(database, annotation)
     const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'Tools'})
+    const putCalls: NativeListRecord[] = []
     const service = createService(
       database,
-      new FixtureCatalogReader([catalogPage([remoteList('UL_target', 'Concurrent')], false, null, 1)]),
-      writer
+      new FixtureCatalogReader([
+        catalogPage(
+          [
+            remoteList('UL_target', 'Concurrent', {
+              description: 'Observed concurrent description',
+              isPrivate: true,
+              slug: 'concurrent',
+              createdAt: '2026-08-15T10:30:00.000Z',
+              updatedAt: '2026-08-15T11:30:00.000Z',
+              lastAddedAt: '2026-08-15T09:30:00.000Z',
+              reportedItemCount: 9
+            }),
+            remoteList('UL_companion', 'Archive')
+          ],
+          false,
+          null,
+          2
+        )
+      ]),
+      writer,
+      {
+        ...storageForDatabase(),
+        putNativeList: async (database, list) => {
+          putCalls.push(list)
+          await putNativeList(database, list)
+        }
+      }
     )
 
     await expectFailure(service.rename(renameRequest()), 'read-back-name-mismatch')
     expect(writer.requests).toHaveLength(1)
-    expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
+    const observed = {
+      ...target,
+      name: 'Concurrent',
+      description: 'Observed concurrent description',
+      visibility: 'private' as const,
+      slug: 'concurrent',
+      createdAt: '2026-08-15T10:30:00.000Z',
+      updatedAt: '2026-08-15T11:30:00.000Z',
+      lastAddedAt: '2026-08-15T09:30:00.000Z',
+      reportedItemCount: 9,
+      lastObservedAt: timestamp
+    }
+    expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(observed)
+    expect(observed.name).not.toBe('Tools')
+    expect(observed.importedItemCount).toBe(target.importedItemCount)
+    expect(observed.importStatus).toBe(target.importStatus)
+    expect(await getNativeList(database, githubUserId, 'UL_companion')).toEqual(companion)
+    expect(await listMembershipsForList(database, githubUserId, membership.listNodeId)).toEqual([
+      membership
+    ])
+    expect(await getAnnotation(database, githubUserId, annotation.repositoryNodeId)).toEqual(
+      annotation
+    )
+    expect(putCalls).toEqual([observed])
     database.close()
   })
 
@@ -150,22 +205,55 @@ describe('native List rename reconciliation', () => {
     }
   })
 
-  test('rejects missing target, divergent target name, duplicate fresh name, and reader errors without changing the target', async () => {
+  test('removes only a target absent from a complete authoritative catalog without deleting related local state', async () => {
+    const database = await databaseWithTarget('rename-missing-read-back')
+    await putNativeList(database, companion)
+    const membership = nativeMembership()
+    const annotation = annotationFixture()
+    await putNativeMembership(database, membership)
+    await putAnnotation(database, annotation)
+    const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'Tools'})
+    const putCalls: NativeListRecord[] = []
+    const deleteCalls: Array<readonly [string, string]> = []
+    const service = createService(
+      database,
+      new FixtureCatalogReader([catalogPage([remoteList('UL_companion', 'Archive')], false, null, 1)]),
+      writer,
+      {
+        ...storageForDatabase(),
+        putNativeList: async (database, list) => {
+          putCalls.push(list)
+          await putNativeList(database, list)
+        },
+        deleteNativeList: async (database, userId, listNodeId) => {
+          deleteCalls.push([userId, listNodeId])
+          await deleteNativeList(database, userId, listNodeId)
+        }
+      }
+    )
+
+    await expectFailure(service.rename(renameRequest()), 'read-back-target-missing')
+    expect(writer.requests).toHaveLength(1)
+    expect(await getNativeList(database, githubUserId, 'UL_target')).toBeNull()
+    expect(await getNativeList(database, githubUserId, 'UL_companion')).toEqual(companion)
+    expect(await listNativeLists(database, githubUserId)).toEqual([companion])
+    expect(await listMembershipsForList(database, githubUserId, membership.listNodeId)).toEqual([
+      membership
+    ])
+    expect(await getAnnotation(database, githubUserId, annotation.repositoryNodeId)).toEqual(
+      annotation
+    )
+    expect(putCalls).toEqual([])
+    expect(deleteCalls).toEqual([[githubUserId, 'UL_target']])
+    database.close()
+  })
+
+  test('rejects duplicate fresh names and reader errors without changing the target', async () => {
     const cases: ReadonlyArray<{
       readonly name: string
       readonly reader: FixtureCatalogReader
       readonly reason: NativeListRenameServiceFailure['reason']
     }> = [
-      {
-        name: 'missing target',
-        reader: new FixtureCatalogReader([catalogPage([remoteList('UL_other', 'Other')], false, null, 1)]),
-        reason: 'read-back-target-missing'
-      },
-      {
-        name: 'divergent target name',
-        reader: new FixtureCatalogReader([catalogPage([remoteList('UL_target', 'Concurrent')], false, null, 1)]),
-        reason: 'read-back-name-mismatch'
-      },
       {
         name: 'duplicate fresh name',
         reader: new FixtureCatalogReader([
@@ -283,7 +371,17 @@ describe('native List rename reconciliation', () => {
       'read-back-name-mismatch'
     )
     expect(writer.requests).toHaveLength(1)
-    expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
+    expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual({
+      ...target,
+      name: 'Straße',
+      description: null,
+      slug: 'straße',
+      createdAt: '2026-08-15T10:00:00.000Z',
+      updatedAt: '2026-08-15T11:00:00.000Z',
+      lastAddedAt: '2026-08-15T09:00:00.000Z',
+      reportedItemCount: 7,
+      lastObservedAt: timestamp
+    })
     database.close()
   })
 
@@ -494,7 +592,7 @@ function verifiedTargetReader(): FixtureCatalogReader {
 }
 
 function storageForDatabase(): NativeListRenameStorage {
-  return {getNativeList, listNativeLists, putNativeList}
+  return {getNativeList, listNativeLists, putNativeList, deleteNativeList}
 }
 
 class RecordingWriter {
