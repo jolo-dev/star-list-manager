@@ -2,8 +2,9 @@ export interface ListRenameCapabilityProof {
   readonly schema: 'available'
   readonly oauthUserScope: 'verified'
   readonly accountOwnership: 'verified'
-  readonly unchangedNameMutation: 'verified'
-  readonly independentReadBack: 'verified'
+  readonly temporaryRenameMutation: 'verified'
+  readonly restorationMutation: 'verified'
+  readonly independentCatalogReadBack: 'verified'
 }
 
 export function nativeListRenameControlsEnabled(
@@ -13,7 +14,8 @@ export function nativeListRenameControlsEnabled(
     proof?.schema === 'available' &&
     proof.oauthUserScope === 'verified' &&
     proof.accountOwnership === 'verified' &&
-    proof.unchangedNameMutation === 'verified' &&
-    proof.independentReadBack === 'verified'
+    proof.temporaryRenameMutation === 'verified' &&
+    proof.restorationMutation === 'verified' &&
+    proof.independentCatalogReadBack === 'verified'
   )
 }

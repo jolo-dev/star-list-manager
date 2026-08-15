@@ -69,3 +69,9 @@ An isolated Chromium profile also verified the local disclosure and Cancel path,
 On 2026-08-08, a real disposable no-op probe established the OAuth permission boundary for `UpdateUserListsForItem`: an account-matched `public_repo` credential was insufficient, while an account-matched authorization including `user` allowed the unchanged complete membership set mutation and independent stable read-back. The implementation therefore requests and validates the combined `public_repo user` scopes for new write authorizations. Existing account-matched `public_repo`-only credentials remain limited to the already verified Starring boundary.
 
 The successful membership result proves schema availability, `user` permission, account ownership, unchanged-set mutation acceptance, and independent read-back for the disposable fixture. It does not authorize arbitrary GraphQL, persist a capability flag, or by itself enable production controls. No token, authorization header, device code, raw GraphQL error, or raw OAuth response was retained in this evidence.
+
+## OAuth App native List rename contract (not run)
+
+On 2026-08-15, the static rename transport recorded the documented GraphQL contract for the proposed capability probe: `UpdateUserList` takes an input with `listId: ID!` and `name: String`, and its payload exposes `list` as `UserList { id name }`. This is a read-only contract record from implementation/documentation review, **not** a successful live mutation or permission result.
+
+The disposable native List rename probe remains **NOT RUN / unproven**. Schema availability, OAuth `user` scope acceptance, owner-bound mutation permission, temporary-name read-back, restoration, and final complete-catalog read-back have not been verified against GitHub. No device authorization, OAuth credential, or live GitHub request was initiated for this record. Native List rename must remain disabled by default.

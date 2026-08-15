@@ -8,8 +8,9 @@ const proof: ListRenameCapabilityProof = {
   schema: 'available',
   oauthUserScope: 'verified',
   accountOwnership: 'verified',
-  unchangedNameMutation: 'verified',
-  independentReadBack: 'verified'
+  temporaryRenameMutation: 'verified',
+  restorationMutation: 'verified',
+  independentCatalogReadBack: 'verified'
 }
 
 describe('native List rename capability gate', () => {

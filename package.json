@@ -26,6 +26,7 @@
     "spike:github-app": "bun scripts/github-app-capability-spike.ts",
     "probe:oauth-starring": "bun scripts/oauth-starring-capability-probe.ts",
     "probe:oauth-list-membership": "bun scripts/oauth-list-membership-capability-probe.ts",
+    "probe:oauth-list-rename": "bun scripts/oauth-list-rename-capability-probe.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "check": "bun run check:source && bun run typecheck && bun test && bun run build:chrome && bun run build:firefox && bun run inspect:build"

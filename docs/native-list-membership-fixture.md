@@ -24,11 +24,30 @@ The script performs OAuth device flow in memory requesting `public_repo user`, v
 
 A successful probe provides development evidence for schema availability, required `user` permission under the combined authorization, account ownership, the unchanged-set mutation, and independent read-back. `public_repo` alone is not evidence of membership permission. The probe does not by itself persist capability proof or enable production controls. Failed or inconclusive probes leave native Lists read-only.
 
+## Disposable Native List Rename Fixture (not run)
+
+Native List rename remains disabled by default. The dedicated probe is development-only and must run only from an isolated browser profile on a development-only account. It is not a no-op: it temporarily renames exactly one explicitly confirmed disposable List, reads the complete catalog independently, restores the original name through the same static transport, and independently reads the full catalog again. Never supply an existing personal List, and never use a temporary name that is already used by another List.
+
+```bash
+env -u NODE_OPTIONS bun run probe:oauth-list-rename -- \
+  --confirm-disposable-list-rename \
+  --list-node-id=L_disposable_node_id \
+  --original-name='Disposable original name' \
+  --temporary-name='Disposable temporary name 2026-08-15' \
+  --github-user-id=123456
+```
+
+The explicit confirmation identifies only the disposable List node ID, its expected current/original name, a unique temporary name, and the expected stable GitHub owner ID. If executed, the script obtains same-account `public_repo user` device authorization in memory, validates the expected owner through that authorization, validates the initial full catalog fixture/name, performs the static `UpdateUserList` rename, independently enumerates the full catalog for the same node ID and temporary name, restores the original through the same static transport, and independently confirms the original name. It emits capability proof only after all stages succeed. It does not print or persist tokens, raw GraphQL responses, or unrelated catalog names.
+
+If a temporary rename may have occurred but restoration or final read-back fails, the script reports **CLEANUP REQUIRED** and does not claim proof. Manually restore the confirmed disposable List to its original name and independently inspect GitHub before recording any result. A failed or inconclusive probe leaves native Lists read-only.
+
 ## Isolated Manual Mutation Build
 
-Only after a successful probe, set `EXTENSION_PUBLIC_GITHUB_LIST_MEMBERSHIP_WRITE_ENABLED=true` in the isolated manual-test build and rebuild the extension. The production capability gate is otherwise off. The flag is an operator assertion that all probe criteria passed; it does not replace the probe evidence. Keep it unset for normal or release builds until all capability and manual checks pass.
+Only after the relevant successful disposable probe, set `EXTENSION_PUBLIC_GITHUB_LIST_MEMBERSHIP_WRITE_ENABLED=true` in the isolated manual-test build and rebuild the extension. The membership production capability gate is otherwise off. The flag is an operator assertion that all probe criteria passed; it does not replace the probe evidence. Keep it unset for normal or release builds until all capability and manual checks pass.
 
-The extension's OAuth boundary constructs only the static `UpdateUserListsForItem` operation from the expected GitHub account, fixture repository node ID, and complete canonical List ID set. It does not accept arbitrary GraphQL documents or provide List create, rename, visibility, or delete controls.
+`EXTENSION_PUBLIC_GITHUB_LIST_RENAME_ENABLED` is documented in `.env.example` as `false` and must remain unset/disabled for normal and release builds. It is not enabled by this implementation, and the rename probe has not been run.
+
+The extension's OAuth boundary constructs only the static `UpdateUserListsForItem` operation from the expected GitHub account, fixture repository node ID, and complete canonical List ID set, plus the separately static owner-bound `UpdateUserList` rename operation for a validated List node ID and name. It does not accept arbitrary GraphQL documents or provide List create, visibility, or delete controls.
 
 ## Manual Add, Remove, and Move
 
