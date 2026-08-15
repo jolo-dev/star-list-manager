@@ -255,7 +255,7 @@ function canonicalName(value: string): string {
 }
 
 function sameName(left: string, right: string): boolean {
-  return left.localeCompare(right, undefined, {sensitivity: 'accent'}) === 0
+  return left === right
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -298,7 +298,7 @@ type ProbeFetch = (
 
 interface CliArguments extends OAuthListRenameProbeOptions {}
 
-function parseCliArguments(arguments_: readonly string[]): CliArguments {
+export function parseCliArguments(arguments_: readonly string[]): CliArguments {
   const prefixes = [
     '--list-node-id=',
     '--original-name=',
@@ -338,7 +338,7 @@ function requiredCliArgument(arguments_: readonly string[], prefix: string): str
   return requireValue(matches[0]?.slice(prefix.length) ?? '')
 }
 
-function createCompleteCatalogReader(
+export function createCompleteCatalogReader(
   accessToken: string,
   request: ProbeFetch
 ): OAuthListRenameProbeDependencies['readCompleteCatalog'] {
