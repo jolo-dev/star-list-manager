@@ -162,6 +162,32 @@ describe('OAuth native List rename capability probe', () => {
     expect(error.message).not.toContain('L_equivalent')
   })
 
+  test('rejects a Unicode case-fold-equivalent temporary name already present in the complete catalog without mutation', async () => {
+    let mutations = 0
+    const error = await expectProbeFailure(
+      runOAuthListRenameCapabilityProbe(
+        {...options, temporaryName: 'STRASSE'},
+        {
+          validateExpectedOwner: async () => {},
+          transport: {
+            rename: async () => {
+              mutations += 1
+              return {listNodeId: 'L_disposable', name: 'STRASSE'}
+            }
+          },
+          readCompleteCatalog: async () => [
+            {listNodeId: 'L_disposable', name: 'Disposable original'},
+            {listNodeId: 'L_equivalent', name: 'Straße'}
+          ]
+        }
+      ),
+      'fixture-invalid'
+    )
+
+    expect(mutations).toBe(0)
+    expect(error.message).not.toContain('L_equivalent')
+  })
+
   test('does not produce proof when temporary read-back fails after the rename but restoration succeeds', async () => {
     const renames: string[] = []
     const catalogs = catalogSequence([
@@ -211,6 +237,34 @@ describe('OAuth native List rename capability probe', () => {
     )
 
     expect(renames).toEqual(['Disposable temporary 2026-08-15', 'Disposable original'])
+  })
+
+  test('does not produce proof when temporary read-back is only Unicode case-fold-equivalent', async () => {
+    const renames: string[] = []
+    const catalogs = catalogSequence([
+      [{listNodeId: 'L_disposable', name: 'Disposable original'}],
+      [{listNodeId: 'L_disposable', name: 'Straße'}],
+      [{listNodeId: 'L_disposable', name: 'Disposable original'}]
+    ])
+
+    await expectProbeFailure(
+      runOAuthListRenameCapabilityProbe(
+        {...options, temporaryName: 'STRASSE'},
+        {
+          validateExpectedOwner: async () => {},
+          transport: {
+            rename: async (request) => {
+              renames.push(request.name)
+              return {listNodeId: request.listNodeId, name: request.name}
+            }
+          },
+          readCompleteCatalog: catalogs.read
+        }
+      ),
+      'read-back-mismatch'
+    )
+
+    expect(renames).toEqual(['STRASSE', 'Disposable original'])
   })
 
   test('emits prominent sanitized cleanup guidance after final restoration read-back failure', async () => {

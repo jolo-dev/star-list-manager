@@ -1,7 +1,7 @@
 import type {GitHubUserId, NativeListNodeId, NativeListRecord} from '../domain/types'
 import {
   canonicalNativeListName,
-  nativeListNameKey,
+  nativeListNamesEquivalent,
   validateNativeListRename
 } from '../domain/native-list-rename'
 import type {
@@ -172,9 +172,11 @@ export class NativeListRenameService {
         true
       )
     }
-    const nameKey = nativeListNameKey(canonicalRequest.name)
     for (const list of catalog.values()) {
-      if (list.listNodeId !== canonicalRequest.listNodeId && nativeListNameKey(list.name) === nameKey) {
+      if (
+        list.listNodeId !== canonicalRequest.listNodeId &&
+        nativeListNamesEquivalent(list.name, canonicalRequest.name)
+      ) {
         throw failure(
           'read-back-duplicate-name',
           'validation',

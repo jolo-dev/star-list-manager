@@ -1,5 +1,7 @@
 import {failure, success, type Result} from '../shared/result'
 
+const nativeListNameCollator = new Intl.Collator('und', {usage: 'search', sensitivity: 'base'})
+
 export interface NativeListRenameListItem {
   readonly listNodeId: string
   readonly name: string
@@ -23,6 +25,13 @@ export function nativeListNameKey(value: string): string {
   return canonicalNativeListName(value).toLocaleLowerCase()
 }
 
+export function nativeListNamesEquivalent(left: string, right: string): boolean {
+  return nativeListNameCollator.compare(
+    canonicalNativeListName(left),
+    canonicalNativeListName(right)
+  ) === 0
+}
+
 export function validateNativeListRename(
   value: string,
   listNodeId: string,
@@ -36,9 +45,8 @@ export function validateNativeListRename(
     })
   }
 
-  const key = nativeListNameKey(name)
   for (const list of lists) {
-    if (list.listNodeId !== listNodeId && nativeListNameKey(list.name) === key) {
+    if (list.listNodeId !== listNodeId && nativeListNamesEquivalent(list.name, name)) {
       return failure({
         code: 'duplicate',
         message: 'A native List with this name already exists.'

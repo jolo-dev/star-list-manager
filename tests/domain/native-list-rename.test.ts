@@ -60,4 +60,19 @@ describe('native List rename validation', () => {
       })
     }
   })
+
+  test('rejects Unicode case-fold-equivalent names belonging to another List', () => {
+    expect(
+      validateNativeListRename('STRASSE', 'L_target', [
+        {listNodeId: 'L_target', name: 'Current'},
+        {listNodeId: 'L_other', name: 'Straße'}
+      ])
+    ).toEqual({
+      ok: false,
+      error: {
+        code: 'duplicate',
+        message: 'A native List with this name already exists.'
+      }
+    })
+  })
 })

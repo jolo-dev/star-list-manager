@@ -227,6 +227,66 @@ describe('native List rename reconciliation', () => {
     database.close()
   })
 
+  test('rejects local Unicode case-fold-equivalent collisions before remote mutation', async () => {
+    const database = await databaseWithTarget('rename-local-unicode-casefold-collision')
+    await putNativeList(database, nativeList('UL_other', 'Straße'))
+    const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'STRASSE'})
+    const service = createService(database, new FixtureCatalogReader([]), writer)
+
+    await expectFailure(
+      service.rename({...renameRequest(), name: 'STRASSE'}),
+      'local-duplicate-name'
+    )
+    expect(writer.requests).toEqual([])
+    expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
+    database.close()
+  })
+
+  test('rejects fresh Unicode case-fold-equivalent collisions after strict target read-back', async () => {
+    const database = await databaseWithTarget('rename-fresh-unicode-casefold-collision')
+    const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'STRASSE'})
+    const service = createService(
+      database,
+      new FixtureCatalogReader([
+        catalogPage(
+          [remoteList('UL_target', 'STRASSE'), remoteList('UL_other', 'Straße')],
+          false,
+          null,
+          2
+        )
+      ]),
+      writer
+    )
+
+    await expectFailure(
+      service.rename({...renameRequest(), name: 'STRASSE'}),
+      'read-back-duplicate-name'
+    )
+    expect(writer.requests).toEqual([
+      {expectedGitHubUserId: githubUserId, listNodeId: 'UL_target', name: 'STRASSE'}
+    ])
+    expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
+    database.close()
+  })
+
+  test('keeps fresh target name evidence exact despite Unicode case-fold equivalence', async () => {
+    const database = await databaseWithTarget('rename-fresh-exact-target-evidence')
+    const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'STRASSE'})
+    const service = createService(
+      database,
+      new FixtureCatalogReader([catalogPage([remoteList('UL_target', 'Straße')], false, null, 1)]),
+      writer
+    )
+
+    await expectFailure(
+      service.rename({...renameRequest(), name: 'STRASSE'}),
+      'read-back-name-mismatch'
+    )
+    expect(writer.requests).toHaveLength(1)
+    expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
+    database.close()
+  })
+
   test('rejects mismatched direct and catalog local targets before remote mutation or persistence', async () => {
     const cases: ReadonlyArray<{
       readonly name: string
