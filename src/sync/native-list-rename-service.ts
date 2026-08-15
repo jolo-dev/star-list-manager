@@ -11,6 +11,7 @@ import type {
 import type {NativeListCatalogPage} from '../github/graphql-client'
 import type {NativeListReader} from './native-list-sync'
 import {AppFailure, sanitizeError} from '../shared/errors'
+import {isIsoDateTime} from '../shared/validation'
 
 const defaultMaxCatalogPages = 1_000
 
@@ -104,11 +105,39 @@ export class NativeListRenameService {
         true
       )
     }
+    if (localTarget.listNodeId !== canonicalRequest.listNodeId) {
+      throw failure(
+        'local-target-missing',
+        'validation',
+        'The native List is no longer available in the local catalog.',
+        false
+      )
+    }
 
     const localCatalog = await this.#storage.listNativeLists(
       this.#database,
       canonicalRequest.expectedGitHubUserId
     )
+    const matchingLocalTargets = localCatalog.filter(
+      (list) =>
+        list.githubUserId === canonicalRequest.expectedGitHubUserId &&
+        list.listNodeId === canonicalRequest.listNodeId
+    )
+    if (matchingLocalTargets.length !== 1) {
+      const targetForAnotherAccount = localCatalog.some(
+        (list) =>
+          list.listNodeId === canonicalRequest.listNodeId &&
+          list.githubUserId !== canonicalRequest.expectedGitHubUserId
+      )
+      throw failure(
+        targetForAnotherAccount ? 'local-account-mismatch' : 'local-target-missing',
+        targetForAnotherAccount ? 'authentication' : 'validation',
+        targetForAnotherAccount
+          ? 'The local native List does not belong to the active GitHub account.'
+          : 'The native List is no longer available in the local catalog.',
+        targetForAnotherAccount
+      )
+    }
     const validation = validateNativeListRename(
       canonicalRequest.name,
       canonicalRequest.listNodeId,
@@ -307,9 +336,9 @@ function validateCatalogPage(value: unknown): NativeListCatalogPage {
       (list.description !== null && typeof list.description !== 'string') ||
       typeof list.isPrivate !== 'boolean' ||
       (list.slug !== null && typeof list.slug !== 'string') ||
-      !isNullableString(list.createdAt) ||
-      !isNullableString(list.updatedAt) ||
-      !isNullableString(list.lastAddedAt) ||
+      !isNullableIsoDateTime(list.createdAt) ||
+      !isNullableIsoDateTime(list.updatedAt) ||
+      !isNullableIsoDateTime(list.lastAddedAt) ||
       !isNonNegativeInteger(list.reportedItemCount)
     ) {
       throw failure(
@@ -345,7 +374,7 @@ function validateRateLimit(value: unknown): NativeListCatalogPage['rateLimit'] {
     !rateLimit ||
     !isNullableNonNegativeInteger(rateLimit.limit) ||
     !isNullableNonNegativeInteger(rateLimit.remaining) ||
-    !isNullableString(rateLimit.resetAt)
+    !isNullableIsoDateTime(rateLimit.resetAt)
   ) {
     throw failure(
       'catalog-invalid',
@@ -432,6 +461,6 @@ function isNullableNonNegativeInteger(value: unknown): value is number | null {
   return value === null || isNonNegativeInteger(value)
 }
 
-function isNullableString(value: unknown): value is string | null {
-  return value === null || typeof value === 'string'
+function isNullableIsoDateTime(value: unknown): value is string | null {
+  return value === null || (typeof value === 'string' && isIsoDateTime(value))
 }

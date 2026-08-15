@@ -226,21 +226,211 @@ describe('native List rename reconciliation', () => {
     expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
     database.close()
   })
+
+  test('rejects mismatched direct and catalog local targets before remote mutation or persistence', async () => {
+    const cases: ReadonlyArray<{
+      readonly name: string
+      readonly storage: NativeListRenameStorage
+      readonly reason: NativeListRenameServiceFailure['reason']
+    }> = [
+      {
+        name: 'direct lookup with a different List ID',
+        storage: {
+          ...storageForDatabase(),
+          getNativeList: async () => nativeList('UL_other', 'Other')
+        },
+        reason: 'local-target-missing'
+      },
+      {
+        name: 'catalog missing the direct lookup target',
+        storage: {...storageForDatabase(), listNativeLists: async () => []},
+        reason: 'local-target-missing'
+      },
+      {
+        name: 'catalog target with another account',
+        storage: {
+          ...storageForDatabase(),
+          listNativeLists: async () => [{...target, githubUserId: '84'}]
+        },
+        reason: 'local-account-mismatch'
+      },
+      {
+        name: 'multiple matching catalog targets',
+        storage: {...storageForDatabase(), listNativeLists: async () => [target, target]},
+        reason: 'local-target-missing'
+      }
+    ]
+
+    for (const item of cases) {
+      const database = await databaseWithTarget(`rename-${item.name}`)
+      const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'Tools'})
+      const putCalls: NativeListRecord[] = []
+      const service = createService(database, verifiedTargetReader(), writer, {
+        ...item.storage,
+        putNativeList: async (database, list) => {
+          putCalls.push(list)
+          await putNativeList(database, list)
+        }
+      })
+
+      await expectFailure(service.rename(renameRequest()), item.reason)
+      expect(writer.requests).toEqual([])
+      expect(putCalls).toEqual([])
+      expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
+      database.close()
+    }
+  })
+
+  test('rejects malformed catalog date and rate-limit metadata without local persistence', async () => {
+    const cases: ReadonlyArray<{
+      readonly name: string
+      readonly page: NativeListCatalogPage
+      readonly secret: string
+    }> = [
+      {
+        name: 'malformed List timestamp',
+        page: catalogPage(
+          [remoteList('UL_target', 'Tools', {createdAt: 'timestamp-secret'})],
+          false,
+          null,
+          1
+        ),
+        secret: 'timestamp-secret'
+      },
+      {
+        name: 'malformed rate-limit timestamp',
+        page: {
+          ...catalogPage([remoteList('UL_target', 'Tools')], false, null, 1),
+          rateLimit: {limit: 5000, remaining: 4999, resetAt: 'rate-limit-secret'}
+        },
+        secret: 'rate-limit-secret'
+      }
+    ]
+
+    for (const item of cases) {
+      const database = await databaseWithTarget(`rename-${item.name}`)
+      const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'Tools'})
+      const putCalls: NativeListRecord[] = []
+      const service = createService(database, new FixtureCatalogReader([item.page]), writer, {
+        ...storageForDatabase(),
+        putNativeList: async (database, list) => {
+          putCalls.push(list)
+          await putNativeList(database, list)
+        }
+      })
+
+      const error = await expectFailure(service.rename(renameRequest()), 'catalog-invalid')
+      expect(error.publicError.message).not.toContain(item.secret)
+      expect(writer.requests).toHaveLength(1)
+      expect(putCalls).toEqual([])
+      expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
+      database.close()
+    }
+  })
+
+  test('rejects repeated cursors, catalog total changes, and page bounds without local persistence', async () => {
+    const cases: ReadonlyArray<{
+      readonly name: string
+      readonly pages: NativeListCatalogPage[]
+      readonly maxCatalogPages?: number
+      readonly reason: NativeListRenameServiceFailure['reason']
+    }> = [
+      {
+        name: 'repeated non-null cursor',
+        pages: [
+          catalogPage([remoteList('UL_target', 'Tools')], true, 'again', 2),
+          catalogPage([remoteList('UL_companion', 'Archive')], true, 'again', 2)
+        ],
+        reason: 'catalog-invalid'
+      },
+      {
+        name: 'catalog total changes across pages',
+        pages: [
+          catalogPage([remoteList('UL_target', 'Tools')], true, 'next', 2),
+          catalogPage([remoteList('UL_companion', 'Archive')], false, null, 3)
+        ],
+        reason: 'catalog-incomplete'
+      },
+      {
+        name: 'configured catalog page bound is exhausted',
+        pages: [catalogPage([remoteList('UL_target', 'Tools')], true, 'next', 2)],
+        maxCatalogPages: 1,
+        reason: 'catalog-bound-exceeded'
+      }
+    ]
+
+    for (const item of cases) {
+      const database = await databaseWithTarget(`rename-${item.name}`)
+      const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'Tools'})
+      const putCalls: NativeListRecord[] = []
+      const service = createService(
+        database,
+        new FixtureCatalogReader(item.pages),
+        writer,
+        {
+          ...storageForDatabase(),
+          putNativeList: async (database, list) => {
+            putCalls.push(list)
+            await putNativeList(database, list)
+          }
+        },
+        item.maxCatalogPages
+      )
+
+      await expectFailure(service.rename(renameRequest()), item.reason)
+      expect(writer.requests).toHaveLength(1)
+      expect(putCalls).toEqual([])
+      expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
+      database.close()
+    }
+  })
+
+  test('rejects non-enumerable and symbol request keys before remote mutation or persistence', async () => {
+    const requests = [
+      Object.defineProperty({...renameRequest()}, 'arbitrary', {value: true}),
+      Object.defineProperty({...renameRequest()}, Symbol('arbitrary'), {value: true})
+    ]
+
+    for (const request of requests) {
+      const database = await databaseWithTarget('rename-untrusted-request-keys')
+      const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'Tools'})
+      const putCalls: NativeListRecord[] = []
+      const service = createService(database, new FixtureCatalogReader([]), writer, {
+        ...storageForDatabase(),
+        putNativeList: async (database, list) => {
+          putCalls.push(list)
+          await putNativeList(database, list)
+        }
+      })
+
+      await expectFailure(service.rename(request), 'invalid-request')
+      expect(writer.requests).toEqual([])
+      expect(putCalls).toEqual([])
+      expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
+      database.close()
+    }
+  })
 })
 
 function createService(
   database: IDBDatabase,
   reader: FixtureCatalogReader,
   writer: RecordingWriter,
-  storage: NativeListRenameStorage = storageForDatabase()
+  storage: NativeListRenameStorage = storageForDatabase(),
+  maxCatalogPages?: number
 ): NativeListRenameService {
   return new NativeListRenameService({
     database,
     storage,
     reader,
     writer,
-    now: () => Date.parse(timestamp)
+    now: () => Date.parse(timestamp),
+    ...(maxCatalogPages === undefined ? {} : {maxCatalogPages})
   })
+}
+
+function verifiedTargetReader(): FixtureCatalogReader {
+  return new FixtureCatalogReader([catalogPage([remoteList('UL_target', 'Tools')], false, null, 1)])
 }
 
 function storageForDatabase(): NativeListRenameStorage {
