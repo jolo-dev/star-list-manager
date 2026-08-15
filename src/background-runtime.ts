@@ -56,11 +56,21 @@ export async function handleNativeListRename(
     })
   }
 
-  const active = await services.authSession.loadActive()
+  let active: NativeListRenameActiveAccount | null
+  try {
+    active = await services.authSession.loadActive()
+  } catch (error: unknown) {
+    return failureResponse(sanitizeError(error))
+  }
   if (!active) return failureResponse(renameAuthenticationRequired())
   if (!isExpectedActiveAccount(active)) return failureResponse(accountChanged())
 
-  const writeAuthorization = await services.writeAuthController.getState()
+  let writeAuthorization: WriteAuthorizationState
+  try {
+    writeAuthorization = await services.writeAuthController.getState()
+  } catch (error: unknown) {
+    return failureResponse(sanitizeError(error))
+  }
   if (!writeAuthorization.membershipReady) {
     return failureResponse({
       category: 'authentication',
@@ -69,7 +79,12 @@ export async function handleNativeListRename(
     })
   }
 
-  const stillActive = await services.authSession.loadActive()
+  let stillActive: NativeListRenameActiveAccount | null
+  try {
+    stillActive = await services.authSession.loadActive()
+  } catch (error: unknown) {
+    return failureResponse(sanitizeError(error))
+  }
   if (
     !stillActive ||
     !isExpectedActiveAccount(stillActive) ||
@@ -84,9 +99,14 @@ export async function handleNativeListRename(
       listNodeId: request.listNodeId,
       name: request.name
     })
-    return successResponse(await dependencies.getDashboardState())
   } catch (error: unknown) {
     return failureResponse(sanitizeError(error))
+  }
+
+  try {
+    return successResponse(await dependencies.getDashboardState())
+  } catch {
+    return failureResponse(renameCompletedRefreshFailed())
   }
 }
 
@@ -109,5 +129,14 @@ function accountChanged() {
     category: 'authentication' as const,
     message: 'The active GitHub account changed. Retry the native List rename.',
     retryable: true
+  }
+}
+
+function renameCompletedRefreshFailed() {
+  return {
+    category: 'network' as const,
+    message:
+      'Native List rename succeeded, but the dashboard state could not be refreshed. Reload to view the verified result.',
+    retryable: false
   }
 }
