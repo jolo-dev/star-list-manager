@@ -6,6 +6,7 @@ import {
 } from '../domain/native-list-rename'
 import {
   ListRenameMutationFailure,
+  type ListRenameOwnerStore,
   type ListRenameMutationRequest,
   type ListRenameWriteSession
 } from '../github/list-rename-write-session'
@@ -22,6 +23,7 @@ export type NativeListRenameServiceFailureReason =
   | 'local-account-mismatch'
   | 'local-empty-name'
   | 'local-duplicate-name'
+  | 'account-changed'
   | 'catalog-reader-failed'
   | 'catalog-invalid'
   | 'catalog-bound-exceeded'
@@ -65,6 +67,7 @@ export interface NativeListRenameStorage {
 export interface NativeListRenameServiceOptions {
   readonly database: IDBDatabase
   readonly storage: NativeListRenameStorage
+  readonly owner: ListRenameOwnerStore
   readonly writer: Pick<ListRenameWriteSession, 'rename'>
   readonly reader: Pick<NativeListReader, 'fetchNativeListCatalogPage'>
   readonly now?: () => number
@@ -74,6 +77,7 @@ export interface NativeListRenameServiceOptions {
 export class NativeListRenameService {
   readonly #database: IDBDatabase
   readonly #storage: NativeListRenameStorage
+  readonly #owner: ListRenameOwnerStore
   readonly #writer: Pick<ListRenameWriteSession, 'rename'>
   readonly #reader: Pick<NativeListReader, 'fetchNativeListCatalogPage'>
   readonly #now: () => number
@@ -82,6 +86,7 @@ export class NativeListRenameService {
   constructor(options: NativeListRenameServiceOptions) {
     this.#database = options.database
     this.#storage = options.storage
+    this.#owner = options.owner
     this.#writer = options.writer
     this.#reader = options.reader
     this.#now = options.now ?? Date.now
@@ -158,6 +163,8 @@ export class NativeListRenameService {
       )
     }
 
+    await this.#assertExpectedOwner(canonicalRequest.expectedGitHubUserId)
+
     let ambiguousMutationFailure: ListRenameMutationFailure | null = null
     try {
       await this.#writer.rename(canonicalRequest)
@@ -170,13 +177,17 @@ export class NativeListRenameService {
 
     let catalog: Map<NativeListNodeId, NativeListCatalogPage['lists'][number]>
     try {
-      catalog = await this.#readCompleteCatalog()
+      catalog = await this.#readCompleteCatalog(canonicalRequest.expectedGitHubUserId)
     } catch (error: unknown) {
+      if (error instanceof NativeListRenameServiceFailure && error.reason === 'account-changed') {
+        throw error
+      }
       if (ambiguousMutationFailure) throw ambiguousMutationFailure
       throw error
     }
     const verifiedTarget = catalog.get(canonicalRequest.listNodeId)
     if (!verifiedTarget) {
+      await this.#assertExpectedOwner(canonicalRequest.expectedGitHubUserId)
       await this.#storage.deleteNativeList(
         this.#database,
         canonicalRequest.expectedGitHubUserId,
@@ -191,6 +202,7 @@ export class NativeListRenameService {
     }
     const verifiedName = canonicalNativeListName(verifiedTarget.name)
     if (verifiedName !== canonicalRequest.name) {
+      await this.#assertExpectedOwner(canonicalRequest.expectedGitHubUserId)
       await this.#storage.putNativeList(
         this.#database,
         verifiedRecord(
@@ -229,11 +241,14 @@ export class NativeListRenameService {
       canonicalRequest.name,
       this.#timestamp()
     )
+    await this.#assertExpectedOwner(canonicalRequest.expectedGitHubUserId)
     await this.#storage.putNativeList(this.#database, updated)
     return updated
   }
 
-  async #readCompleteCatalog(): Promise<Map<NativeListNodeId, NativeListCatalogPage['lists'][number]>> {
+  async #readCompleteCatalog(
+    expectedGitHubUserId: GitHubUserId
+  ): Promise<Map<NativeListNodeId, NativeListCatalogPage['lists'][number]>> {
     const catalog = new Map<NativeListNodeId, NativeListCatalogPage['lists'][number]>()
     const cursors = new Set<string>()
     let cursor: string | null = null
@@ -249,7 +264,7 @@ export class NativeListRenameService {
           true
         )
       }
-      const page = await this.#fetchCatalogPage(cursor)
+      const page = await this.#fetchCatalogPage(cursor, expectedGitHubUserId)
       pagesRead += 1
       if (catalogTotal !== null && catalogTotal !== page.totalCount) {
         throw failure(
@@ -296,7 +311,11 @@ export class NativeListRenameService {
     return catalog
   }
 
-  async #fetchCatalogPage(after: string | null): Promise<NativeListCatalogPage> {
+  async #fetchCatalogPage(
+    after: string | null,
+    expectedGitHubUserId: GitHubUserId
+  ): Promise<NativeListCatalogPage> {
+    await this.#assertExpectedOwner(expectedGitHubUserId)
     try {
       const page = await this.#reader.fetchNativeListCatalogPage(after)
       return validateCatalogPage(page)
@@ -314,6 +333,21 @@ export class NativeListRenameService {
 
   #timestamp(): string {
     return new Date(this.#now()).toISOString()
+  }
+
+  async #assertExpectedOwner(expectedGitHubUserId: GitHubUserId): Promise<void> {
+    let active: Awaited<ReturnType<ListRenameOwnerStore['loadActive']>>
+    try {
+      active = await this.#owner.loadActive()
+    } catch {
+      throw accountChangedFailure()
+    }
+    if (
+      active?.githubUserId !== expectedGitHubUserId ||
+      active.identity.githubUserId !== expectedGitHubUserId
+    ) {
+      throw accountChangedFailure()
+    }
   }
 }
 
@@ -479,6 +513,15 @@ function failure(
   retryable: boolean
 ): NativeListRenameServiceFailure {
   return new NativeListRenameServiceFailure(reason, {category, message, retryable})
+}
+
+function accountChangedFailure(): NativeListRenameServiceFailure {
+  return failure(
+    'account-changed',
+    'authentication',
+    'The active GitHub account changed. Retry the native List rename.',
+    true
+  )
 }
 
 function asRecord(value: unknown): Readonly<Record<string, unknown>> | null {

@@ -7,7 +7,8 @@ import type {
 } from '../../src/domain/types'
 import {
   ListRenameMutationFailure,
-  type ListRenameMutationRequest
+  type ListRenameMutationRequest,
+  type ListRenameOwnerStore
 } from '../../src/github/list-rename-write-session'
 import type {NativeListCatalogPage} from '../../src/github/graphql-client'
 import {openLibraryDatabase} from '../../src/storage/database'
@@ -269,6 +270,107 @@ describe('native List rename reconciliation', () => {
     expect(reader.cursors).toEqual([])
     expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
     database.close()
+  })
+
+  test('rejects an initial owner change before dispatching the writer or reading the catalog', async () => {
+    const database = await databaseWithTarget('rename-initial-owner-change')
+    const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'Tools'})
+    const reader = new FixtureCatalogReader([catalogPage([remoteList('UL_target', 'Tools')], false, null, 1)])
+    const putCalls: NativeListRecord[] = []
+    const deleteCalls: Array<readonly [string, string]> = []
+    const service = createService(
+      database,
+      reader,
+      writer,
+      recordingStorage(putCalls, deleteCalls),
+      undefined,
+      scriptedOwner(['84'])
+    )
+
+    const error = await expectFailure(service.rename(renameRequest()), 'account-changed')
+
+    expect(error.publicError).toEqual({
+      category: 'authentication',
+      message: 'The active GitHub account changed. Retry the native List rename.',
+      retryable: true
+    })
+    expect(writer.requests).toEqual([])
+    expect(reader.cursors).toEqual([])
+    expect(putCalls).toEqual([])
+    expect(deleteCalls).toEqual([])
+    expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
+    database.close()
+  })
+
+  test('rejects an owner change before the first catalog read instead of rethrowing ambiguous writer state', async () => {
+    const database = await databaseWithTarget('rename-owner-change-before-read')
+    const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'Tools'}, ambiguousNetworkFailure())
+    const reader = new FixtureCatalogReader([catalogPage([remoteList('UL_target', 'Tools')], false, null, 1)])
+    const putCalls: NativeListRecord[] = []
+    const deleteCalls: Array<readonly [string, string]> = []
+    const service = createService(
+      database,
+      reader,
+      writer,
+      recordingStorage(putCalls, deleteCalls),
+      undefined,
+      scriptedOwner([githubUserId, '84'])
+    )
+
+    const error = await expectFailure(service.rename(renameRequest()), 'account-changed')
+
+    expect(error.publicError).toEqual({
+      category: 'authentication',
+      message: 'The active GitHub account changed. Retry the native List rename.',
+      retryable: true
+    })
+    expect(writer.requests).toHaveLength(1)
+    expect(reader.cursors).toEqual([])
+    expect(putCalls).toEqual([])
+    expect(deleteCalls).toEqual([])
+    expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
+    database.close()
+  })
+
+  test('rejects an owner change after complete read-back before target put or delete', async () => {
+    const cases: ReadonlyArray<{
+      readonly name: string
+      readonly page: NativeListCatalogPage
+    }> = [
+      {
+        name: 'target put',
+        page: catalogPage([remoteList('UL_target', 'Tools')], false, null, 1)
+      },
+      {
+        name: 'target delete',
+        page: catalogPage([remoteList('UL_companion', 'Archive')], false, null, 1)
+      }
+    ]
+
+    for (const item of cases) {
+      const database = await databaseWithTarget(`rename-owner-change-before-${item.name}`)
+      const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'Tools'})
+      const reader = new FixtureCatalogReader([item.page])
+      const putCalls: NativeListRecord[] = []
+      const deleteCalls: Array<readonly [string, string]> = []
+      const service = createService(
+        database,
+        reader,
+        writer,
+        recordingStorage(putCalls, deleteCalls),
+        undefined,
+        scriptedOwner([githubUserId, githubUserId, '84'])
+      )
+
+      await expectFailure(service.rename(renameRequest()), 'account-changed')
+
+      expect(writer.requests).toHaveLength(1)
+      expect(reader.cursors).toEqual([null])
+      expect(putCalls).toEqual([])
+      expect(deleteCalls).toEqual([])
+      expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
+      database.close()
+    }
   })
 
   test('reconciles only a divergent target to authoritative catalog metadata without preserving an optimistic name', async () => {
@@ -748,13 +850,15 @@ function createService(
   reader: FixtureCatalogReader,
   writer: RecordingWriter,
   storage: NativeListRenameStorage = storageForDatabase(),
-  maxCatalogPages?: number
+  maxCatalogPages?: number,
+  owner: ListRenameOwnerStore = scriptedOwner([githubUserId])
 ): NativeListRenameService {
   return new NativeListRenameService({
     database,
     storage,
     reader,
     writer,
+    owner,
     now: () => Date.parse(timestamp),
     ...(maxCatalogPages === undefined ? {} : {maxCatalogPages})
   })
@@ -766,6 +870,34 @@ function verifiedTargetReader(): FixtureCatalogReader {
 
 function storageForDatabase(): NativeListRenameStorage {
   return {getNativeList, listNativeLists, putNativeList, deleteNativeList}
+}
+
+function recordingStorage(
+  putCalls: NativeListRecord[],
+  deleteCalls: Array<readonly [string, string]>
+): NativeListRenameStorage {
+  return {
+    ...storageForDatabase(),
+    putNativeList: async (database, list) => {
+      putCalls.push(list)
+      await putNativeList(database, list)
+    },
+    deleteNativeList: async (database, userId, listNodeId) => {
+      deleteCalls.push([userId, listNodeId])
+      await deleteNativeList(database, userId, listNodeId)
+    }
+  }
+}
+
+function scriptedOwner(githubUserIds: readonly (string | null)[]): ListRenameOwnerStore {
+  let call = 0
+  return {
+    async loadActive() {
+      const githubUserId = githubUserIds[Math.min(call, githubUserIds.length - 1)] ?? null
+      call += 1
+      return githubUserId ? {githubUserId, identity: {githubUserId}} : null
+    }
+  }
 }
 
 class RecordingWriter {
