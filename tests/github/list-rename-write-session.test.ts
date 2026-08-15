@@ -75,6 +75,27 @@ describe('native List rename write session', () => {
     expect(requests).toBe(0)
   })
 
+  test('rejects requests with own non-enumerable or symbol keys before dispatch', async () => {
+    let requests = 0
+    const session = createSession({
+      fetch: async () => {
+        requests += 1
+        return graphqlResponse({})
+      }
+    })
+    const nonEnumerableOperation = {...request}
+    Object.defineProperty(nonEnumerableOperation, 'operation', {
+      value: 'Arbitrary',
+      enumerable: false
+    })
+    const symbolOperation = {...request, [Symbol('operation')]: 'Arbitrary'}
+
+    for (const invalid of [nonEnumerableOperation, symbolOperation]) {
+      await expectFailure(session.rename(invalid), 'invalid-request')
+    }
+    expect(requests).toBe(0)
+  })
+
   test('requires the active owner and an account-bound user credential before dispatch', async () => {
     const cases: ReadonlyArray<{
       readonly activeUserId: string | null
@@ -102,6 +123,21 @@ describe('native List rename write session', () => {
           ...writeState('42'),
           credential: {...writeState('42').credential, grantedScopes: ['public_repo']}
         },
+        reason: 'scope-denied'
+      },
+      {
+        activeUserId: '42',
+        state: malformedWriteState({tokenType: 'basic'}),
+        reason: 'scope-denied'
+      },
+      {
+        activeUserId: '42',
+        state: malformedWriteState({accessToken: ''}),
+        reason: 'scope-denied'
+      },
+      {
+        activeUserId: '42',
+        state: malformedWriteState({}, true),
         reason: 'scope-denied'
       }
     ]
@@ -255,6 +291,21 @@ function writeState(githubUserId: string): WriteAuthStateRecord {
     authorizedAt: '2026-08-08T12:00:00Z',
     lastFailure: null
   }
+}
+
+function malformedWriteState(
+  credentialOverrides: Readonly<Record<string, unknown>>,
+  omitAccessToken = false
+): WriteAuthStateRecord {
+  const credential: Record<string, unknown> = {
+    ...writeState('42').credential,
+    ...credentialOverrides
+  }
+  if (omitAccessToken) delete credential.accessToken
+  return {
+    ...writeState('42'),
+    credential
+  } as unknown as WriteAuthStateRecord
 }
 
 function graphqlResponse(value: unknown): Response {

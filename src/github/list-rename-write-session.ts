@@ -227,7 +227,10 @@ export class ListRenameWriteSession {
 function validateRequest(request: ListRenameMutationRequest): ListRenameMutationRequest {
   const record = asRecord(request)
   const allowedKeys = new Set(['expectedGitHubUserId', 'listNodeId', 'name'])
-  if (!record || Object.keys(record).some((key) => !allowedKeys.has(key))) {
+  if (
+    !record ||
+    Reflect.ownKeys(record).some((key) => typeof key !== 'string' || !allowedKeys.has(key))
+  ) {
     throw failure(
       'invalid-request',
       'validation',
