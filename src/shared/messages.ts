@@ -48,6 +48,15 @@ export interface NativeListMembershipUiState {
   readonly readiness: NativeListMembershipReadiness
 }
 
+export type NativeListRenameReadiness =
+  | 'ready'
+  | 'capability-unproven'
+  | 'write-authorization-required'
+
+export interface NativeListRenameUiState {
+  readonly readiness: NativeListRenameReadiness
+}
+
 export type MembershipOperationSelection =
   | {readonly kind: 'add'; readonly listNodeIds: readonly string[]}
   | {readonly kind: 'remove'; readonly listNodeIds: readonly string[]}
@@ -124,6 +133,7 @@ export interface AppState {
   readonly authorization: AuthorizationPrompt | null
   readonly writeAuthorization: WriteAuthorizationState
   readonly nativeListMembership?: NativeListMembershipUiState
+  readonly nativeListRename?: NativeListRenameUiState
   readonly sync: SyncStateRecord | null
   readonly nativeListSync: SyncStateRecord | null
   readonly triageCounts: TriageCounts | null
