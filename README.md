@@ -12,7 +12,7 @@ Star List Manager is a local-first browser extension for searching, triaging, an
 - Previewed add, remove, and move membership actions for public starred repositories among existing Lists. There are no native List create, delete, or visibility functions.
 - A guarded native List rename implementation exists for an existing List, but it is disabled by default. It remains unavailable unless a separate disposable rename probe has succeeded and a manual, isolated-build gate has been deliberately applied; membership proof never enables rename.
 - Explicit single and bulk unstar controls use a durable sequential queue, remote verification, and operation history.
-- No automatic cleanup rules, re-star, or Undo. Production native List membership controls are disabled by default until the separate capability gate is deliberately enabled after successful fixture verification.
+- No automatic cleanup rules, re-star, or Undo. Production native List membership controls are released only when reviewed, checked-in non-secret release evidence verifies the separate capability gate.
 - No backend, hosted synchronization, analytics, advertising, or content scripts.
 
 ## Permissions
@@ -59,7 +59,7 @@ EXTENSION_PUBLIC_GITHUB_WRITE_CLIENT_ID=your_write_oauth_client_id
 
 The client ID is public configuration. Do not add client secrets or tokens.
 
-Native List membership writes remain disabled by default. Development capability verification requires the same-account `user` scope, an explicitly confirmed disposable public star, an unchanged complete membership-set mutation, and an independent stable read-back. See [`docs/native-list-membership-fixture.md`](docs/native-list-membership-fixture.md).
+Native List membership writes require a released build with reviewed capability evidence and an individually authorized matching account. The disposable capability probe verifies exactly five assertions: availability schema, OAuth `user` scope, account ownership, unchanged complete-set mutation, and independent stable read-back. See [`docs/native-list-membership-fixture.md`](docs/native-list-membership-fixture.md).
 
 Native List rename is independently disabled by default: `.env.example` sets `EXTENSION_PUBLIC_GITHUB_LIST_RENAME_ENABLED=false`. Do not change that flag for a general-user or release build. It can be considered only for an isolated manual-test build after a separate disposable rename probe has proven the required schema, `user` permission, same-account ownership, unique temporary rename, exact independent catalog read-backs, and restoration. Membership capability evidence does not enable rename.
 
@@ -79,12 +79,7 @@ env -u NODE_OPTIONS bun run build:firefox
 
 The unpacked extensions are written to `dist/chrome/` and `dist/firefox/`.
 
-Native List membership controls are disabled by default. Enable them only after completing the capability and isolated-profile checks in [`docs/native-list-membership-fixture.md`](docs/native-list-membership-fixture.md):
-
-```bash
-EXTENSION_PUBLIC_GITHUB_LIST_MEMBERSHIP_WRITE_ENABLED=true \
-  env -u NODE_OPTIONS bun run build:chrome
-```
+`EXTENSION_PUBLIC_GITHUB_LIST_MEMBERSHIP_WRITE_ENABLED` is retired and must not be supplied. Release maintainers alone enable native List membership writes by running the existing disposable-account probe, reviewing its sanitized output, updating and reviewing checked-in non-secret null-prototype evidence, then rebuilding and rerunning validation and build checks. The evidence is a release capability gate, not a user's OAuth authorization: each account still needs matching `public_repo` and `user` authorization, and the existing preview, confirmation, stable-observation, queue, and independent read-back protections remain in force. Missing, unverified, malformed, or sensitive evidence fails closed and keeps Lists read-only. Renew the evidence whenever the write OAuth application or documented membership mutation changes.
 
 To load the Chromium build, open `chrome://extensions`, enable Developer mode, select **Load unpacked**, and choose `dist/chrome/`.
 

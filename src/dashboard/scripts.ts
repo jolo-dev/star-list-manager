@@ -86,7 +86,7 @@ const emptyState: AppState = {
   error: null
 }
 const appState = van.state<AppState>(emptyState)
-const activeView = van.state<LibraryView>({kind: 'inbox'})
+const activeView = van.state<LibraryView>({kind: 'unlist'})
 const searchText = van.state('')
 const sort = van.state<RepositorySort>('starred-at')
 const ascending = van.state(false)
@@ -100,6 +100,7 @@ const starredBefore = van.state<string | null>(null)
 const pushedAfter = van.state<string | null>(null)
 const pushedBefore = van.state<string | null>(null)
 const selectedRepositoryNodeId = van.state<string | null>(null)
+const inspectedRepositoryNodeId = van.state<string | null>(null)
 const selectedForUnstar = van.state<ReadonlySet<string>>(new Set())
 const pendingUnstarTargets = van.state<readonly UnstarConfirmationTarget[]>([])
 const enqueueingUnstars = van.state(false)
@@ -120,6 +121,7 @@ let activeNativeListRenameRequest: NativeListRenameRequest | null = null
 let nativeListRenameInvoker: NativeListRenameInvoker | null = null
 let unstarDialogInvoker: DialogInvoker | null = null
 let membershipDialogInvoker: DialogInvoker | null = null
+let repositoryDialogInvoker: DialogInvoker | null = null
 let nextMembershipPreviewRequestToken = 0
 let activeMembershipPreviewRequestToken: number | null = null
 let pollTimer: number | null = null
@@ -162,10 +164,6 @@ function Navigation() {
   const lists = state.library?.nativeLists.toSorted((left, right) =>
     left.name.localeCompare(right.name)
   ) ?? []
-  const tags = Object.entries(counts.tags).toSorted(([left], [right]) =>
-    left.localeCompare(right)
-  )
-
   return nav(
     {class: 'sidebar', 'aria-label': 'Library'},
     div(
@@ -175,57 +173,18 @@ function Navigation() {
     ),
     details(
       {class: 'nav-group', open: true},
-      summary('Triage'),
-      ul(
-        {class: 'nav-list nav-list-primary'},
-        NavItem('Inbox', {kind: 'inbox'}, counts.inbox),
-        NavItem('Backlog', {kind: 'backlog'}, counts.backlog),
-        NavItem('Due', {kind: 'due'}, counts.due),
-        NavItem('Organized', {kind: 'organized'}, counts.organized),
-        NavItem('All stars', {kind: 'all'}, counts.all)
-      )
-    ),
-    lists.length > 0
-      ? details(
-          {class: 'nav-group'},
-          summary('GitHub Lists'),
-          ul(
-            {class: 'nav-list nav-list-secondary'},
-            ...lists.map((nativeList) =>
-              NavItem(
-                nativeList.name,
-                {kind: 'list', listNodeId: nativeList.listNodeId},
-                counts.lists[nativeList.listNodeId] ?? 0
-              )
-            )
-          )
-        )
-      : null,
-    tags.length > 0
-      ? details(
-          {class: 'nav-group'},
-          summary('Local tags'),
-          ul(
-            {class: 'nav-list nav-list-secondary'},
-            ...tags.map(([tag, count]) =>
-              NavItem(`#${tag}`, {kind: 'tag', tag}, count)
-            )
-          )
-        )
-      : null,
-    details(
-      {class: 'nav-group', open: true},
-      summary('Utilities'),
+      summary('GitHub Lists'),
       ul(
         {class: 'nav-list nav-list-secondary'},
-        NavItem('Unstarred history', {kind: 'history'}, counts.history),
-        NavItem(
-          'Operations',
-          {kind: 'operations'},
-          state.mutations?.batches.length ?? 0
-        ),
-        NavItem('Settings', {kind: 'settings'}, null)
-      ),
+        NavItem('Unlist', {kind: 'unlist'}, counts.unlist),
+        ...lists.map((nativeList) =>
+          NavItem(
+            nativeList.name,
+            {kind: 'list', listNodeId: nativeList.listNodeId},
+            counts.lists[nativeList.listNodeId] ?? 0
+          )
+        )
+      )
     )
   )
 }
@@ -241,6 +200,8 @@ function NavItem(title: string, view: LibraryView, count: number | null) {
           if (enqueueingUnstars.val || confirmingMembership.val) return
           setActiveView(view)
           selectedRepositoryNodeId.val = null
+          inspectedRepositoryNodeId.val = null
+          repositoryDialogInvoker = null
           selectedForUnstar.val = new Set()
           resetUnstarConfirmation()
           resetMembershipPreview()
@@ -324,30 +285,41 @@ function LibraryResults(repositories: readonly LibraryRepository[]) {
   const results = queryRepositories(repositories, query, Date.now())
   const visibleResults = results.slice(0, 200)
   const selected = selectCurrentRepository(visibleResults)
+  const inspected = inspectedRepositoryNodeId.val
+    ? visibleResults.find(
+        (item) => item.repository.repositoryNodeId === inspectedRepositoryNodeId.val
+      ) ?? null
+    : null
+  if (inspectedRepositoryNodeId.val && !inspected) {
+    dismissStaleRepositoryInspection()
+  }
 
   return div(
-    {class: 'library-grid'},
-    section(
-      {class: 'results-panel'},
-      results.length === 0
-        ? NoResultsState(query.search.length > 0)
-        : ul(
-            {
-              class: 'repository-list',
-              'aria-label': 'Repositories',
-              onkeydown: (event: KeyboardEvent) =>
-                handleResultKey(event, visibleResults)
-            },
-            ...visibleResults.map((item) => RepositoryRow(item, selected))
-          ),
-      results.length > visibleResults.length
-        ? p(
-            {class: 'result-limit'},
-            `Showing the first ${visibleResults.length} of ${results.length} matches. Refine the local search to narrow the list.`
-          )
-        : null
+    {class: 'library-results'},
+    div(
+      {class: 'library-grid'},
+      section(
+        {class: 'results-panel'},
+        results.length === 0
+          ? NoResultsState(query.search.length > 0)
+          : ul(
+              {
+                class: 'repository-list',
+                'aria-label': 'Repositories',
+                onkeydown: (event: KeyboardEvent) =>
+                  handleResultKey(event, visibleResults)
+              },
+              ...visibleResults.map((item) => RepositoryRow(item, selected))
+            ),
+        results.length > visibleResults.length
+          ? p(
+              {class: 'result-limit'},
+              `Showing the first ${visibleResults.length} of ${results.length} matches. Refine the local search to narrow the list.`
+            )
+          : null
+      )
     ),
-    selected ? RepositoryInspector(selected) : InspectionPlaceholder()
+    inspected ? RepositoryInspectionDialog(inspected) : null
   )
 }
 
@@ -380,6 +352,15 @@ function LibraryHeader(
           oninput: (event: Event) => {
             searchText.val = (event.currentTarget as HTMLInputElement).value
             selectedRepositoryNodeId.val = null
+            const inspectedRepository = inspectedRepositoryNodeId.val
+            const inspectedRemainsVisible = inspectedRepository
+              ? queryRepositories(repositories, currentQuery(), Date.now()).some(
+                  (item) => item.repository.repositoryNodeId === inspectedRepository
+                )
+              : false
+            if (inspectedRepository && !inspectedRemainsVisible) {
+              dismissStaleRepositoryInspection()
+            }
           }
         })
       ),
@@ -778,6 +759,7 @@ function NativeListMembershipControls(
   const blockedByJob = repositories.some((repository) =>
     hasActiveRepositoryJob(repository.repositoryNodeId)
   )
+  const activeOperationNoticeId = `membership-active-operation-${context}-${repositories.map((repository) => repository.repositoryNodeId).join('-')}`
   const selected = selectedNativeListIds.val
   const commonMemberships = new Set(
     lists
@@ -917,6 +899,16 @@ function NativeListMembershipControls(
           membershipReadinessMessage(state)
         )
       : null,
+    blockedByJob
+      ? p(
+          {
+            class: 'membership-block',
+            id: activeOperationNoticeId,
+            role: 'status'
+          },
+          `A native GitHub List membership operation is already active or queued for ${repositories.length === 1 ? 'this repository' : 'one or more selected repositories'}. Wait for it to complete before reviewing another change.`
+        )
+      : null,
     button(
       {
         class: operation === 'add'
@@ -925,6 +917,7 @@ function NativeListMembershipControls(
         type: 'button',
         'data-dialog-invoker': `membership-${context}-${repositories.map((repository) => repository.repositoryNodeId).join('-')}`,
         disabled: !ready || blockedByJob || !selectionReady,
+        ...(blockedByJob ? {'aria-describedby': activeOperationNoticeId} : {}),
         onclick: (event: MouseEvent) =>
           void requestMembershipPreview(
             repositories.map((repository) => repository.repositoryNodeId),
@@ -1424,9 +1417,12 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
         class: active ? 'repository-row is-selected' : 'repository-row',
         type: 'button',
         'data-repository-node-id': repository.repositoryNodeId,
-        onclick: () => {
-          selectedRepositoryNodeId.val = repository.repositoryNodeId
-        }
+        'data-dialog-invoker': `repository-${repository.repositoryNodeId}`,
+        onclick: (event: MouseEvent) =>
+          openRepositoryInspection(
+            repository.repositoryNodeId,
+            event.currentTarget as HTMLElement
+          )
       },
       div(
         {class: 'repository-row-main'},
@@ -1450,18 +1446,50 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
   )
 }
 
+function RepositoryInspectionDialog(item: LibraryRepository) {
+  return div(
+    {
+      class: 'dialog-backdrop',
+      role: 'presentation',
+      onclick: (event: MouseEvent) => {
+        if (event.target === event.currentTarget) closeRepositoryInspection()
+      }
+    },
+    RepositoryInspector(item)
+  )
+}
+
 function RepositoryInspector(item: LibraryRepository) {
   const repository = item.repository
   const annotation = item.annotation
   const githubUrl = safeGitHubUrl(repository.htmlUrl)
   return section(
-    {class: 'inspector', 'aria-label': `${repository.fullName} details`},
+    {
+      class: 'inspector repository-inspection-dialog',
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-labelledby': 'repository-inspection-title',
+      tabindex: -1,
+      onkeydown: (event: KeyboardEvent) =>
+        handleDialogKeydown(event, true, closeRepositoryInspection)
+    },
     div(
       {class: 'inspector-heading'},
-      div(p({class: 'eyebrow'}, repository.ownerLogin), h2(repository.name)),
-      githubUrl
-        ? a({class: 'github-link', href: githubUrl, target: '_blank', rel: 'noopener noreferrer'}, 'Open GitHub')
-        : null
+      div(p({class: 'eyebrow'}, repository.ownerLogin), h2({id: 'repository-inspection-title'}, repository.name)),
+      div(
+        {class: 'inspector-actions'},
+        githubUrl
+          ? a({class: 'github-link', href: githubUrl, target: '_blank', rel: 'noopener noreferrer'}, 'Open GitHub')
+          : null,
+        button(
+          {
+            class: 'secondary-action dialog-cancel',
+            type: 'button',
+            onclick: closeRepositoryInspection
+          },
+          'Close details'
+        )
+      )
     ),
     p({class: 'inspector-description'}, repository.description ?? 'No description provided.'),
     section(
@@ -1678,6 +1706,7 @@ function WriteAuthorizationCard(state: AppState) {
       p(
         'The extension restricts this credential to confirmed authenticated-user Starring status, star, and unstar routes plus one internally constructed UpdateUserListsForItem mutation using a repository node ID and the complete native List ID set. It does not read or change profile, email, or follow data and cannot send caller-provided GraphQL documents or other write requests.'
       ),
+      p(nativeListMembershipWriteReadinessCopy(state)),
       p(
         'The separate account-scoped token stays in extension-owned browser storage and is excluded from exports, rendered pages, and logs.'
       ),
@@ -1719,6 +1748,7 @@ function WriteAuthorizationCard(state: AppState) {
       write.authorization
         ? div({class: 'auth-code'}, write.authorization.userCode)
         : p('Requesting a GitHub device code...'),
+      p(nativeListMembershipWriteReadinessCopy(state)),
       div(
         {class: 'action-row'},
         write.authorization
@@ -1751,14 +1781,10 @@ function WriteAuthorizationCard(state: AppState) {
       h2('GitHub write credential is ready'),
       p(
         write.membershipReady
-          ? 'The separate account-scoped public_repo and user credential is ready for confirmed Starring routes and the structured native List membership mutation.'
+          ? 'The separate account-scoped public_repo and user credential is ready for confirmed Starring routes. Native List membership writes also require the reviewed release proof and retain preview, confirmation, queue, and independent read-back safeguards.'
           : 'The stored account-scoped public_repo credential remains ready for confirmed Starring routes. Reauthorize to grant user before changing native List membership.'
       ),
-      p(
-        state.nativeListMembership?.readiness === 'ready'
-          ? 'Native List membership capability is enabled for this build after separate disposable unchanged-set and independent read-back proof.'
-          : 'Native List membership controls remain disabled unless a disposable unchanged-set mutation and independent read-back prove schema, permission, and account ownership.'
-      ),
+      p(nativeListMembershipWriteReadinessCopy(state)),
       p(
         'Disconnecting write access preserves GitHub sign-in, synchronization, and all local library data.'
       ),
@@ -1781,6 +1807,7 @@ function WriteAuthorizationCard(state: AppState) {
     p(
       'Read-only synchronization remains available without this authorization. Enable it only for confirmed Starring requests and, after separate capability proof, structured native List membership changes.'
     ),
+    p(nativeListMembershipWriteReadinessCopy(state)),
     write.error ? p({class: 'inline-error', role: 'alert'}, write.error.message) : null,
     button(
       {
@@ -1793,6 +1820,18 @@ function WriteAuthorizationCard(state: AppState) {
         : 'Review authorization again'
     )
   )
+}
+
+function nativeListMembershipWriteReadinessCopy(state: AppState): string {
+  switch (state.nativeListMembership?.readiness) {
+    case 'ready':
+      return 'This verified release has reviewed native List membership evidence. This account has separate write authorization; OAuth authorization alone does not prove a successful native List membership mutation.'
+    case 'write-authorization-required':
+      return 'This verified release still needs GitHub write authorization before it can offer native List membership writes. GitHub sign-in alone does not prove a successful native List membership mutation.'
+    case 'capability-unproven':
+    default:
+      return 'This build does not enable verified native List membership writes. GitHub write authorization alone does not prove a successful native List membership mutation.'
+  }
 }
 
 function AdvancedFilters() {
@@ -1934,14 +1973,6 @@ function EmptyLibraryState() {
   )
 }
 
-function InspectionPlaceholder() {
-  return section(
-    {class: 'inspector inspector-empty'},
-    p({class: 'eyebrow'}, 'Repository details'),
-    h2('Select a repository'),
-    p('Use the mouse or arrow keys to inspect synchronized metadata and edit local organization.')
-  )
-}
 
 function LoadingState(copy: string) {
   return section(
@@ -2003,7 +2034,12 @@ function currentQuery(): RepositoryQuery {
     filters: {
       ...filters,
       triageStates: triageState.val ? [triageState.val] : [],
-      starState: activeView.val.kind === 'history' ? 'unstarred' : starState.val,
+      starState:
+        activeView.val.kind === 'history'
+          ? 'unstarred'
+          : activeView.val.kind === 'unlist'
+            ? 'all'
+            : starState.val,
       language: language.val,
       archived: hideArchived.val ? 'exclude' : 'all',
       disabled: disabled.val,
@@ -2105,6 +2141,44 @@ function captureDialogInvoker(element: HTMLElement): DialogInvoker {
   return {element, id: element.dataset.dialogInvoker ?? null}
 }
 
+function openRepositoryInspection(repositoryNodeId: string, invoker: HTMLElement): void {
+  selectedRepositoryNodeId.val = repositoryNodeId
+  inspectedRepositoryNodeId.val = repositoryNodeId
+  repositoryDialogInvoker = captureDialogInvoker(invoker)
+  focusInitialDialogAction('.repository-inspection-dialog')
+}
+
+function closeRepositoryInspection(): void {
+  restoreDialogInvoker(dismissRepositoryInspection())
+}
+
+function dismissStaleRepositoryInspection(): void {
+  const invoker = repositoryDialogInvoker
+  const ownerDocument = invoker?.element.ownerDocument ?? document
+  const MutationObserverConstructor = ownerDocument.defaultView?.MutationObserver
+  const fallbackSelector = '.repository-list .repository-row:not(:disabled)'
+
+  if (invoker?.element.isConnected && MutationObserverConstructor && ownerDocument.body) {
+    const observer = new MutationObserverConstructor(() => {
+      if (invoker.element.isConnected) return
+      observer.disconnect()
+      focusDialogInvoker(invoker, fallbackSelector, true)
+    })
+    observer.observe(ownerDocument.body, {childList: true, subtree: true})
+    dismissRepositoryInspection()
+    return
+  }
+
+  restoreDialogInvoker(dismissRepositoryInspection(), fallbackSelector, true)
+}
+
+function dismissRepositoryInspection(): DialogInvoker | null {
+  const invoker = repositoryDialogInvoker
+  inspectedRepositoryNodeId.val = null
+  repositoryDialogInvoker = null
+  return invoker
+}
+
 function beginMembershipPreviewRequest(invoker: HTMLElement): number | null {
   if (
     activeMembershipPreviewRequestToken !== null ||
@@ -2119,17 +2193,38 @@ function beginMembershipPreviewRequest(invoker: HTMLElement): number | null {
   return requestToken
 }
 
-function restoreDialogInvoker(invoker: DialogInvoker | null): void {
-  window.setTimeout(() => {
-    if (!invoker) return
-    const current = invoker.element.isConnected
+function focusDialogInvoker(
+  invoker: DialogInvoker | null,
+  fallbackSelector?: string,
+  preferFallback = false
+): void {
+  const ownerDocument = invoker?.element.ownerDocument ?? document
+  const current = invoker
+    ? invoker.element.isConnected
       ? invoker.element
-      : [...document.querySelectorAll<HTMLElement>('[data-dialog-invoker]')].find(
+      : [...ownerDocument.querySelectorAll<HTMLElement>('[data-dialog-invoker]')].find(
           (element) => element.dataset.dialogInvoker === invoker.id
         )
-    if (!current || current.matches(':disabled')) return
-    current.focus()
-  }, 0)
+    : null
+  const fallback = fallbackSelector
+    ? ownerDocument.querySelector<HTMLElement>(fallbackSelector)
+    : null
+  const target = preferFallback
+    ? fallback
+    : current && !current.matches(':disabled')
+      ? current
+      : fallback
+  if (target && !target.matches(':disabled')) target.focus()
+}
+
+function restoreDialogInvoker(
+  invoker: DialogInvoker | null,
+  fallbackSelector?: string,
+  preferFallback = false
+): void {
+  const ownerDocument = invoker?.element.ownerDocument ?? document
+  const ownerWindow = ownerDocument.defaultView ?? window
+  ownerWindow.setTimeout(() => focusDialogInvoker(invoker, fallbackSelector, preferFallback), 0)
 }
 
 async function updateAnnotation(
@@ -2222,6 +2317,8 @@ function handleMembershipPreviewResponse(
     return
   }
   membershipActivity.val = `Stable preview captured after ${response.data.attempts} attempts. Confirmation is required.`
+  const repositoryInvoker = dismissRepositoryInspection()
+  if (repositoryInvoker) membershipDialogInvoker = repositoryInvoker
   pendingMembershipPreview.val = response.data
   focusInitialDialogAction('.membership-confirmation')
 }
@@ -2291,7 +2388,8 @@ function openUnstarConfirmation(
   invoker: HTMLElement
 ): void {
   if (pendingUnstarTargets.val.length > 0 || enqueueingUnstars.val) return
-  unstarDialogInvoker = captureDialogInvoker(invoker)
+  const repositoryInvoker = dismissRepositoryInspection()
+  unstarDialogInvoker = repositoryInvoker ?? captureDialogInvoker(invoker)
   pendingUnstarTargets.val = repositories.map((repository) => ({
     repositoryNodeId: repository.repositoryNodeId,
     fullName: repository.fullName
@@ -2407,6 +2505,8 @@ function applyState(state: AppState): void {
     selectedForUnstar.val = new Set()
     resetUnstarConfirmation()
     selectedRepositoryNodeId.val = null
+    inspectedRepositoryNodeId.val = null
+    repositoryDialogInvoker = null
     selectedNativeListIds.val = new Set()
     membershipActivity.val = null
     resetMembershipPreview()
@@ -2464,7 +2564,7 @@ export function shouldStartAutoSync(
 async function confirmDisconnect(): Promise<void> {
   if (window.confirm('Disconnect GitHub? Local annotations will be retained.')) {
     await sendAction({type: 'disconnect'})
-    setActiveView({kind: 'inbox'})
+    setActiveView({kind: 'unlist'})
   }
 }
 
@@ -2552,7 +2652,7 @@ async function confirmCompleteRemoval(): Promise<void> {
     type: 'clear-all-data'
   })) as RuntimeResponse<AppState>
   if (response.ok) {
-    setActiveView({kind: 'inbox'})
+    setActiveView({kind: 'unlist'})
     applyState(response.data)
   } else {
     applyState({...appState.val, error: response.error})
@@ -2615,12 +2715,14 @@ function viewTitle(view: LibraryView): string {
     due: 'Due for review',
     organized: 'Organized',
     all: 'All stars',
+    unlist: 'Unlist',
     history: 'Unstarred history'
   }[view.kind]
 }
 
 function viewEyebrow(view: LibraryView): string {
   if (view.kind === 'operations') return 'Mutation history'
+  if (view.kind === 'unlist') return 'Derived local view'
   if (view.kind === 'list') return 'Native GitHub List'
   if (view.kind === 'tag') return 'Local tag'
   return 'Your GitHub library'
@@ -2766,8 +2868,11 @@ export function renderSettingsState(state: AppState): HTMLElement {
 
 export function renderLibraryState(state: AppState): HTMLElement {
   resetNativeListRenameEditor()
-  activeView.val = {kind: 'all'}
+  appState.val = state
+  setActiveView({kind: 'unlist'})
   selectedRepositoryNodeId.val = null
+  inspectedRepositoryNodeId.val = null
+  repositoryDialogInvoker = null
   selectedForUnstar.val = new Set()
   resetUnstarConfirmation()
   selectedNativeListIds.val = new Set()

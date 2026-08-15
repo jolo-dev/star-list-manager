@@ -73,8 +73,8 @@ GitHub native Lists use a public-preview API. Run every membership scenario only
 - [x] Verify unavailable schema/capability handling without fallback requests.
 - [x] Verify partial List coverage does not disclose inaccessible item details.
 - [ ] In an isolated profile, create only disposable Lists and a disposable public star according to `docs/native-list-membership-fixture.md`; confirm no existing List or membership is used.
-- [ ] Confirm a default production build keeps native List membership controls disabled and Lists read-only when no successful disposable capability proof is available.
-- [ ] After successful fixture verification, use only the documented isolated manual-test build gate and confirm same-account `user` authorization is required; verify a stored `public_repo`-only credential can still serve Starring but cannot enable membership controls.
+- [ ] Confirm a build with absent, unverified, malformed, or sensitive reviewed release evidence keeps native List membership controls disabled and Lists read-only.
+- [ ] After reviewed release evidence is bundled, confirm same-account `user` authorization is required; verify a stored `public_repo`-only credential can still serve Starring but cannot enable membership controls.
 - [ ] Preview single and bulk add operations; confirm each repository shows current, resulting, added, removed, and unchanged Lists, existing destinations are no-ops, and unrelated memberships remain in the complete resulting set.
 - [ ] Preview explicit remove and move operations; confirm absent removals are no-ops, an absent move source is rejected, and a valid move removes only its source while preserving unrelated memberships.
 - [ ] For every add, remove, and move confirmation, confirm the UI states that `UpdateUserListsForItem` replaces the complete set, observations are non-atomic, and concurrent GitHub edits may cause reconfirmation, instability, or conflict.

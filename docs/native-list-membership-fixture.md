@@ -22,7 +22,7 @@ env -u NODE_OPTIONS bun run probe:oauth-list-membership -- \
 
 The script performs OAuth device flow in memory requesting `public_repo user`, validates both scopes and the expected account, verifies the exact public starred fixture, obtains two matching complete List observations, submits that unchanged canonical List ID set through the dedicated transport, and obtains a fresh independent stable read-back. It prints the device code and sanitized outcome only. It does not print or persist the OAuth token or raw GitHub responses.
 
-A successful probe provides development evidence for schema availability, required `user` permission under the combined authorization, account ownership, the unchanged-set mutation, and independent read-back. `public_repo` alone is not evidence of membership permission. The probe does not by itself persist capability proof or enable production controls. Failed or inconclusive probes leave native Lists read-only.
+A successful probe provides five release-evidence assertions: availability schema, OAuth `user` scope under the combined authorization, account ownership, unchanged complete-set mutation, and independent read-back. `public_repo` alone is not evidence of membership permission. The probe does not by itself persist capability proof, authorize users, or enable production controls. Failed, absent, unverified, malformed, or sensitive evidence leaves native Lists read-only.
 
 ## Disposable Native List Rename Fixture (not run)
 
@@ -41,9 +41,11 @@ The explicit confirmation identifies only the disposable List node ID, its expec
 
 If a temporary rename may have occurred but restoration or final read-back fails, the script reports **CLEANUP REQUIRED** and does not claim proof. Manually restore the confirmed disposable List to its original name and independently inspect GitHub before recording any result. A failed or inconclusive probe leaves native Lists read-only.
 
-## Isolated Manual Mutation Build
+## Reviewed Release Evidence
 
-Only after the relevant successful disposable probe, set `EXTENSION_PUBLIC_GITHUB_LIST_MEMBERSHIP_WRITE_ENABLED=true` in the isolated manual-test build and rebuild the extension. The membership production capability gate is otherwise off. The flag is an operator assertion that all probe criteria passed; it does not replace the probe evidence. Keep it unset for normal or release builds until all capability and manual checks pass.
+`EXTENSION_PUBLIC_GITHUB_LIST_MEMBERSHIP_WRITE_ENABLED` is retired and must not be supplied. Only release maintainers may turn a successful disposable-account probe into a release capability: review the probe's sanitized output, update the checked-in reviewed non-secret null-prototype evidence with the exact five assertions, review that update, then run validation and build checks. Repeat the probe and evidence review whenever the write OAuth application or documented membership mutation changes.
+
+This evidence is not a user's OAuth authorization. A released build still requires a matching account OAuth credential with `public_repo` and `user`; preview, explicit confirmation, stable complete-set observations, durable queue handling, and independent read-back remain mandatory for every membership write.
 
 `EXTENSION_PUBLIC_GITHUB_LIST_RENAME_ENABLED` is documented in `.env.example` as `false` and must remain unset/disabled for normal and release builds. It is not enabled by this implementation, and the rename probe has not been run.
 

@@ -52,10 +52,30 @@ describe('repository discovery queries', () => {
       due: 1,
       organized: 0,
       all: 2,
+      unlist: 2,
       history: 1,
       lists: {UL_tools: 1},
       tags: {Research: 1, Queue: 1}
     })
+  })
+
+  test('returns repositories without local List membership in Unlist', () => {
+    const repositories = buildLibraryRepositories(snapshot())
+    const results = queryRepositories(
+      repositories,
+      {
+        view: {kind: 'unlist'},
+        search: '',
+        filters: {...defaultRepositoryFilters(), starState: 'all'},
+        sort: 'name',
+        ascending: true
+      },
+      now
+    )
+    expect(results.map((item) => item.repository.repositoryNodeId)).toEqual([
+      'R_beta',
+      'R_history'
+    ])
   })
 
   test('sorts deterministically and keeps null dates last', () => {

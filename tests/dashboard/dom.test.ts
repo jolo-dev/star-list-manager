@@ -33,76 +33,239 @@ test('mounts accessible dashboard navigation and loading state', async () => {
   expect(root.querySelector('nav')?.getAttribute('aria-label')).toBe('Library')
   expect(root.querySelector('[aria-busy="true"]')).not.toBeNull()
   expect(root.textContent).toContain('Star List')
-  expect(root.textContent).toContain('Inbox')
-
-  const backlog = [...root.querySelectorAll('button')].find(
-    (element) => element.textContent?.includes('Backlog')
+  const unlist = [...root.querySelectorAll('button')].find(
+    (element) => element.textContent?.includes('Unlist')
   )
-  backlog?.dispatchEvent(new browserWindow.MouseEvent('click', {bubbles: true}))
-  await browserWindow.happyDOM.whenAsyncComplete()
-  const active = root.querySelector('[aria-current="page"]')
-  expect(active?.textContent).toContain('Backlog')
+  expect(unlist?.getAttribute('aria-current')).toBe('page')
 })
 
-test('renders the five triage destinations in a labelled navigation group', async () => {
-  const root = await mountReadyDashboard()
-  const sidebar = sidebarNavigation(root)
-  const triageGroup = navigationGroup(sidebar, 'Triage')
-  const triageNavigation = directNavigationList(triageGroup)
-
-  expect(triageGroup).not.toBeNull()
-  expect(navigationGroupSummary(triageGroup)?.textContent).toBe('Triage')
-  expect(navigationLabels(triageNavigation)).toEqual([
-    'Inbox',
-    'Backlog',
-    'Due',
-    'Organized',
-    'All stars'
-  ])
-})
-
-test('places history with Operations and Settings in a labelled utility group', async () => {
-  const root = await mountReadyDashboard()
-  const sidebar = sidebarNavigation(root)
-  const utilityGroup = navigationGroup(sidebar, 'Utilities')
-  const utilityNavigation = directNavigationList(utilityGroup)
-
-  expect(utilityGroup).not.toBeNull()
-  expect(navigationGroupSummary(utilityGroup)?.textContent).toBe('Utilities')
-  expect(navigationLabels(utilityNavigation)).toEqual([
-    'Unstarred history',
-    'Operations',
-    'Settings'
-  ])
-})
-
-test('renders GitHub Lists and local tags in labelled, discoverable navigation groups', async () => {
-  const root = await mountReadyDashboard()
-  const sidebar = sidebarNavigation(root)
-  const namedGroups = ['GitHub Lists', 'Local tags'].map((label) => {
-    const group = navigationGroup(sidebar, label)
-    return {
-      label: navigationGroupSummary(group)?.textContent ?? null,
-      items: navigationLabels(directNavigationList(group))
+test('renders Unlist before alphabetized imported native Lists regardless of input order', async () => {
+  const readyState = readyDashboardState()
+  const state: AppState = {
+    ...readyState,
+    library: {
+      ...readyState.library!,
+      nativeLists: [
+        nativeList('L_zulu', 'Zulu List'),
+        nativeList('L_alpha', 'Alpha List'),
+        nativeList('L_middle', 'Middle List')
+      ]
     }
-  })
+  }
+  const root = await mountReadyDashboard(state)
+  const sidebar = sidebarNavigation(root)
+  const groups = [...(sidebar?.querySelectorAll('details.nav-group') ?? [])]
+  const githubLists = navigationGroup(sidebar, 'GitHub Lists')
 
-  expect(namedGroups).toEqual([
-    {label: 'GitHub Lists', items: ['Current List']},
-    {label: 'Local tags', items: ['#local-only']}
+  expect(groups).toHaveLength(1)
+  expect(navigationGroupSummary(githubLists)?.textContent).toBe('GitHub Lists')
+  expect(githubLists?.hasAttribute('open')).toBe(true)
+  expect(navigationLabels(directNavigationList(githubLists))).toEqual([
+    'Unlist',
+    'Alpha List',
+    'Middle List',
+    'Zulu List'
   ])
 })
 
-test('starts dynamic navigation groups collapsed', async () => {
+test('selects Unlist as the active ready view with a derived local header', async () => {
+  const root = await mountReadyDashboard()
+  const sidebar = sidebarNavigation(root)
+  const active = sidebar?.querySelector('[aria-current="page"]')
+
+  expect(active?.textContent).toContain('Unlist')
+  expect(root.querySelector('.library-header h1')?.textContent).toBe('Unlist')
+  expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Derived local view')
+})
+
+test('shows unstarred unlisted repositories in Unlist and applies an explicitly selected star-state filter to a normal view', async () => {
+  const readyState = readyDashboardState()
+  const starredUnlisted = repositoryRecord('42', 'R_starred-unlisted', 'octocat/starred-unlisted')
+  const unstarredUnlisted = {
+    ...repositoryRecord('42', 'R_unstarred-unlisted', 'octocat/unstarred-unlisted'),
+    isStarred: false,
+    unstarredAt: '2026-08-05T10:00:00Z'
+  }
+  const starredListed = repositoryRecord('42', 'R_starred-listed', 'octocat/starred-listed')
+  const state: AppState = {
+    ...readyState,
+    library: {
+      ...readyState.library!,
+      repositories: [starredUnlisted, unstarredUnlisted, starredListed],
+      nativeLists: [nativeList('L_current', 'Current List')],
+      nativeMemberships: [
+        {
+          githubUserId: '42',
+          repositoryNodeId: 'R_starred-listed',
+          listNodeId: 'L_current',
+          lastObservedAt: '2026-08-04T10:00:00Z'
+        }
+      ],
+      annotations: []
+    }
+  }
+  const browserWindow = createDashboardWindow()
+  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
+  renderLibraryState(state)
+  const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+  browserWindow.document.body.append(
+    root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  mountDashboard(root)
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  expect(visibleRepositoryIds(root)).toEqual(
+    expect.arrayContaining(['R_starred-unlisted', 'R_unstarred-unlisted'])
+  )
+  expect(visibleRepositoryIds(root)).not.toContain('R_starred-listed')
+
+  const starStateSelect = [...root.querySelectorAll('label')].find(
+    (label) => label.textContent?.includes('Star state')
+  )?.querySelector('select') as HTMLSelectElement | null
+  expect(starStateSelect).not.toBeNull()
+  if (starStateSelect === null) return
+
+  starStateSelect.value = 'unstarred'
+  starStateSelect.dispatchEvent(
+    new browserWindow.Event('change', {bubbles: true}) as unknown as Event
+  )
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  expect(visibleRepositoryIds(root)).toEqual(['R_unstarred-unlisted'])
+
+  // Module-level dashboard filter state is shared by this DOM suite; restore its default.
+  starStateSelect.value = 'starred'
+  starStateSelect.dispatchEvent(
+    new browserWindow.Event('change', {bubbles: true}) as unknown as Event
+  )
+  await browserWindow.happyDOM.whenAsyncComplete()
+})
+
+test('resets a rendered ready dashboard to Unlist after another native List became active', async () => {
+  const root = await mountReadyDashboard()
+  const currentList = [...root.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent?.includes('Current List')
+  ) ?? null
+  expect(currentList).not.toBeNull()
+  if (currentList === null) return
+
+  currentList.dispatchEvent(new window.MouseEvent('click', {bubbles: true}) as unknown as Event)
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.library-header h1')?.textContent).toBe('Current List')
+
+  const {renderLibraryState} = await import('../../src/dashboard/scripts')
+  const library = renderLibraryState(readyDashboardState())
+  expect(library.querySelector('.library-header h1')?.textContent).toBe('Unlist')
+})
+
+test('returns sidebar selection to Unlist after disconnect and complete-data removal', async () => {
+  for (const transition of [
+    {actionLabel: 'Disconnect GitHub', messageType: 'disconnect'},
+    {actionLabel: 'Delete all local data', messageType: 'clear-all-data'}
+  ] as const) {
+    const browserWindow = createDashboardWindow()
+    const {mountDashboard, renderLibraryState, renderSettingsState} = await import(
+      '../../src/dashboard/scripts'
+    )
+    const state = readyDashboardState()
+    renderLibraryState(state)
+    const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(root)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    const currentList = [...root.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.includes('Current List')
+    ) ?? null
+    expect(currentList).not.toBeNull()
+    if (currentList === null) return
+    currentList.dispatchEvent(
+      new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
+    )
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(root.querySelector('.library-header h1')?.textContent).toBe('Current List')
+
+    const messages: string[] = []
+    const previousChrome = (globalThis as {chrome?: unknown}).chrome
+    const confirmationWindow = browserWindow as unknown as {
+      confirm: (message?: string) => boolean
+    }
+    const previousConfirm = confirmationWindow.confirm
+    Object.assign(confirmationWindow, {confirm: () => true})
+    Object.assign(globalThis, {
+      chrome: {
+        runtime: {
+          sendMessage: async (message: {readonly type: string}) => {
+            messages.push(message.type)
+            return {ok: true, data: signedOutDashboardState()}
+          }
+        }
+      }
+    })
+
+    try {
+      const settings = renderSettingsState(state)
+      browserWindow.document.body.append(
+        settings as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+      )
+      const action = [...settings.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent === transition.actionLabel
+      ) ?? null
+      expect(action).not.toBeNull()
+      if (action === null) return
+
+      action.dispatchEvent(
+        new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
+      )
+      await browserWindow.happyDOM.whenAsyncComplete()
+
+      expect(messages).toEqual([transition.messageType])
+      const active = sidebarNavigation(root)?.querySelector('[aria-current="page"]')
+      expect(active?.textContent).toContain('Unlist')
+    } finally {
+      Object.assign(confirmationWindow, {confirm: previousConfirm})
+      if (previousChrome === undefined) {
+        delete (globalThis as {chrome?: unknown}).chrome
+      } else {
+        Object.assign(globalThis, {chrome: previousChrome})
+      }
+    }
+  }
+})
+
+test('removes triage, local tag, and utility destinations from the sidebar', async () => {
   const root = await mountReadyDashboard()
   const sidebar = sidebarNavigation(root)
 
-  for (const label of ['GitHub Lists', 'Local tags']) {
-    const group = navigationGroup(sidebar, label)
-    expect(group).not.toBeNull()
-    expect(navigationGroupSummary(group)?.textContent).toBe(label)
-    expect(group?.hasAttribute('open')).toBe(false)
+  for (const label of [
+    'Triage',
+    'Local tags',
+    'Utilities',
+    'Operations',
+    'Settings',
+    'Unstarred history'
+  ]) {
+    expect(sidebar?.textContent).not.toContain(label)
   }
+})
+
+test('renders GitHub Lists and Unlist without imported native Lists', async () => {
+  const readyState = readyDashboardState()
+  const state: AppState = {
+    ...readyState,
+    library: {
+      ...readyState.library!,
+      nativeLists: [],
+      nativeMemberships: []
+    }
+  }
+  const root = await mountReadyDashboard(state)
+  const sidebar = sidebarNavigation(root)
+  const githubLists = navigationGroup(sidebar, 'GitHub Lists')
+
+  expect(githubLists).not.toBeNull()
+  expect(navigationLabels(directNavigationList(githubLists))).toEqual(['Unlist'])
 })
 
 test('keeps a visible Search label beside the prominent Refresh control', async () => {
@@ -213,25 +376,43 @@ test('renders broad-scope disclosure before write device authorization', async (
 })
 
 test('renders non-secret write readiness and keeps native membership capability gated', async () => {
+  createDashboardWindow()
   const {renderSettingsState} = await import('../../src/dashboard/scripts')
-  const settings = renderSettingsState(
-    accountState('42', {
+  const unverifiedBuildSettings = renderSettingsState({
+    ...accountState('42', {
       readiness: 'ready',
       membershipReady: true,
       previewVisible: false,
       authorization: null,
       error: null
-    })
-  )
+    }),
+    nativeListMembership: {readiness: 'capability-unproven'}
+  })
+  const verifiedReleaseSettings = renderSettingsState({
+    ...accountState('42', {
+      readiness: 'authorization-required',
+      membershipReady: false,
+      previewVisible: false,
+      authorization: null,
+      error: null
+    }),
+    nativeListMembership: {readiness: 'write-authorization-required'}
+  })
 
-  expect(settings.textContent).toContain(
+  expect(unverifiedBuildSettings.textContent).toContain(
     'account-scoped public_repo and user credential is ready'
   )
-  expect(settings.textContent).toContain('confirmed Starring routes')
-  expect(settings.textContent).toContain('structured native List membership mutation')
-  expect(settings.textContent).toContain('controls remain disabled')
-  expect(settings.textContent).toContain('independent read-back')
-  expect(settings.textContent).not.toContain('access-secret')
+  expect(unverifiedBuildSettings.textContent).toContain('confirmed Starring routes')
+  expect(unverifiedBuildSettings.textContent).toContain(
+    'This build does not enable verified native List membership writes.'
+  )
+  expect(unverifiedBuildSettings.textContent).toContain(
+    'GitHub write authorization alone does not prove a successful native List membership mutation.'
+  )
+  expect(verifiedReleaseSettings.textContent).toContain(
+    'This verified release still needs GitHub write authorization before it can offer native List membership writes.'
+  )
+  expect(unverifiedBuildSettings.textContent).not.toContain('access-secret')
 })
 
 test('renders complete unstar confirmation and cancellation does not confirm', async () => {
@@ -328,6 +509,13 @@ test('disables native membership review when membership readiness is unavailable
   browserWindow.document.body.append(
     library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
+  const repositoryRow = library.querySelector<HTMLButtonElement>('.repository-row')
+  expect(repositoryRow).not.toBeNull()
+  if (repositoryRow === null) return
+  repositoryRow.dispatchEvent(
+    new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
+  )
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
   const listChoice = library.querySelector(
     '.native-list-choices input[type="checkbox"]'
   ) as HTMLInputElement | null
@@ -344,6 +532,48 @@ test('disables native membership review when membership readiness is unavailable
   ]
   expect(membershipActions).not.toHaveLength(0)
   expect(membershipActions.every((action) => action.disabled)).toBe(true)
+})
+
+test('explains an active native List operation when membership review is disabled', async () => {
+  const browserWindow = createDashboardWindow()
+  const {renderLibraryState} = await import('../../src/dashboard/scripts')
+  const activeMembershipJob: MutationJobRecord = {
+    ...mutationJob('42', 'queued', 0),
+    repositoryNodeId: 'R_one',
+    mutationKind: 'native-list-membership',
+    membershipDetails: membershipMutationDetails('queued')
+  }
+  const library = renderLibraryState({
+    ...membershipReadyDashboardState(),
+    mutations: {batches: [], jobs: [activeMembershipJob], history: []}
+  })
+  browserWindow.document.body.append(
+    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  await openRepositoryDetails(library, browserWindow)
+  const listChoice = library.querySelector(
+    '.inspector .native-list-choices input[type="checkbox"]'
+  ) as HTMLInputElement | null
+
+  expect(listChoice).not.toBeNull()
+  if (listChoice === null) return
+
+  listChoice.checked = true
+  listChoice.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  const review = library.querySelector<HTMLButtonElement>('.inspector .membership-review')
+  const descriptionId = review?.getAttribute('aria-describedby') ?? null
+  const description = descriptionId === null
+    ? null
+    : library.querySelector(`#${descriptionId}`)
+
+  expect(review?.disabled).toBe(true)
+  expect(description).not.toBeNull()
+  expect(description?.getAttribute('role')).toBe('status')
+  expect(description?.textContent).toBe(
+    'A native GitHub List membership operation is already active or queued for this repository. Wait for it to complete before reviewing another change.'
+  )
 })
 
 test('selects rows without changing star state or local annotations', async () => {
@@ -462,6 +692,93 @@ test('uses a labelled repository button list and moves focus with arrow keys', a
   expect(focusedSecond?.classList.contains('is-selected')).toBe(true)
 })
 
+test('opens repository inspection in a modal only after a row is activated', async () => {
+  const browserWindow = createDashboardWindow()
+  const {renderLibraryState} = await import('../../src/dashboard/scripts')
+  const repository = repositoryRecord('42', 'R_one', 'octocat/one')
+  const library = renderLibraryState({
+    ...membershipReadyDashboardState(),
+    library: {
+      repositories: [repository],
+      nativeLists: [],
+      nativeMemberships: [],
+      annotations: []
+    },
+    mutations: {batches: [], jobs: [], history: []}
+  })
+  browserWindow.document.body.append(
+    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  const row = library.querySelector<HTMLButtonElement>('.repository-row')
+
+  expect(library.querySelector('.library-grid > .inspector')).toBeNull()
+  expect(library.querySelector('.repository-inspection-dialog')).toBeNull()
+  expect(row).not.toBeNull()
+  if (row === null) return
+
+  row.dispatchEvent(new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event)
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+
+  const dialog = library.querySelector<HTMLElement>('.repository-inspection-dialog')
+  expect(dialog?.getAttribute('role')).toBe('dialog')
+  expect(dialog?.getAttribute('aria-modal')).toBe('true')
+  expect(dialog?.textContent).toContain('octocat')
+  expect(dialog?.textContent).toContain('Local organization')
+  expect(dialog?.textContent).toContain('GitHub account changes')
+})
+
+test('dismisses repository inspection with Escape or its backdrop and restores row focus', async () => {
+  const browserWindow = createDashboardWindow()
+  const {renderLibraryState} = await import('../../src/dashboard/scripts')
+  const library = renderLibraryState(membershipReadyDashboardState())
+  browserWindow.document.body.append(
+    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  const row = library.querySelector<HTMLButtonElement>('.repository-row')
+  expect(row).not.toBeNull()
+  if (row === null) return
+
+  await openRepositoryDetails(library, browserWindow)
+  const firstDialog = library.querySelector<HTMLElement>('.repository-inspection-dialog')
+  firstDialog?.dispatchEvent(
+    new browserWindow.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}) as unknown as Event
+  )
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+  expect(library.querySelector('.repository-inspection-dialog')).toBeNull()
+  const restoredAfterEscape = library.querySelector<HTMLButtonElement>(
+    '[data-dialog-invoker="repository-R_one"]'
+  )
+  expect((browserWindow.document.activeElement as unknown) === restoredAfterEscape).toBe(true)
+
+  await openRepositoryDetails(library, browserWindow)
+  const close = [...library.querySelectorAll<HTMLButtonElement>('button')].find(
+    (element) => element.textContent === 'Close details'
+  ) ?? null
+  expect((browserWindow.document.activeElement as unknown) === close).toBe(true)
+  close?.dispatchEvent(
+    new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
+  )
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+  expect(library.querySelector('.repository-inspection-dialog')).toBeNull()
+  const restoredAfterClose = library.querySelector<HTMLButtonElement>(
+    '[data-dialog-invoker="repository-R_one"]'
+  )
+  expect((browserWindow.document.activeElement as unknown) === restoredAfterClose).toBe(true)
+
+  await openRepositoryDetails(library, browserWindow)
+  const backdrop = library.querySelector<HTMLElement>('.dialog-backdrop')
+  expect(backdrop).not.toBeNull()
+  backdrop?.dispatchEvent(
+    new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
+  )
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+  expect(library.querySelector('.repository-inspection-dialog')).toBeNull()
+  const restoredAfterBackdrop = library.querySelector<HTMLButtonElement>(
+    '[data-dialog-invoker="repository-R_one"]'
+  )
+  expect((browserWindow.document.activeElement as unknown) === restoredAfterBackdrop).toBe(true)
+})
+
 test('traps and restores the unstar confirmation dialog without cancelling queued work', async () => {
   const browserWindow = createDashboardWindow()
   const queuedUnstar = deferred()
@@ -491,6 +808,7 @@ test('traps and restores the unstar confirmation dialog without cancelling queue
     browserWindow.document.body.append(
       library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
     )
+    await openRepositoryDetails(library, browserWindow)
     const review = [...library.querySelectorAll<HTMLButtonElement>('button')].find(
       (element) => element.textContent === 'Review unstar'
     ) ?? null
@@ -504,6 +822,7 @@ test('traps and restores the unstar confirmation dialog without cancelling queue
     await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
 
     const dialog = library.querySelector<HTMLElement>('.unstar-confirmation[role="dialog"]')
+    expect(library.querySelector('.repository-inspection-dialog') === null).toBe(true)
     const cancel = [...(dialog?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
       (element) => element.textContent === 'Cancel'
     ) ?? null
@@ -532,12 +851,17 @@ test('traps and restores the unstar confirmation dialog without cancelling queue
       new browserWindow.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}) as unknown as Event
     )
     await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+    const restoredRow = library.querySelector<HTMLButtonElement>(
+      '[data-dialog-invoker="repository-R_one"]'
+    )
+    expect(library.querySelector('.unstar-confirmation')).toBeNull()
+    expect((browserWindow.document.activeElement as unknown) === restoredRow).toBe(true)
+
+    await openRepositoryDetails(library, browserWindow)
     const restoredReview = [...library.querySelectorAll<HTMLButtonElement>('button')].find(
       (element) => element.textContent === 'Review unstar'
     ) ?? null
-    expect(library.querySelector('.unstar-confirmation')).toBeNull()
-    expect((browserWindow.document.activeElement as unknown) === restoredReview).toBe(true)
-
+    expect(restoredReview).not.toBeNull()
     restoredReview?.dispatchEvent(
       new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
     )
@@ -612,6 +936,7 @@ test('keeps membership confirmation focus with its first review request', async 
     browserWindow.document.body.append(
       library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
     )
+    await openRepositoryDetails(library, browserWindow)
     const listChoice = library.querySelector(
       '.native-list-choices input[type="checkbox"]'
     ) as HTMLInputElement | null
@@ -639,6 +964,7 @@ test('keeps membership confirmation focus with its first review request', async 
     releasePreview.resolve()
     await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
     const dialog = library.querySelector<HTMLElement>('.membership-confirmation[role="dialog"]')
+    expect(library.querySelector('.repository-inspection-dialog') === null).toBe(true)
     const cancel = [...(dialog?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
       (element) => element.textContent === 'Cancel'
     ) ?? null
@@ -649,10 +975,10 @@ test('keeps membership confirmation focus with its first review request', async 
       new browserWindow.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}) as unknown as Event
     )
     await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
-    const restoredFirstReview = [...library.querySelectorAll<HTMLButtonElement>('.membership-review')].find(
-      (element) => element.textContent === 'Review additive assignment'
-    ) ?? null
-    expect((browserWindow.document.activeElement as unknown) === restoredFirstReview).toBe(true)
+    const restoredRow = library.querySelector<HTMLButtonElement>(
+      '[data-dialog-invoker="repository-R_one"]'
+    )
+    expect((browserWindow.document.activeElement as unknown) === restoredRow).toBe(true)
     expect(cancel).not.toBeNull()
   } finally {
     releasePreview.resolve()
@@ -675,7 +1001,7 @@ test('mounts existing native List controls separately from local tags', async ()
     Event: browserWindow.Event,
     KeyboardEvent: browserWindow.KeyboardEvent
   })
-  const {renderLibraryState} = await import('../../src/dashboard/scripts')
+  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
   const repository = repositoryRecord('42', 'R_one', 'octocat/one')
   const state: AppState = {
     ...accountState('42', {
@@ -713,10 +1039,17 @@ test('mounts existing native List controls separately from local tags', async ()
     },
     mutations: {batches: [], jobs: [], history: []}
   }
-  const library = renderLibraryState(state)
-  browserWindow.document.body.append(
-    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  renderLibraryState(state)
+  const root = browserWindow.document.createElement('main')
+  browserWindow.document.body.append(root)
+  mountDashboard(root as unknown as HTMLElement)
+  const currentListNavigationItem = [...root.querySelectorAll('button')].find(
+    (element) => element.textContent?.includes('Current List')
   )
+  currentListNavigationItem?.dispatchEvent(new browserWindow.MouseEvent('click', {bubbles: true}))
+  await browserWindow.happyDOM.whenAsyncComplete()
+  const library = root as unknown as HTMLElement
+  await openRepositoryDetails(library, browserWindow)
 
   expect(library.textContent).toContain('Native GitHub Lists')
   expect(library.textContent).toContain('Local tags are separate')
@@ -983,6 +1316,7 @@ test('sends one valid native List header rename and renders only verified return
     await nextTurn(browserWindow)
     expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Verified Name')
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+      'Unlist',
       'Other List',
       'Verified Name'
     ])
@@ -1015,6 +1349,7 @@ test('shows a fixed safe message when native List rename dispatch throws', async
     expect(error).toBe('Unable to rename the GitHub List. Please try again.')
     expect(error).not.toContain('ghp_exampleSecretValue')
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+      'Unlist',
       'Current List',
       'Other List'
     ])
@@ -1050,6 +1385,7 @@ test('preserves native List header editor and prior rendered name after a runtim
       'GitHub could not verify the renamed List. Refresh before trying again.'
     )
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+      'Unlist',
       'Current List',
       'Other List'
     ])
@@ -1092,6 +1428,7 @@ test('applies divergent native List state while retaining the sanitized rename r
 
     expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Observed List')
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+      'Unlist',
       'Observed List',
       'Other List'
     ])
@@ -1136,6 +1473,7 @@ test('removes a missing native List editor and shows its sanitized rename result
     expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Inbox')
     expect(nativeListHeader(root)?.querySelector('form.native-list-rename-editor')).toBeNull()
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+      'Unlist',
       'Other List'
     ])
     expect(root.querySelector('.status-banner.is-error')?.textContent).toBe(
@@ -1147,9 +1485,9 @@ test('removes a missing native List editor and shows its sanitized rename result
 })
 
 test('organizes inspector facts, local fields, and GitHub changes into labelled sections', async () => {
-  createDashboardWindow()
-  const {renderLibraryState} = await import('../../src/dashboard/scripts')
-  const library = renderLibraryState(membershipReadyDashboardState())
+  const library = await mountReadyDashboard(membershipReadyDashboardState())
+  const browserWindow = window as unknown as Window
+  await openRepositoryDetails(library, browserWindow)
   const inspector = library.querySelector<HTMLElement>('.inspector')
   const sections = [...(inspector?.children ?? [])].filter((child) =>
     child.matches('section')
@@ -1180,7 +1518,7 @@ test('organizes inspector facts, local fields, and GitHub changes into labelled 
 })
 
 test('keeps inspector unstar disabled without write authorization or while work is active', async () => {
-  createDashboardWindow()
+  const browserWindow = createDashboardWindow()
   const {renderLibraryState} = await import('../../src/dashboard/scripts')
   const unavailable = renderLibraryState({
     ...membershipReadyDashboardState(),
@@ -1192,6 +1530,10 @@ test('keeps inspector unstar disabled without write authorization or while work 
       error: null
     }
   })
+  browserWindow.document.body.append(
+    unavailable as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  await openRepositoryDetails(unavailable, browserWindow)
   const unavailableUnstar = unavailable.querySelector<HTMLButtonElement>(
     '.github-unstar-action .danger-action'
   )
@@ -1203,6 +1545,10 @@ test('keeps inspector unstar disabled without write authorization or while work 
     ...membershipReadyDashboardState(),
     mutations: {batches: [], jobs: [activeJob], history: []}
   })
+  browserWindow.document.body.append(
+    activeWork as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  await openRepositoryDetails(activeWork, browserWindow)
   const activeUnstar = activeWork.querySelector<HTMLButtonElement>(
     '.github-unstar-action .danger-action'
   )
@@ -1243,6 +1589,7 @@ test('keeps inspector native List changes in preview before confirmation', async
     browserWindow.document.body.append(
       library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
     )
+    await openRepositoryDetails(library, browserWindow)
     const inspector = library.querySelector<HTMLElement>('.inspector')
     const listChoice = inspector?.querySelector<HTMLInputElement>(
       '.native-list-choices input[type="checkbox"]'
@@ -1416,6 +1763,7 @@ test('cancels the named membership confirmation with Escape', async () => {
     browserWindow.document.body.append(
       library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
     )
+    await openRepositoryDetails(library, browserWindow)
     const listChoice = library.querySelector(
       '.native-list-choices input[type="checkbox"]'
     ) as HTMLInputElement | null
@@ -1439,6 +1787,7 @@ test('cancels the named membership confirmation with Escape', async () => {
     await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
 
     const dialog = library.querySelector('.membership-confirmation[role="dialog"]')
+    expect(library.querySelector('.repository-inspection-dialog') === null).toBe(true)
     expect(dialog?.getAttribute('aria-labelledby')).toBe('membership-confirmation-title')
     expect(dialog?.getAttribute('aria-modal')).toBe('true')
     expect(accessibleDialogName(dialog)).toBe('Review List memberships for 2 repositories')
@@ -1470,11 +1819,16 @@ test('cancels the named membership confirmation with Escape', async () => {
     await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
 
     expect(library.querySelector('.membership-confirmation') === null).toBe(true)
+    const restoredRow = library.querySelector<HTMLButtonElement>(
+      '[data-dialog-invoker="repository-R_one"]'
+    )
+    expect((browserWindow.document.activeElement as unknown) === restoredRow).toBe(true)
+
+    await openRepositoryDetails(library, browserWindow)
     const restoredReview = [...library.querySelectorAll<HTMLButtonElement>('button')].find(
       (element) => element.textContent?.includes('Review additive assignment')
     ) ?? null
-    expect((browserWindow.document.activeElement as unknown) === restoredReview).toBe(true)
-
+    expect(restoredReview).not.toBeNull()
     restoredReview?.dispatchEvent(
       new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
     )
@@ -2023,6 +2377,114 @@ function operationHistory(
   }
 }
 
+test('restores focus to an available result when filtering removes the inspected repository', async () => {
+  const browserWindow = createDashboardWindow()
+  // @ts-expect-error Bun query strings create a test-only module instance.
+  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts?stale-focus')
+  const inspected = {
+    ...repositoryRecord('42', 'R_inspected', 'octocat/inspected'),
+    primaryLanguage: 'TypeScript'
+  }
+  const fallback = {
+    ...repositoryRecord('42', 'R_fallback', 'github/fallback'),
+    primaryLanguage: 'JavaScript'
+  }
+  renderLibraryState({
+    ...membershipReadyDashboardState(),
+    library: {
+      repositories: [inspected, fallback],
+      nativeLists: [],
+      nativeMemberships: [],
+      annotations: []
+    },
+    mutations: {batches: [], jobs: [], history: []}
+  })
+  const library = browserWindow.document.createElement('main') as unknown as HTMLElement
+  browserWindow.document.body.append(
+    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  mountDashboard(library)
+  const inspectedRow = library.querySelector<HTMLButtonElement>(
+    '[data-repository-node-id="R_inspected"]'
+  )
+  expect(inspectedRow).not.toBeNull()
+  if (inspectedRow === null) return
+  inspectedRow.dispatchEvent(
+    new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
+  )
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  const language = [...library.querySelectorAll('label')]
+    .find((label) => label.textContent?.includes('Language'))
+    ?.querySelector<HTMLSelectElement>('select') ?? null
+  expect(language).not.toBeNull()
+  if (language === null) return
+
+  language.value = 'JavaScript'
+  language.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  const fallbackRow = library.querySelector<HTMLButtonElement>(
+    '[data-repository-node-id="R_fallback"]'
+  )
+  expect(library.querySelector('.repository-inspection-dialog')).toBeNull()
+  expect((browserWindow.document.activeElement as unknown) === fallbackRow).toBe(true)
+
+  language.value = ''
+  language.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  library.remove()
+})
+
+test('restores focus to an available result when search removes the inspected repository', async () => {
+  const browserWindow = createDashboardWindow()
+  // @ts-expect-error Bun query strings create a test-only module instance.
+  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts?stale-search-focus')
+  const inspected = repositoryRecord('42', 'R_inspected', 'octocat/inspected')
+  const fallback = repositoryRecord('42', 'R_fallback', 'github/fallback')
+  renderLibraryState({
+    ...membershipReadyDashboardState(),
+    library: {
+      repositories: [inspected, fallback],
+      nativeLists: [],
+      nativeMemberships: [],
+      annotations: []
+    },
+    mutations: {batches: [], jobs: [], history: []}
+  })
+  const library = browserWindow.document.createElement('main') as unknown as HTMLElement
+  browserWindow.document.body.append(
+    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  mountDashboard(library)
+  const inspectedRow = library.querySelector<HTMLButtonElement>(
+    '[data-repository-node-id="R_inspected"]'
+  )
+  expect(inspectedRow).not.toBeNull()
+  if (inspectedRow === null) return
+  inspectedRow.dispatchEvent(
+    new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
+  )
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  const search = library.querySelector<HTMLInputElement>('#library-search')
+  expect(search).not.toBeNull()
+  if (search === null) return
+  search.value = 'github/fallback'
+  search.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+
+  const fallbackRow = library.querySelector<HTMLButtonElement>(
+    '[data-repository-node-id="R_fallback"]'
+  )
+  expect(library.querySelector('.repository-inspection-dialog')).toBeNull()
+  expect((browserWindow.document.activeElement as unknown) === fallbackRow).toBe(true)
+  library.remove()
+})
+
 function createDashboardWindow(): Window {
   const browserWindow = new Window({url: 'chrome-extension://fixture/dashboard/index.html'})
   Object.assign(globalThis, {
@@ -2036,6 +2498,14 @@ function createDashboardWindow(): Window {
   return browserWindow
 }
 
+async function openRepositoryDetails(library: HTMLElement, browserWindow: Window): Promise<void> {
+  const row = library.querySelector<HTMLButtonElement>('.repository-row')
+  expect(row).not.toBeNull()
+  if (row === null) return
+  row.dispatchEvent(new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event)
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+}
+
 function deferred(): {readonly promise: Promise<void>; readonly resolve: () => void} {
   let resolve: () => void = () => undefined
   const promise = new Promise<void>((next) => {
@@ -2044,13 +2514,15 @@ function deferred(): {readonly promise: Promise<void>; readonly resolve: () => v
   return {promise, resolve}
 }
 
-async function mountReadyDashboard(): Promise<HTMLElement> {
+async function mountReadyDashboard(state: AppState = readyDashboardState()): Promise<HTMLElement> {
   const browserWindow = createDashboardWindow()
   const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
-  renderLibraryState(readyDashboardState())
-  const root = browserWindow.document.createElement('main')
-  browserWindow.document.body.append(root)
-  mountDashboard(root as unknown as HTMLElement)
+  renderLibraryState(state)
+  const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+  browserWindow.document.body.append(
+    root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  mountDashboard(root)
   await browserWindow.happyDOM.whenAsyncComplete()
   return root as unknown as HTMLElement
 }
@@ -2161,6 +2633,25 @@ function submitNativeListRename(_browserWindow: Window, root: Element): void {
 async function nextTurn(browserWindow: Window): Promise<void> {
   await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
   await browserWindow.happyDOM.whenAsyncComplete()
+}
+
+function signedOutDashboardState(): AppState {
+  return {
+    ...readyDashboardState(),
+    phase: 'signed-out',
+    identity: null,
+    sync: null,
+    nativeListSync: null,
+    triageCounts: null,
+    library: null,
+    mutations: null
+  }
+}
+
+function visibleRepositoryIds(root: Element): string[] {
+  return [...root.querySelectorAll('.repository-row')].map(
+    (row) => row.getAttribute('data-repository-node-id') ?? ''
+  )
 }
 
 function navigationLabels(group: Element | null): string[] {

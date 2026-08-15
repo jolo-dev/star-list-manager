@@ -934,10 +934,7 @@ h1 {
 }
 
 .library-grid {
-  display: grid;
-  grid-template-columns: minmax(360px, 1fr) minmax(320px, 0.78fr);
-  align-items: start;
-  gap: 16px;
+  display: block;
   margin-top: 20px;
 }
 
@@ -1096,12 +1093,20 @@ h1 {
   border-color: var(--border-success);
 }
 
-.inspector {
-  position: sticky;
-  top: 22px;
-  max-height: calc(100vh - 44px);
+.repository-inspection-dialog {
+  width: min(880px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
   padding: 22px;
   overflow-y: auto;
+  box-shadow: 0 24px 60px rgb(15 44 61 / 28%);
+}
+
+.inspector-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .inspector-heading,
@@ -1652,27 +1657,14 @@ h1 {
     width: min(440px, 72vw);
   }
 
-  .library-grid {
-    grid-template-columns: minmax(320px, 1fr) minmax(300px, 0.8fr);
-  }
-
   .filter-panel {
     grid-template-columns: repeat(3, minmax(130px, 1fr));
   }
 }
 
 @media (max-width: 1000px) {
-  .library-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .results-panel,
-  .inspector {
+  .results-panel {
     max-height: none;
-  }
-
-  .inspector {
-    position: static;
   }
 }
 

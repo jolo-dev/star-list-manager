@@ -67,6 +67,7 @@ import {
   handleNativeListRename,
   nativeListRenameReadiness
 } from './background-runtime'
+import {releaseNativeListMembershipCapabilityProof} from './github/list-membership-release-evidence'
 import {MutationQueueRunner} from './mutations/runner'
 import {NativeListMembershipObservationService} from './sync/native-list-membership-observation'
 import {
@@ -84,18 +85,9 @@ import {
 const githubClientId = import.meta.env.EXTENSION_PUBLIC_GITHUB_CLIENT_ID
 const githubWriteClientId =
   import.meta.env.EXTENSION_PUBLIC_GITHUB_WRITE_CLIENT_ID
-const membershipWriteCapabilityProven =
-  nativeListMembershipControlsEnabled(
-    import.meta.env.EXTENSION_PUBLIC_GITHUB_LIST_MEMBERSHIP_WRITE_ENABLED === 'true'
-      ? {
-          schema: 'available',
-          oauthUserScope: 'verified',
-          accountOwnership: 'verified',
-          unchangedSetMutation: 'verified',
-          independentReadBack: 'verified'
-        }
-      : null
-  )
+const membershipWriteCapabilityProven = nativeListMembershipControlsEnabled(
+  releaseNativeListMembershipCapabilityProof()
+)
 const nativeListRenameCapabilityProven = nativeListRenameControlsEnabled(
   import.meta.env.EXTENSION_PUBLIC_GITHUB_LIST_RENAME_ENABLED === 'true'
     ? {
@@ -419,9 +411,9 @@ addRuntimeMessageListener(async (message) => {
         const active = await services.authSession.loadActive()
         if (!active) return failureResponse(authenticationRequired())
         const impact = await services.portability.applyImport(
-          active.githubUserId,
-          request.value.document,
-          request.value.replaceSettings
+        active.githubUserId,
+        request.value.document,
+        request.value.replaceSettings
         )
         await services.triage.refreshBadge(active.githubUserId)
         return successResponse(impact)

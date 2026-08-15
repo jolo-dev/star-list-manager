@@ -15,6 +15,19 @@ test('defines the Geist Mono library workspace theme', () => {
   expect(styles).toContain('font-family: "Geist Mono"')
 })
 
+test('uses a scrollable repository modal instead of a persistent inspector column', () => {
+  const libraryGrid = cssRulesFor(styles, /^\s*\.library-grid\s*$/m)
+  const repositoryDialog = cssRulesFor(styles, /^\s*\.repository-inspection-dialog\s*$/m)
+
+  expect(libraryGrid.some(({declarations}) => /grid-template-columns:/.test(declarations))).toBe(false)
+  expect(
+    repositoryDialog.some(({declarations}) =>
+      /max-height:\s*calc\(100dvh - 48px\)/.test(declarations) &&
+      /overflow-y:\s*auto/.test(declarations)
+    )
+  ).toBe(true)
+})
+
 test('defines readable Geist Mono type roles for prose, labels, data, and warnings', () => {
   const root = cssRulesFor(styles, /^\s*:root\s*$/m)[0]?.declarations ?? ''
   const prose = cssRulesFor(
