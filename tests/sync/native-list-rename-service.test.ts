@@ -5,7 +5,10 @@ import type {
   NativeListRecord,
   NativeMembershipRecord
 } from '../../src/domain/types'
-import type {ListRenameMutationRequest} from '../../src/github/list-rename-write-session'
+import {
+  ListRenameMutationFailure,
+  type ListRenameMutationRequest
+} from '../../src/github/list-rename-write-session'
 import type {NativeListCatalogPage} from '../../src/github/graphql-client'
 import {openLibraryDatabase} from '../../src/storage/database'
 import {
@@ -95,6 +98,176 @@ describe('native List rename reconciliation', () => {
     expect(await getAnnotation(database, githubUserId, annotation.repositoryNodeId)).toEqual(
       annotation
     )
+    database.close()
+  })
+
+  test('reconciles an ambiguous network mutation to the exact target found in a complete catalog', async () => {
+    const database = await databaseWithTarget('rename-ambiguous-network-confirmed')
+    await putNativeList(database, companion)
+    const writer = new RecordingWriter(
+      {listNodeId: 'UL_target', name: 'untrusted mutation name'},
+      ambiguousNetworkFailure()
+    )
+    const reader = new FixtureCatalogReader([
+      catalogPage(
+        [remoteList('UL_target', 'Tools', {description: 'Verified after ambiguous write'})],
+        true,
+        'page-2',
+        2
+      ),
+      catalogPage([remoteList('UL_companion', 'Archive')], false, null, 2)
+    ])
+    const service = createService(database, reader, writer)
+
+    const updated = await service.rename(renameRequest())
+
+    expect(writer.requests).toEqual([
+      {expectedGitHubUserId: githubUserId, listNodeId: 'UL_target', name: 'Tools'}
+    ])
+    expect(reader.cursors).toEqual([null, 'page-2'])
+    expect(updated).toEqual({
+      ...target,
+      name: 'Tools',
+      description: 'Verified after ambiguous write',
+      slug: 'tools',
+      createdAt: '2026-08-15T10:00:00.000Z',
+      updatedAt: '2026-08-15T11:00:00.000Z',
+      lastAddedAt: '2026-08-15T09:00:00.000Z',
+      reportedItemCount: 7,
+      lastObservedAt: timestamp
+    })
+    expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(updated)
+    expect(await getNativeList(database, githubUserId, 'UL_companion')).toEqual(companion)
+    database.close()
+  })
+
+  test('reconciles an ambiguous network mutation to divergent target metadata and requires a new save', async () => {
+    const database = await databaseWithTarget('rename-ambiguous-network-divergent')
+    await putNativeList(database, companion)
+    const membership = nativeMembership()
+    const annotation = annotationFixture()
+    await putNativeMembership(database, membership)
+    await putAnnotation(database, annotation)
+    const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'Tools'}, ambiguousNetworkFailure())
+    const service = createService(
+      database,
+      new FixtureCatalogReader([
+        catalogPage(
+          [
+            remoteList('UL_target', 'Concurrent', {description: 'Observed after ambiguous write'}),
+            remoteList('UL_companion', 'Archive')
+          ],
+          false,
+          null,
+          2
+        )
+      ]),
+      writer
+    )
+
+    const error = await expectFailure(service.rename(renameRequest()), 'read-back-name-mismatch')
+
+    expect(error.publicError.message).not.toContain('writer transport secret')
+    expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual({
+      ...target,
+      name: 'Concurrent',
+      description: 'Observed after ambiguous write',
+      slug: 'concurrent',
+      createdAt: '2026-08-15T10:00:00.000Z',
+      updatedAt: '2026-08-15T11:00:00.000Z',
+      lastAddedAt: '2026-08-15T09:00:00.000Z',
+      reportedItemCount: 7,
+      lastObservedAt: timestamp
+    })
+    expect(await getNativeList(database, githubUserId, 'UL_companion')).toEqual(companion)
+    expect(await listMembershipsForList(database, githubUserId, membership.listNodeId)).toEqual([
+      membership
+    ])
+    expect(await getAnnotation(database, githubUserId, annotation.repositoryNodeId)).toEqual(
+      annotation
+    )
+    database.close()
+  })
+
+  test('removes only an ambiguously renamed target absent from a complete catalog', async () => {
+    const database = await databaseWithTarget('rename-ambiguous-network-missing')
+    await putNativeList(database, companion)
+    const membership = nativeMembership()
+    const annotation = annotationFixture()
+    await putNativeMembership(database, membership)
+    await putAnnotation(database, annotation)
+    const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'Tools'}, ambiguousNetworkFailure())
+    const reader = new FixtureCatalogReader([catalogPage([remoteList('UL_companion', 'Archive')], false, null, 1)])
+    const service = createService(database, reader, writer)
+
+    const error = await expectFailure(service.rename(renameRequest()), 'read-back-target-missing')
+
+    expect(error.publicError.message).not.toContain('writer transport secret')
+    expect(reader.cursors).toEqual([null])
+    expect(await getNativeList(database, githubUserId, 'UL_target')).toBeNull()
+    expect(await getNativeList(database, githubUserId, 'UL_companion')).toEqual(companion)
+    expect(await listMembershipsForList(database, githubUserId, membership.listNodeId)).toEqual([
+      membership
+    ])
+    expect(await getAnnotation(database, githubUserId, annotation.repositoryNodeId)).toEqual(
+      annotation
+    )
+    database.close()
+  })
+
+  test('leaves local state unchanged and rethrows the sanitized ambiguity when catalog reconciliation fails', async () => {
+    const cases: ReadonlyArray<{readonly name: string; readonly reader: FixtureCatalogReader}> = [
+      {
+        name: 'reader error',
+        reader: new FixtureCatalogReader([], new Error('catalog transport secret'))
+      },
+      {
+        name: 'malformed catalog',
+        reader: new FixtureCatalogReader([{} as unknown as NativeListCatalogPage])
+      }
+    ]
+
+    for (const item of cases) {
+      const database = await databaseWithTarget(`rename-ambiguous-network-${item.name}`)
+      const originalFailure = ambiguousNetworkFailure()
+      const writer = new RecordingWriter({listNodeId: 'UL_target', name: 'Tools'}, originalFailure)
+      const service = createService(database, item.reader, writer)
+
+      let caught: unknown
+      try {
+        await service.rename(renameRequest())
+      } catch (error: unknown) {
+        caught = error
+      }
+
+      expect(caught).toBe(originalFailure)
+      expect(caught).toBeInstanceOf(ListRenameMutationFailure)
+      expect(originalFailure.reason).toBe('network-ambiguous')
+      expect(originalFailure.publicError.message).not.toContain('catalog transport secret')
+      expect(item.reader.cursors).toEqual([null])
+      expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
+      database.close()
+    }
+  })
+
+  test('does not reconcile or alter state after a non-ambiguous writer failure', async () => {
+    const database = await databaseWithTarget('rename-non-ambiguous-writer-failure')
+    const reader = new FixtureCatalogReader([catalogPage([remoteList('UL_target', 'Tools')], false, null, 1)])
+    const originalFailure = new ListRenameMutationFailure('permission', {
+      category: 'permission',
+      message: 'GitHub denied native List rename permission.',
+      retryable: false
+    })
+    const service = createService(
+      database,
+      reader,
+      new RecordingWriter({listNodeId: 'UL_target', name: 'Tools'}, originalFailure)
+    )
+
+    await expect(service.rename(renameRequest())).rejects.toBe(originalFailure)
+
+    expect(reader.cursors).toEqual([])
+    expect(await getNativeList(database, githubUserId, 'UL_target')).toEqual(target)
     database.close()
   })
 
@@ -598,14 +771,19 @@ function storageForDatabase(): NativeListRenameStorage {
 class RecordingWriter {
   readonly requests: ListRenameMutationRequest[] = []
   readonly #result: {readonly listNodeId: string; readonly name: string}
+  readonly #failure: ListRenameMutationFailure | null
 
-  constructor(result: {readonly listNodeId: string; readonly name: string}) {
+  constructor(
+    result: {readonly listNodeId: string; readonly name: string},
+    failure: ListRenameMutationFailure | null = null
+  ) {
     this.#result = result
+    this.#failure = failure
   }
 
   rename(request: ListRenameMutationRequest): Promise<{readonly listNodeId: string; readonly name: string}> {
     this.requests.push(request)
-    return Promise.resolve(this.#result)
+    return this.#failure ? Promise.reject(this.#failure) : Promise.resolve(this.#result)
   }
 }
 
@@ -630,6 +808,14 @@ class FixtureCatalogReader {
 
 function renameRequest(): ListRenameMutationRequest {
   return {expectedGitHubUserId: githubUserId, listNodeId: 'UL_target', name: ' Tools '}
+}
+
+function ambiguousNetworkFailure(): ListRenameMutationFailure {
+  return new ListRenameMutationFailure('network-ambiguous', {
+    category: 'network',
+    message: 'The native List rename may have been sent, but GitHub did not return a response.',
+    retryable: true
+  })
 }
 
 function catalogPage(

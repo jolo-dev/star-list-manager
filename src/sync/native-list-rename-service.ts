@@ -4,9 +4,10 @@ import {
   nativeListNamesEquivalent,
   validateNativeListRename
 } from '../domain/native-list-rename'
-import type {
-  ListRenameMutationRequest,
-  ListRenameWriteSession
+import {
+  ListRenameMutationFailure,
+  type ListRenameMutationRequest,
+  type ListRenameWriteSession
 } from '../github/list-rename-write-session'
 import type {NativeListCatalogPage} from '../github/graphql-client'
 import type {NativeListReader} from './native-list-sync'
@@ -157,9 +158,23 @@ export class NativeListRenameService {
       )
     }
 
-    await this.#writer.rename(canonicalRequest)
+    let ambiguousMutationFailure: ListRenameMutationFailure | null = null
+    try {
+      await this.#writer.rename(canonicalRequest)
+    } catch (error: unknown) {
+      if (!(error instanceof ListRenameMutationFailure) || error.reason !== 'network-ambiguous') {
+        throw error
+      }
+      ambiguousMutationFailure = error
+    }
 
-    const catalog = await this.#readCompleteCatalog()
+    let catalog: Map<NativeListNodeId, NativeListCatalogPage['lists'][number]>
+    try {
+      catalog = await this.#readCompleteCatalog()
+    } catch (error: unknown) {
+      if (ambiguousMutationFailure) throw ambiguousMutationFailure
+      throw error
+    }
     const verifiedTarget = catalog.get(canonicalRequest.listNodeId)
     if (!verifiedTarget) {
       await this.#storage.deleteNativeList(
