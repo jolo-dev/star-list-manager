@@ -1,7 +1,28 @@
 import {describe, expect, test} from 'bun:test'
-import {decodeDashboardRequest} from '../../src/shared/messages'
+import {decodeDashboardRequest, failureResponse} from '../../src/shared/messages'
 
 describe('dashboard message decoding', () => {
+  test('allows a sanitized failure to carry authoritative response data', () => {
+    expect(
+      failureResponse(
+        {
+          category: 'validation',
+          message: 'GitHub did not verify the requested native List name.',
+          retryable: true
+        },
+        {authoritative: true}
+      )
+    ).toEqual({
+      ok: false,
+      data: {authoritative: true},
+      error: {
+        category: 'validation',
+        message: 'GitHub did not verify the requested native List name.',
+        retryable: true
+      }
+    })
+  })
+
   test('accepts an exact typed annotation patch', () => {
     expect(
       decodeDashboardRequest({
@@ -187,5 +208,45 @@ describe('dashboard message decoding', () => {
         replaceSettings: 'yes'
       }).ok
     ).toBe(false)
+  })
+
+  test('accepts only an exact credential-free native List rename request', () => {
+    expect(
+      decodeDashboardRequest({
+        type: 'rename-native-list',
+        listNodeId: 'L_fixture',
+        name: '  Ｔools  '
+      })
+    ).toEqual({
+      ok: true,
+      value: {
+        type: 'rename-native-list',
+        listNodeId: 'L_fixture',
+        name: '  Ｔools  '
+      }
+    })
+
+    for (const value of [
+      {type: 'rename-native-list', listNodeId: '', name: 'Tools'},
+      {type: 'rename-native-list', listNodeId: '   ', name: 'Tools'},
+      {type: 'rename-native-list', listNodeId: 42, name: 'Tools'},
+      {type: 'rename-native-list', listNodeId: 'L_fixture', name: ''},
+      {type: 'rename-native-list', listNodeId: 'L_fixture', name: ' \t '},
+      {type: 'rename-native-list', listNodeId: 'L_fixture', name: ['Tools']},
+      {
+        type: 'rename-native-list',
+        listNodeId: 'L_fixture',
+        name: 'Tools',
+        operation: {kind: 'add', listNodeIds: ['L_other']}
+      },
+      {
+        type: 'rename-native-list',
+        listNodeId: 'L_fixture',
+        name: 'Tools',
+        accessToken: 'secret'
+      }
+    ]) {
+      expect(decodeDashboardRequest(value).ok).toBe(false)
+    }
   })
 })

@@ -344,6 +344,54 @@ h1 {
   font-size: 34px;
 }
 
+.native-list-header-title,
+.native-list-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.native-list-header-title h1 {
+  margin: 0;
+}
+
+.native-list-rename-editor {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) auto;
+  align-items: end;
+  min-width: 0;
+  gap: 8px;
+}
+
+.native-list-rename-editor label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  color: var(--ink-muted);
+  font-size: var(--type-label-size);
+  font-weight: 700;
+}
+
+.native-list-rename-editor input {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: var(--surface-strong);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+}
+
+.native-list-rename-editor .native-list-header-actions {
+  flex-wrap: nowrap;
+}
+
+.native-list-rename-editor .inline-error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .privacy-chip,
 .scope-pill,
 .remote-chip,
@@ -1752,6 +1800,19 @@ h1 {
     display: grid;
     grid-template-columns: 1fr;
     width: 100%;
+  }
+
+  .native-list-rename-editor {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .native-list-rename-editor .native-list-header-actions {
+    flex-wrap: wrap;
+  }
+
+  .native-list-rename-editor input {
+    font-size: 16px;
   }
 
   .search-field,

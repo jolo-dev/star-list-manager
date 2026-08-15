@@ -1,4 +1,5 @@
 import van from 'vanjs-core'
+import {validateNativeListRename} from '../domain/native-list-rename'
 import {sendRuntimeMessage} from '../platform/browser'
 import type {
   AppState,
@@ -44,6 +45,7 @@ const {
   button,
   details,
   div,
+  form,
   h1,
   h2,
   h3,
@@ -110,6 +112,13 @@ const membershipActivity = van.state<string | null>(null)
 const pendingMembershipPreview = van.state<StableMembershipPreviewResponse | null>(null)
 const confirmingMembership = van.state(false)
 const syncing = van.state(false)
+const editingNativeListId = van.state<string | null>(null)
+const nativeListRenameDraft = van.state('')
+const nativeListRenameError = van.state<string | null>(null)
+const savingNativeListRename = van.state(false)
+let nextNativeListRenameRequestToken = 0
+let activeNativeListRenameRequest: NativeListRenameRequest | null = null
+let nativeListRenameInvoker: NativeListRenameInvoker | null = null
 let unstarDialogInvoker: DialogInvoker | null = null
 let membershipDialogInvoker: DialogInvoker | null = null
 let repositoryDialogInvoker: DialogInvoker | null = null
@@ -127,6 +136,15 @@ export interface UnstarConfirmationTarget {
 interface DialogInvoker {
   readonly element: HTMLElement
   readonly id: string | null
+}
+
+interface NativeListRenameRequest {
+  readonly token: number
+  readonly accountId: string | null
+}
+
+interface NativeListRenameInvoker {
+  readonly listNodeId: string
 }
 
 function Dashboard() {
@@ -180,7 +198,7 @@ function NavItem(title: string, view: LibraryView, count: number | null) {
         ...(isActiveView(view) ? {'aria-current': 'page'} : {}),
         onclick: () => {
           if (enqueueingUnstars.val || confirmingMembership.val) return
-          activeView.val = view
+          setActiveView(view)
           selectedRepositoryNodeId.val = null
           inspectedRepositoryNodeId.val = null
           repositoryDialogInvoker = null
@@ -314,7 +332,7 @@ function LibraryHeader(
     {class: 'library-header'},
     div(
       p({class: 'eyebrow'}, viewEyebrow(activeView.val)),
-      h1(viewTitle(activeView.val)),
+      NativeListHeaderTitle(state),
       p(
         {class: 'result-count', 'aria-live': 'polite'},
         () =>
@@ -425,6 +443,253 @@ function LibraryHeader(
         : null
     )
   )
+}
+
+function NativeListHeaderTitle(state: AppState) {
+  const view = activeView.val
+  if (view.kind !== 'list' || state.nativeListRename?.readiness !== 'ready') {
+    return h1(viewTitle(view))
+  }
+  const nativeList = state.library?.nativeLists.find((list) => list.listNodeId === view.listNodeId)
+  if (!nativeList) return h1(viewTitle(view))
+  const editing = () => editingNativeListId.val === nativeList.listNodeId
+  return div(
+    {class: 'native-list-header-editor'},
+    div(
+      {class: 'native-list-header-title', hidden: editing},
+      h1(nativeList.name),
+      div(
+        {class: 'native-list-header-actions'},
+        button(
+          {
+            class: 'secondary-action',
+            type: 'button',
+            'data-native-list-rename-invoker': nativeList.listNodeId,
+            onclick: (event: MouseEvent) =>
+              beginNativeListRename(nativeList.listNodeId, nativeList.name, event.currentTarget as HTMLElement)
+          },
+          'Edit'
+        )
+      )
+    ),
+    NativeListRenameEditor(nativeList.listNodeId, editing)
+  )
+}
+
+function NativeListRenameEditor(listNodeId: string, editing: () => boolean) {
+  const inputId = `native-list-rename-${listNodeId}`
+  const errorId = `${inputId}-error`
+  const nameInput = input({
+    id: inputId,
+    type: 'text',
+    value: nativeListRenameDraft,
+    disabled: savingNativeListRename,
+    'aria-invalid': () => (nativeListRenameError.val === null ? 'false' : 'true'),
+    oninput: (event: Event) => {
+      nativeListRenameDraft.val = (event.currentTarget as HTMLInputElement).value
+      nativeListRenameError.val = null
+    }
+  })
+  return form(
+    {
+      class: 'native-list-rename-editor',
+      hidden: () => !editing(),
+      onsubmit: (event: SubmitEvent) => {
+        event.preventDefault()
+        void submitNativeListRename(listNodeId)
+      },
+      onkeydown: (event: KeyboardEvent) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          cancelNativeListRename()
+        }
+      }
+    },
+    label(
+      {for: inputId},
+      span('List name'),
+      nameInput
+    ),
+    div(
+      {class: 'native-list-header-actions'},
+      button(
+        {
+          class: 'primary-action',
+          type: 'submit',
+          disabled: savingNativeListRename
+        },
+        () => (savingNativeListRename.val ? 'Saving…' : 'Save')
+      ),
+      button(
+        {
+          class: 'secondary-action',
+          type: 'button',
+          disabled: savingNativeListRename,
+          onclick: cancelNativeListRename
+        },
+        'Cancel'
+      )
+    ),
+    () => {
+      const error = nativeListRenameError.val
+      if (error === null) {
+        nameInput.removeAttribute('aria-describedby')
+        return ''
+      }
+      nameInput.setAttribute('aria-describedby', errorId)
+      return p({class: 'inline-error', id: errorId, role: 'alert'}, error)
+    }
+  )
+}
+
+function beginNativeListRename(listNodeId: string, name: string, invoker: HTMLElement): void {
+  if (savingNativeListRename.val || activeNativeListRenameRequest !== null) return
+  nativeListRenameInvoker = {
+    listNodeId: invoker.dataset.nativeListRenameInvoker ?? listNodeId
+  }
+  editingNativeListId.val = listNodeId
+  nativeListRenameDraft.val = name
+  nativeListRenameError.val = null
+  window.setTimeout(() => {
+    const inputElement = document.getElementById(`native-list-rename-${listNodeId}`)
+    if (
+      inputElement instanceof HTMLElement &&
+      inputElement.isConnected &&
+      inputElement.closest('[hidden]') === null
+    ) {
+      inputElement.focus()
+    }
+  }, 0)
+}
+
+function cancelNativeListRename(): void {
+  if (savingNativeListRename.val || activeNativeListRenameRequest !== null) return
+  const invoker = nativeListRenameInvoker
+  resetNativeListRenameEditor()
+  restoreNativeListRenameInvoker(invoker)
+}
+
+async function submitNativeListRename(listNodeId: string): Promise<void> {
+  if (
+    savingNativeListRename.val ||
+    activeNativeListRenameRequest !== null ||
+    editingNativeListId.val !== listNodeId
+  ) {
+    return
+  }
+  const validation = validateNativeListRename(
+    nativeListRenameDraft.val,
+    listNodeId,
+    appState.val.library?.nativeLists ?? []
+  )
+  if (!validation.ok) {
+    nativeListRenameError.val = validation.error.message
+    return
+  }
+
+  const request: NativeListRenameRequest = {
+    token: ++nextNativeListRenameRequestToken,
+    accountId: appState.val.identity?.githubUserId ?? null
+  }
+  activeNativeListRenameRequest = request
+  savingNativeListRename.val = true
+  nativeListRenameError.val = null
+  try {
+    const response = (await sendRuntimeMessage({
+      type: 'rename-native-list',
+      listNodeId,
+      name: validation.value
+    })) as RuntimeResponse<AppState>
+    if (!response.ok) {
+      if (
+        response.data !== undefined &&
+        isCurrentNativeListRenameAccount(request) &&
+        response.data.identity?.githubUserId === request.accountId
+      ) {
+        const targetExists = response.data.library?.nativeLists.some(
+          (list) => list.listNodeId === listNodeId
+        ) ?? false
+        if (
+          !targetExists &&
+          activeView.val.kind === 'list' &&
+          activeView.val.listNodeId === listNodeId
+        ) {
+          setActiveView({kind: 'inbox'})
+        }
+        applyState({...response.data, error: response.error})
+        if (targetExists && isCurrentNativeListRenameEditor(request, listNodeId)) {
+          nativeListRenameError.val = response.error.message
+        }
+        return
+      }
+      if (isCurrentNativeListRenameEditor(request, listNodeId)) {
+        nativeListRenameError.val = response.error.message
+      }
+      return
+    }
+    if (
+      !isCurrentNativeListRenameAccount(request) ||
+      response.data.identity?.githubUserId !== request.accountId
+    ) {
+      return
+    }
+    applyState(response.data)
+    if (activeView.val.kind === 'list' && activeView.val.listNodeId === listNodeId) {
+      resetNativeListRenameEditor()
+    }
+  } catch {
+    if (isCurrentNativeListRenameEditor(request, listNodeId)) {
+      nativeListRenameError.val = 'Unable to rename the GitHub List. Please try again.'
+    }
+  } finally {
+    releaseNativeListRenameRequest(request)
+  }
+}
+
+function isCurrentNativeListRenameAccount(request: NativeListRenameRequest): boolean {
+  return (
+    activeNativeListRenameRequest?.token === request.token &&
+    appState.val.identity?.githubUserId === request.accountId
+  )
+}
+
+function isCurrentNativeListRenameEditor(
+  request: NativeListRenameRequest,
+  listNodeId: string
+): boolean {
+  return (
+    isCurrentNativeListRenameAccount(request) &&
+    editingNativeListId.val === listNodeId
+  )
+}
+
+function releaseNativeListRenameRequest(request: NativeListRenameRequest): void {
+  if (activeNativeListRenameRequest?.token !== request.token) return
+  activeNativeListRenameRequest = null
+  savingNativeListRename.val = false
+}
+
+function resetNativeListRenameEditor(): void {
+  editingNativeListId.val = null
+  nativeListRenameDraft.val = ''
+  nativeListRenameError.val = null
+  nativeListRenameInvoker = null
+}
+
+function restoreNativeListRenameInvoker(invoker: NativeListRenameInvoker | null): void {
+  if (invoker === null) return
+  window.setTimeout(() => {
+    const editButton = [...document.querySelectorAll<HTMLButtonElement>(
+      '[data-native-list-rename-invoker]'
+    )].find((element) => element.dataset.nativeListRenameInvoker === invoker.listNodeId) ?? null
+    if (
+      editButton !== null &&
+      editButton.isConnected &&
+      editButton.closest('[hidden]') === null
+    ) {
+      editButton.focus()
+    }
+  }, 0)
 }
 
 function SelectionActions(
@@ -1591,7 +1856,7 @@ function AdvancedFilters() {
         ],
         (value) => {
           starState.val = value as StarFilter
-          if (value !== 'starred') activeView.val = {kind: 'all'}
+          if (value !== 'starred') setActiveView({kind: 'all'})
         }
       ),
       FilterSelect(
@@ -2182,7 +2447,7 @@ function WriteReadinessNotice(state: AppState) {
         class: 'secondary-action',
         type: 'button',
         onclick: () => {
-          activeView.val = {kind: 'settings'}
+          setActiveView({kind: 'settings'})
           void sendAction({type: 'show-write-auth-preview'})
         }
       },
@@ -2245,6 +2510,7 @@ function applyState(state: AppState): void {
     selectedNativeListIds.val = new Set()
     membershipActivity.val = null
     resetMembershipPreview()
+    resetNativeListRenameEditor()
     dashboardAccountId = nextAccountId
   }
   appState.val = state
@@ -2298,7 +2564,7 @@ export function shouldStartAutoSync(
 async function confirmDisconnect(): Promise<void> {
   if (window.confirm('Disconnect GitHub? Local annotations will be retained.')) {
     await sendAction({type: 'disconnect'})
-    activeView.val = {kind: 'unlist'}
+    setActiveView({kind: 'unlist'})
   }
 }
 
@@ -2386,11 +2652,16 @@ async function confirmCompleteRemoval(): Promise<void> {
     type: 'clear-all-data'
   })) as RuntimeResponse<AppState>
   if (response.ok) {
-    activeView.val = {kind: 'unlist'}
+    setActiveView({kind: 'unlist'})
     applyState(response.data)
   } else {
     applyState({...appState.val, error: response.error})
   }
+}
+
+function setActiveView(view: LibraryView): void {
+  if (JSON.stringify(activeView.val) !== JSON.stringify(view)) resetNativeListRenameEditor()
+  activeView.val = view
 }
 
 function isActiveView(view: LibraryView): boolean {
@@ -2596,8 +2867,9 @@ export function renderSettingsState(state: AppState): HTMLElement {
 }
 
 export function renderLibraryState(state: AppState): HTMLElement {
+  resetNativeListRenameEditor()
   appState.val = state
-  activeView.val = {kind: 'unlist'}
+  setActiveView({kind: 'unlist'})
   selectedRepositoryNodeId.val = null
   inspectedRepositoryNodeId.val = null
   repositoryDialogInvoker = null
@@ -2606,6 +2878,8 @@ export function renderLibraryState(state: AppState): HTMLElement {
   selectedNativeListIds.val = new Set()
   membershipActivity.val = null
   resetMembershipPreview()
+  appState.val = state
+  dashboardAccountId = state.identity?.githubUserId ?? null
   return ReadyState(state) as HTMLElement
 }
 

@@ -97,6 +97,20 @@ test('keeps mobile dashboard inputs at a readable 16px', () => {
   expect(inputs.some(({declarations}) => /font-size:\s*16px/.test(declarations))).toBe(true)
 })
 
+test('lays out an accessible responsive native List rename header editor', () => {
+  const editor = cssRulesFor(styles, /^\s*\.native-list-rename-editor\s*$/m)
+  const actions = cssRulesFor(styles, /^\s*\.native-list-header-actions\s*$/m)
+  const mobileStyles = mobileDashboardStyles()
+  const mobileEditor = mobileStyles
+    ? cssRulesFor(mobileStyles, /\.native-list-rename-editor\b/)
+    : []
+
+  expect(actions.some(({declarations}) => /display:\s*flex/.test(declarations))).toBe(true)
+  expect(editor.some(({declarations}) => /display:\s*(?:grid|flex)/.test(declarations))).toBe(true)
+  expect(editor.some(({declarations}) => /min-width:\s*0/.test(declarations))).toBe(true)
+  expect(mobileEditor.some(({declarations}) => /grid-template-columns:\s*1fr/.test(declarations))).toBe(true)
+})
+
 test('keeps triage state visibly rendered on mobile', () => {
   const mobileStyles = mobileDashboardStyles()
 

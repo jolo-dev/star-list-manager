@@ -1063,6 +1063,427 @@ test('mounts existing native List controls separately from local tags', async ()
   expect(library.textContent).not.toContain('Delete native List')
 })
 
+test('shows a native List header Edit control only when rename readiness is ready', async () => {
+  const {root, cleanup} = await mountNativeListRenameDashboard(renameReadyDashboardState())
+  try {
+    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Current List')
+    expect(renameEditButton(root)).not.toBeNull()
+
+    const {root: unavailable, cleanup: unavailableCleanup} = await mountNativeListRenameDashboard(
+      readyDashboardState()
+    )
+    try {
+      expect(renameEditButton(unavailable)).toBeNull()
+    } finally {
+      unavailableCleanup()
+    }
+  } finally {
+    cleanup()
+  }
+})
+
+test('opens a focused, labelled native List header editor and Cancel or Escape sends no message', async () => {
+  let messages = 0
+  const {browserWindow, root, cleanup} = await mountNativeListRenameDashboard(
+    renameReadyDashboardState(),
+    async () => {
+      messages += 1
+      throw new Error('No runtime message was expected.')
+    }
+  )
+  try {
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    const editor = nativeListHeader(root)?.querySelector('form.native-list-rename-editor') ?? null
+    const name = editor?.querySelector<HTMLInputElement>('input') ?? null
+    expect(editor).not.toBeNull()
+    expect(name).not.toBeNull()
+    if (name === null) throw new Error('The native List editor must contain its name field.')
+    expect(name.labels?.[0]?.textContent).toBe('List name')
+    expect(name.value).toBe('Current List')
+    expect(name.getAttribute('aria-invalid')).toBe('false')
+    expect(name.hasAttribute('aria-describedby')).toBe(false)
+    expect((browserWindow.document.activeElement as unknown) === name).toBe(true)
+    expect(editor?.querySelector('.primary-action')?.textContent).toBe('Save')
+    expect(editor?.querySelector('.secondary-action')?.textContent).toBe('Cancel')
+
+    editor?.querySelector<HTMLButtonElement>('.secondary-action')?.click()
+    await nextTurn(browserWindow)
+    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Current List')
+    expect((browserWindow.document.activeElement as unknown) === renameEditButton(root)).toBe(true)
+    expect(messages).toBe(0)
+
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    const reopened = nativeListHeader(root)?.querySelector<HTMLInputElement>('input') ?? null
+    expect(reopened).not.toBeNull()
+    if (reopened === null) throw new Error('The native List editor must reopen before Escape can cancel it.')
+    reopened.dispatchEvent(
+      new browserWindow.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}) as unknown as Event
+    )
+    await nextTurn(browserWindow)
+    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Current List')
+    expect((browserWindow.document.activeElement as unknown) === renameEditButton(root)).toBe(true)
+    expect(messages).toBe(0)
+  } finally {
+    cleanup()
+  }
+})
+
+test('keeps native List rename dispatch locked while a pending request survives navigation', async () => {
+  const firstRename = deferred()
+  const messages: Array<{readonly type: string; readonly listNodeId?: string; readonly name?: string}> = []
+  const state = renameReadyDashboardState()
+  const verified = {
+    ...state,
+    library: {
+      ...state.library!,
+      nativeLists: [nativeList('L_current', 'Renamed Current'), nativeList('L_other', 'Other List')]
+    }
+  }
+  const {browserWindow, root, cleanup} = await mountNativeListRenameDashboard(state, async (message) => {
+    const rename = message as {readonly type: string; readonly listNodeId?: string}
+    messages.push(rename)
+    if (rename.type === 'rename-native-list' && rename.listNodeId === 'L_current') {
+      await firstRename.promise
+      return {ok: true, data: verified}
+    }
+    if (rename.type === 'rename-native-list' && rename.listNodeId === 'L_other') {
+      return {ok: true, data: verified}
+    }
+    throw new Error(`Unexpected runtime message: ${rename.type}`)
+  })
+  try {
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    const currentName = nativeListHeader(root)?.querySelector<HTMLInputElement>('input') ?? null
+    expect(currentName).not.toBeNull()
+    if (currentName === null) throw new Error('The current List editor must open.')
+    currentName.value = 'Renamed Current'
+    currentName.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    submitNativeListRename(browserWindow, root)
+    expect(messages).toEqual([
+      {type: 'rename-native-list', listNodeId: 'L_current', name: 'Renamed Current'}
+    ])
+
+    nativeListNavigationButton(root, 'Other List')?.click()
+    await nextTurn(browserWindow)
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    submitNativeListRename(browserWindow, root)
+    expect(messages).toEqual([
+      {type: 'rename-native-list', listNodeId: 'L_current', name: 'Renamed Current'}
+    ])
+
+    firstRename.resolve()
+    await nextTurn(browserWindow)
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    submitNativeListRename(browserWindow, root)
+    await nextTurn(browserWindow)
+    expect(messages).toEqual([
+      {type: 'rename-native-list', listNodeId: 'L_current', name: 'Renamed Current'},
+      {type: 'rename-native-list', listNodeId: 'L_other', name: 'Other List'}
+    ])
+  } finally {
+    firstRename.resolve()
+    cleanup()
+  }
+})
+
+test('does not apply a stale native List rename response after the active account changes', async () => {
+  const renameResponse = deferred()
+  let staleResponseDelivered = false
+  const accountA = renameReadyDashboardState()
+  const staleAccountAResponse = {
+    ...accountA,
+    library: {
+      ...accountA.library!,
+      nativeLists: [nativeList('L_current', 'Stale Account A Name'), nativeList('L_other', 'Other List')]
+    }
+  }
+  const accountB: AppState = {
+    ...renameReadyDashboardState(),
+    identity: {
+      githubUserId: '84',
+      userNodeId: 'U_84',
+      login: 'account-84',
+      avatarUrl: 'https://avatars.githubusercontent.com/u/84'
+    },
+    library: {
+      ...renameReadyDashboardState().library!,
+      nativeLists: [nativeList('L_current', 'Account B List'), nativeList('L_other', 'Account B Other')]
+    }
+  }
+  const {browserWindow, root, cleanup} = await mountNativeListRenameDashboard(accountA, async (message) => {
+    const runtimeMessage = message as {readonly type: string}
+    if (runtimeMessage.type === 'rename-native-list') {
+      await renameResponse.promise
+      staleResponseDelivered = true
+      return {ok: true, data: staleAccountAResponse}
+    }
+    if (runtimeMessage.type === 'start-sync') return {ok: true, data: accountB}
+    throw new Error(`Unexpected runtime message: ${runtimeMessage.type}`)
+  })
+  try {
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    submitNativeListRename(browserWindow, root)
+    nativeListHeader(root)?.querySelector<HTMLButtonElement>('.refresh-button')?.click()
+    await nextTurn(browserWindow)
+    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Account B List')
+
+    renameResponse.resolve()
+    await nextTurn(browserWindow)
+    expect(staleResponseDelivered).toBe(true)
+    await nextTurn(browserWindow)
+    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Account B List')
+  } finally {
+    renameResponse.resolve()
+    cleanup()
+  }
+})
+
+test('keeps invalid native List header edits inline without a runtime message', async () => {
+  let messages = 0
+  const {browserWindow, root, cleanup} = await mountNativeListRenameDashboard(
+    renameReadyDashboardState(),
+    async () => {
+      messages += 1
+      throw new Error('No runtime message was expected.')
+    }
+  )
+  try {
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    const name = nativeListHeader(root)?.querySelector<HTMLInputElement>('input') ?? null
+    expect(name).not.toBeNull()
+    if (name === null) throw new Error('The native List editor must contain its name field.')
+    name.value = '   '
+    name.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    submitNativeListRename(browserWindow, root)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(name.value).toBe('   ')
+    expect(name.getAttribute('aria-invalid')).toBe('true')
+    expect(name.getAttribute('aria-describedby')).toBeTruthy()
+    expect(nativeListHeader(root)?.querySelector('[role="alert"]')?.textContent).toBe(
+      'A native List name is required.'
+    )
+    expect(messages).toBe(0)
+
+    name.value = 'ｏｔｈｅｒ list'
+    name.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    submitNativeListRename(browserWindow, root)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(nativeListHeader(root)?.querySelector('[role="alert"]')?.textContent).toBe(
+      'A native List with this name already exists.'
+    )
+    expect(messages).toBe(0)
+  } finally {
+    cleanup()
+  }
+})
+
+test('sends one valid native List header rename and renders only verified returned state', async () => {
+  const pending = deferred()
+  const messages: unknown[] = []
+  const state = renameReadyDashboardState()
+  const verified = {
+    ...state,
+    library: {
+      ...state.library!,
+      nativeLists: [nativeList('L_current', 'Verified Name'), nativeList('L_other', 'Other List')]
+    }
+  }
+  const {browserWindow, root, cleanup} = await mountNativeListRenameDashboard(state, async (message) => {
+    messages.push(message)
+    await pending.promise
+    return {ok: true, data: verified}
+  })
+  try {
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    const name = nativeListHeader(root)?.querySelector<HTMLInputElement>('input') ?? null
+    expect(name).not.toBeNull()
+    if (name === null) throw new Error('The native List editor must contain its name field.')
+    name.value = '  Verified Name  '
+    name.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    submitNativeListRename(browserWindow, root)
+    submitNativeListRename(browserWindow, root)
+    expect(messages).toEqual([{type: 'rename-native-list', listNodeId: 'L_current', name: 'Verified Name'}])
+    expect(nativeListHeader(root)?.textContent).toContain('Current List')
+    pending.resolve()
+    await nextTurn(browserWindow)
+    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Verified Name')
+    expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+      'Unlist',
+      'Other List',
+      'Verified Name'
+    ])
+  } finally {
+    pending.resolve()
+    cleanup()
+  }
+})
+
+test('shows a fixed safe message when native List rename dispatch throws', async () => {
+  const {browserWindow, root, cleanup} = await mountNativeListRenameDashboard(
+    renameReadyDashboardState(),
+    async () => {
+      throw new Error('Unexpected remote failure: ghp_exampleSecretValue')
+    }
+  )
+  try {
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    const name = nativeListHeader(root)?.querySelector<HTMLInputElement>('input') ?? null
+    expect(name).not.toBeNull()
+    if (name === null) throw new Error('The native List editor must contain its name field.')
+    name.value = 'Unverified Name'
+    name.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    submitNativeListRename(browserWindow, root)
+    await nextTurn(browserWindow)
+
+    const error = nativeListHeader(root)?.querySelector('[role="alert"]')?.textContent ?? ''
+    expect(name.value).toBe('Unverified Name')
+    expect(error).toBe('Unable to rename the GitHub List. Please try again.')
+    expect(error).not.toContain('ghp_exampleSecretValue')
+    expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+      'Unlist',
+      'Current List',
+      'Other List'
+    ])
+  } finally {
+    cleanup()
+  }
+})
+
+test('preserves native List header editor and prior rendered name after a runtime failure', async () => {
+  const {browserWindow, root, cleanup} = await mountNativeListRenameDashboard(
+    renameReadyDashboardState(),
+    async () => ({
+      ok: false as const,
+      error: {
+        category: 'network',
+        message: 'GitHub could not verify the renamed List. Refresh before trying again.',
+        retryable: false
+      }
+    })
+  )
+  try {
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    const name = nativeListHeader(root)?.querySelector<HTMLInputElement>('input') ?? null
+    expect(name).not.toBeNull()
+    if (name === null) throw new Error('The native List editor must contain its name field.')
+    name.value = 'Unverified Name'
+    name.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    submitNativeListRename(browserWindow, root)
+    await nextTurn(browserWindow)
+    expect(name.value).toBe('Unverified Name')
+    expect(nativeListHeader(root)?.querySelector('[role="alert"]')?.textContent).toBe(
+      'GitHub could not verify the renamed List. Refresh before trying again.'
+    )
+    expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+      'Unlist',
+      'Current List',
+      'Other List'
+    ])
+  } finally {
+    cleanup()
+  }
+})
+
+test('applies divergent native List state while retaining the sanitized rename result inline', async () => {
+  const state = renameReadyDashboardState()
+  const observed = {
+    ...state,
+    library: {
+      ...state.library!,
+      nativeLists: [nativeList('L_current', 'Observed List'), nativeList('L_other', 'Other List')]
+    }
+  }
+  const {browserWindow, root, cleanup} = await mountNativeListRenameDashboard(
+    state,
+    async () => ({
+      ok: false as const,
+      data: observed,
+      error: {
+        category: 'validation',
+        message: 'GitHub did not verify the requested native List name.',
+        retryable: true
+      }
+    })
+  )
+  try {
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    const name = nativeListHeader(root)?.querySelector<HTMLInputElement>('input') ?? null
+    expect(name).not.toBeNull()
+    if (name === null) throw new Error('The native List editor must contain its name field.')
+    name.value = 'Desired List'
+    name.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    submitNativeListRename(browserWindow, root)
+    await nextTurn(browserWindow)
+
+    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Observed List')
+    expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+      'Unlist',
+      'Observed List',
+      'Other List'
+    ])
+    const retainedEditor = nativeListHeader(root)?.querySelector<HTMLInputElement>('input') ?? null
+    expect(retainedEditor?.value).toBe('Desired List')
+    expect(nativeListHeader(root)?.querySelector('[role="alert"]')?.textContent).toBe(
+      'GitHub did not verify the requested native List name.'
+    )
+    expect(nativeListHeader(root)?.querySelector('.primary-action')?.textContent).toBe('Save')
+  } finally {
+    cleanup()
+  }
+})
+
+test('removes a missing native List editor and shows its sanitized rename result', async () => {
+  const state = renameReadyDashboardState()
+  const observed = {
+    ...state,
+    library: {
+      ...state.library!,
+      nativeLists: [nativeList('L_other', 'Other List')]
+    }
+  }
+  const {browserWindow, root, cleanup} = await mountNativeListRenameDashboard(
+    state,
+    async () => ({
+      ok: false as const,
+      data: observed,
+      error: {
+        category: 'validation',
+        message: 'GitHub no longer reports the renamed native List.',
+        retryable: true
+      }
+    })
+  )
+  try {
+    renameEditButton(root)?.click()
+    await nextTurn(browserWindow)
+    submitNativeListRename(browserWindow, root)
+    await nextTurn(browserWindow)
+
+    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Inbox')
+    expect(nativeListHeader(root)?.querySelector('form.native-list-rename-editor')).toBeNull()
+    expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+      'Unlist',
+      'Other List'
+    ])
+    expect(root.querySelector('.status-banner.is-error')?.textContent).toBe(
+      'GitHub no longer reports the renamed native List.'
+    )
+  } finally {
+    cleanup()
+  }
+})
+
 test('organizes inspector facts, local fields, and GitHub changes into labelled sections', async () => {
   const library = await mountReadyDashboard(membershipReadyDashboardState())
   const browserWindow = window as unknown as Window
@@ -2144,6 +2565,74 @@ function membershipReadyDashboardState(): AppState {
       error: null
     }
   }
+}
+
+function renameReadyDashboardState(): AppState {
+  return {
+    ...readyDashboardState(),
+    nativeListRename: {readiness: 'ready'},
+    library: {
+      ...readyDashboardState().library!,
+      nativeLists: [nativeList('L_current', 'Current List'), nativeList('L_other', 'Other List')]
+    }
+  }
+}
+
+async function mountNativeListRenameDashboard(
+  state: AppState,
+  sendMessage: (message: unknown) => Promise<unknown> = async () => {
+    throw new Error('Unexpected runtime message.')
+  }
+): Promise<{readonly browserWindow: Window; readonly root: HTMLElement; readonly cleanup: () => void}> {
+  const browserWindow = createDashboardWindow()
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage}}})
+  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
+  renderLibraryState(state)
+  const root = browserWindow.document.createElement('main')
+  browserWindow.document.body.append(root)
+  mountDashboard(root as unknown as HTMLElement)
+  const list = [...root.querySelectorAll('.nav-item')].find(
+    (item) => item.textContent?.includes('Current List')
+  ) as unknown as HTMLButtonElement | undefined
+  list?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  return {
+    browserWindow,
+    root: root as unknown as HTMLElement,
+    cleanup: () => {
+      root.remove()
+      if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+      else Object.assign(globalThis, {chrome: previousChrome})
+    }
+  }
+}
+
+function nativeListHeader(root: Element): HTMLElement | null {
+  return root.querySelector<HTMLElement>('.library-header')
+}
+
+function renameEditButton(root: Element): HTMLButtonElement | null {
+  return nativeListHeader(root)?.querySelector<HTMLButtonElement>('.native-list-header-actions button') ?? null
+}
+
+function nativeListNavigationButton(root: Element, name: string): HTMLButtonElement | null {
+  return (
+    [...root.querySelectorAll<HTMLButtonElement>('nav.sidebar .nav-item')].find(
+      (button) => button.textContent?.includes(name)
+    ) ?? null
+  )
+}
+
+function submitNativeListRename(_browserWindow: Window, root: Element): void {
+  nativeListHeader(root)?.querySelector<HTMLButtonElement>(
+    'form.native-list-rename-editor .primary-action'
+  )?.click()
+}
+
+async function nextTurn(browserWindow: Window): Promise<void> {
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+  await browserWindow.happyDOM.whenAsyncComplete()
 }
 
 function signedOutDashboardState(): AppState {

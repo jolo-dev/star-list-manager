@@ -48,6 +48,15 @@ export interface NativeListMembershipUiState {
   readonly readiness: NativeListMembershipReadiness
 }
 
+export type NativeListRenameReadiness =
+  | 'ready'
+  | 'capability-unproven'
+  | 'write-authorization-required'
+
+export interface NativeListRenameUiState {
+  readonly readiness: NativeListRenameReadiness
+}
+
 export type MembershipOperationSelection =
   | {readonly kind: 'add'; readonly listNodeIds: readonly string[]}
   | {readonly kind: 'remove'; readonly listNodeIds: readonly string[]}
@@ -124,6 +133,7 @@ export interface AppState {
   readonly authorization: AuthorizationPrompt | null
   readonly writeAuthorization: WriteAuthorizationState
   readonly nativeListMembership?: NativeListMembershipUiState
+  readonly nativeListRename?: NativeListRenameUiState
   readonly sync: SyncStateRecord | null
   readonly nativeListSync: SyncStateRecord | null
   readonly triageCounts: TriageCounts | null
@@ -173,6 +183,11 @@ export type DashboardRequest =
       readonly type: 'confirm-native-list-membership-preview'
       readonly previewId: string
     }
+  | {
+      readonly type: 'rename-native-list'
+      readonly listNodeId: string
+      readonly name: string
+    }
   | {readonly type: 'cancel-mutation-job'; readonly jobId: string}
   | {
       readonly type: 'update-annotation'
@@ -196,7 +211,7 @@ export type RuntimeMessage = DashboardRequest
 
 export type RuntimeResponse<T = unknown> =
   | {readonly ok: true; readonly data: T}
-  | {readonly ok: false; readonly error: AppError}
+  | {readonly ok: false; readonly error: AppError; readonly data?: T}
 
 export function decodeDashboardRequest(
   value: unknown
@@ -259,6 +274,16 @@ export function decodeDashboardRequest(
           )
         : invalidRequest()
     }
+    case 'rename-native-list':
+      return isNonBlankString(value.listNodeId) &&
+        isNonBlankString(value.name) &&
+        hasOnlyKeys(value, ['type', 'listNodeId', 'name'])
+        ? success({
+            type: value.type,
+            listNodeId: value.listNodeId,
+            name: value.name
+          })
+        : invalidRequest()
     case 'cancel-mutation-job':
       return typeof value.jobId === 'string' &&
         value.jobId.length > 0 &&
@@ -293,8 +318,8 @@ export function successResponse<T>(data: T): RuntimeResponse<T> {
   return {ok: true, data}
 }
 
-export function failureResponse(error: AppError): RuntimeResponse<never> {
-  return {ok: false, error}
+export function failureResponse<T = never>(error: AppError, data?: T): RuntimeResponse<T> {
+  return data === undefined ? {ok: false, error} : {ok: false, error, data}
 }
 
 function invalidRequest(): Result<never, AppError> {
@@ -395,6 +420,10 @@ function isUniqueNonEmptyStringArray(value: unknown): value is readonly string[]
     value.every((item) => typeof item === 'string' && item.length > 0) &&
     new Set(value).size === value.length
   )
+}
+
+function isNonBlankString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
 }
 
 const triageStates: readonly TriageState[] = [

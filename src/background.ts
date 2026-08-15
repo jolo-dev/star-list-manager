@@ -29,11 +29,14 @@ import {StarSyncService} from './sync/star-sync'
 import {NativeListSyncService} from './sync/native-list-sync'
 import {
   clearAllLibraryData,
+  deleteNativeList,
+  getNativeList,
   getSyncState,
   listAnnotations,
   listNativeLists,
   listNativeMemberships,
-  listRepositories
+  listRepositories,
+  putNativeList
 } from './storage/library'
 import {
   cancelQueuedMutationJob,
@@ -56,7 +59,14 @@ import {DataPortabilityService} from './import/service'
 import {StarringWriteSession} from './github/starring-write-session'
 import {SafeUnstarService} from './github/safe-unstar-service'
 import {ListMembershipWriteSession} from './github/list-membership-write-session'
+import {ListRenameWriteSession} from './github/list-rename-write-session'
 import {nativeListMembershipControlsEnabled} from './github/list-membership-capability'
+import {nativeListRenameControlsEnabled} from './github/list-rename-capability'
+import {NativeListRenameService} from './sync/native-list-rename-service'
+import {
+  handleNativeListRename,
+  nativeListRenameReadiness
+} from './background-runtime'
 import {releaseNativeListMembershipCapabilityProof} from './github/list-membership-release-evidence'
 import {MutationQueueRunner} from './mutations/runner'
 import {NativeListMembershipObservationService} from './sync/native-list-membership-observation'
@@ -77,6 +87,19 @@ const githubWriteClientId =
   import.meta.env.EXTENSION_PUBLIC_GITHUB_WRITE_CLIENT_ID
 const membershipWriteCapabilityProven = nativeListMembershipControlsEnabled(
   releaseNativeListMembershipCapabilityProof()
+)
+const nativeListRenameCapabilityProven = nativeListRenameControlsEnabled(
+  import.meta.env.EXTENSION_PUBLIC_GITHUB_LIST_RENAME_ENABLED === 'true'
+    ? {
+        schema: 'available',
+        oauthUserScope: 'verified',
+        accountOwnership: 'verified',
+        temporaryRenameMutation: 'verified',
+        restorationMutation: 'verified',
+        temporaryCatalogReadBack: 'verified',
+        restorationCatalogReadBack: 'verified'
+      }
+    : null
 )
 const runtimeServices = createRuntimeServices()
 const membershipPreviews = new Map<string, StoredMembershipPreview>()
@@ -335,6 +358,11 @@ addRuntimeMessageListener(async (message) => {
         wakeMutationQueueNonBlocking(services)
         return successResponse(await getDashboardState(services))
       }
+      case 'rename-native-list':
+        return handleNativeListRename(services, request.value, {
+          capabilityProven: nativeListRenameCapabilityProven,
+          getDashboardState: () => getDashboardState(services)
+        })
       case 'cancel-mutation-job': {
         const active = await services.authSession.loadActive()
         if (!active || active.identity.githubUserId !== active.githubUserId) {
@@ -425,6 +453,7 @@ interface RuntimeServices {
   readonly portability: DataPortabilityService
   readonly mutationQueue: MutationQueueRunner
   readonly membershipObserver: NativeListMembershipObservationService
+  readonly nativeListRename: NativeListRenameService
 }
 
 async function createRuntimeServices(): Promise<RuntimeServices> {
@@ -453,6 +482,17 @@ async function createRuntimeServices(): Promise<RuntimeServices> {
     starObserver: restClient
   })
   const graphqlClient = new GitHubGraphqlClient(authSession)
+  const listRenameWriter = new ListRenameWriteSession({
+    authStore: store,
+    writeStore
+  })
+  const nativeListRename = new NativeListRenameService({
+    database,
+    storage: {getNativeList, listNativeLists, putNativeList, deleteNativeList},
+    owner: store,
+    writer: listRenameWriter,
+    reader: graphqlClient
+  })
   const membershipWriter = new ListMembershipWriteSession({
     authStore: store,
     writeStore
@@ -496,7 +536,8 @@ async function createRuntimeServices(): Promise<RuntimeServices> {
     triage,
     portability,
     mutationQueue,
-    membershipObserver
+    membershipObserver,
+    nativeListRename
   }
 }
 
@@ -555,12 +596,19 @@ async function getDashboardState(services: RuntimeServices): Promise<AppState> {
         ? 'ready' as const
         : 'write-authorization-required' as const
   }
+  const nativeListRename = {
+    readiness: nativeListRenameReadiness(
+      nativeListRenameCapabilityProven,
+      writeAuthorization
+    )
+  }
   const githubUserId = authState.identity?.githubUserId
   if (!githubUserId) {
     return {
       ...authState,
       writeAuthorization,
       nativeListMembership,
+      nativeListRename,
       sync: null,
       nativeListSync: null,
       triageCounts: null,
@@ -595,6 +643,7 @@ async function getDashboardState(services: RuntimeServices): Promise<AppState> {
     ...authState,
     writeAuthorization,
     nativeListMembership,
+    nativeListRename,
     sync,
     nativeListSync,
     triageCounts,
