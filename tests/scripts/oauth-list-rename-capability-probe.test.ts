@@ -139,6 +139,29 @@ describe('OAuth native List rename capability probe', () => {
     expect(error.message).not.toContain('L_existing')
   })
 
+  test('rejects a NFKC and case-equivalent temporary name already present in the complete catalog without mutation', async () => {
+    let mutations = 0
+    const error = await expectProbeFailure(
+      runOAuthListRenameCapabilityProbe(options, {
+        validateExpectedOwner: async () => {},
+        transport: {
+          rename: async () => {
+            mutations += 1
+            return {listNodeId: 'L_disposable', name: 'Disposable temporary 2026-08-15'}
+          }
+        },
+        readCompleteCatalog: async () => [
+          {listNodeId: 'L_disposable', name: 'Disposable original'},
+          {listNodeId: 'L_equivalent', name: 'ｄisposable temporary 2026-08-15'}
+        ]
+      }),
+      'fixture-invalid'
+    )
+
+    expect(mutations).toBe(0)
+    expect(error.message).not.toContain('L_equivalent')
+  })
+
   test('does not produce proof when temporary read-back fails after the rename but restoration succeeds', async () => {
     const renames: string[] = []
     const catalogs = catalogSequence([

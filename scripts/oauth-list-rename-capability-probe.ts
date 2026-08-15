@@ -80,7 +80,7 @@ export async function runOAuthListRenameCapabilityProbe(
   const temporaryName = canonicalName(options.temporaryName)
   const expectedGitHubUserId = requireValue(options.expectedGitHubUserId)
 
-  if (sameName(expectedOriginalName, temporaryName)) {
+  if (sameCanonicalNameKey(expectedOriginalName, temporaryName)) {
     throw probeFailure(
       'invalid-input',
       'The temporary disposable List name must differ from the original name.'
@@ -221,7 +221,9 @@ function requireTemporaryNameIsUnique(
   catalog: NativeListCatalogObservation,
   temporaryName: string
 ): void {
-  if (catalog.some((entry) => sameName(canonicalName(entry.name), temporaryName))) {
+  if (
+    catalog.some((entry) => sameCanonicalNameKey(entry.name, temporaryName))
+  ) {
     throw probeFailure(
       'fixture-invalid',
       'The confirmed temporary disposable List name is already present in the complete catalog.'
@@ -256,6 +258,14 @@ function canonicalName(value: string): string {
 
 function sameName(left: string, right: string): boolean {
   return left === right
+}
+
+function sameCanonicalNameKey(left: string, right: string): boolean {
+  return canonicalNameKey(left) === canonicalNameKey(right)
+}
+
+function canonicalNameKey(value: string): string {
+  return canonicalName(value).toLocaleLowerCase()
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
