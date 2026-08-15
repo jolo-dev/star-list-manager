@@ -62,7 +62,8 @@ describe('OAuth native List rename capability probe', () => {
         accountOwnership: 'verified',
         temporaryRenameMutation: 'verified',
         restorationMutation: 'verified',
-        independentCatalogReadBack: 'verified'
+        temporaryCatalogReadBack: 'verified',
+        restorationCatalogReadBack: 'verified'
       }
     })
     expect(nativeListRenameControlsEnabled(result.proof)).toBe(true)

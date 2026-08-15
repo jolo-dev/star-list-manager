@@ -4,7 +4,8 @@ export interface ListRenameCapabilityProof {
   readonly accountOwnership: 'verified'
   readonly temporaryRenameMutation: 'verified'
   readonly restorationMutation: 'verified'
-  readonly independentCatalogReadBack: 'verified'
+  readonly temporaryCatalogReadBack: 'verified'
+  readonly restorationCatalogReadBack: 'verified'
 }
 
 export function nativeListRenameControlsEnabled(
@@ -16,6 +17,7 @@ export function nativeListRenameControlsEnabled(
     proof.accountOwnership === 'verified' &&
     proof.temporaryRenameMutation === 'verified' &&
     proof.restorationMutation === 'verified' &&
-    proof.independentCatalogReadBack === 'verified'
+    proof.temporaryCatalogReadBack === 'verified' &&
+    proof.restorationCatalogReadBack === 'verified'
   )
 }

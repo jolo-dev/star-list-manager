@@ -127,7 +127,8 @@ export async function runOAuthListRenameCapabilityProbe(
       accountOwnership: 'verified',
       temporaryRenameMutation: 'verified',
       restorationMutation: 'verified',
-      independentCatalogReadBack: 'verified'
+      temporaryCatalogReadBack: 'verified',
+      restorationCatalogReadBack: 'verified'
     }
   }
 }
