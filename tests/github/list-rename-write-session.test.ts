@@ -160,6 +160,34 @@ describe('native List rename write session', () => {
     }
   })
 
+  test('rechecks the active owner after credential lookup before dispatch', async () => {
+    let activeLoads = 0
+    let requests = 0
+    const session = new ListRenameWriteSession({
+      authStore: {
+        loadActive: () => {
+          activeLoads += 1
+          const githubUserId = activeLoads === 1 ? '42' : '84'
+          return Promise.resolve({
+            githubUserId,
+            identity: {githubUserId}
+          })
+        }
+      },
+      writeStore: new MemoryWriteStore(writeState('42')),
+      fetch: async () => {
+        requests += 1
+        return graphqlResponse({
+          data: {updateUserList: {list: {id: 'L_fixture', name: 'Tools'}}}
+        })
+      }
+    })
+
+    await expectFailure(session.rename(request), 'account-changed')
+    expect(activeLoads).toBe(2)
+    expect(requests).toBe(0)
+  })
+
   test('maps GraphQL schema, permission, invalid-ID, rate-limit, and server errors', async () => {
     const cases = [
       {

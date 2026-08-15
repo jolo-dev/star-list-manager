@@ -82,18 +82,7 @@ export class ListRenameWriteSession {
   async rename(request: ListRenameMutationRequest): Promise<ListRenameMutationResult> {
     const canonicalRequest = validateRequest(request)
 
-    const active = await this.#authStore.loadActive()
-    if (
-      active?.githubUserId !== canonicalRequest.expectedGitHubUserId ||
-      active.identity.githubUserId !== canonicalRequest.expectedGitHubUserId
-    ) {
-      throw failure(
-        'account-changed',
-        'authentication',
-        'The active GitHub account changed. Retry the native List rename.',
-        true
-      )
-    }
+    await assertActiveOwner(this.#authStore, canonicalRequest.expectedGitHubUserId)
 
     const writeState = await this.#writeStore.loadAccount(
       canonicalRequest.expectedGitHubUserId
@@ -129,6 +118,8 @@ export class ListRenameWriteSession {
         false
       )
     }
+
+    await assertActiveOwner(this.#authStore, canonicalRequest.expectedGitHubUserId)
 
     const headers = new Headers({
       accept: 'application/vnd.github+json',
@@ -221,6 +212,24 @@ export class ListRenameWriteSession {
         false
       )
     }
+  }
+}
+
+async function assertActiveOwner(
+  authStore: ListRenameOwnerStore,
+  expectedGitHubUserId: GitHubUserId
+): Promise<void> {
+  const active = await authStore.loadActive()
+  if (
+    active?.githubUserId !== expectedGitHubUserId ||
+    active.identity.githubUserId !== expectedGitHubUserId
+  ) {
+    throw failure(
+      'account-changed',
+      'authentication',
+      'The active GitHub account changed. Retry the native List rename.',
+      true
+    )
   }
 }
 
