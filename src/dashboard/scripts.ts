@@ -116,6 +116,9 @@ const editingNativeListId = van.state<string | null>(null)
 const nativeListRenameDraft = van.state('')
 const nativeListRenameError = van.state<string | null>(null)
 const savingNativeListRename = van.state(false)
+let nextNativeListRenameRequestToken = 0
+let activeNativeListRenameRequest: NativeListRenameRequest | null = null
+let nativeListRenameInvoker: NativeListRenameInvoker | null = null
 let unstarDialogInvoker: DialogInvoker | null = null
 let membershipDialogInvoker: DialogInvoker | null = null
 let nextMembershipPreviewRequestToken = 0
@@ -132,6 +135,15 @@ export interface UnstarConfirmationTarget {
 interface DialogInvoker {
   readonly element: HTMLElement
   readonly id: string | null
+}
+
+interface NativeListRenameRequest {
+  readonly token: number
+  readonly accountId: string | null
+}
+
+interface NativeListRenameInvoker {
+  readonly listNodeId: string
 }
 
 function Dashboard() {
@@ -472,7 +484,9 @@ function NativeListHeaderTitle(state: AppState) {
           {
             class: 'secondary-action',
             type: 'button',
-            onclick: () => beginNativeListRename(nativeList.listNodeId, nativeList.name)
+            'data-native-list-rename-invoker': nativeList.listNodeId,
+            onclick: (event: MouseEvent) =>
+              beginNativeListRename(nativeList.listNodeId, nativeList.name, event.currentTarget as HTMLElement)
           },
           'Edit'
         )
@@ -548,24 +562,41 @@ function NativeListRenameEditor(listNodeId: string, editing: () => boolean) {
   )
 }
 
-function beginNativeListRename(listNodeId: string, name: string): void {
-  if (savingNativeListRename.val) return
+function beginNativeListRename(listNodeId: string, name: string, invoker: HTMLElement): void {
+  if (savingNativeListRename.val || activeNativeListRenameRequest !== null) return
+  nativeListRenameInvoker = {
+    listNodeId: invoker.dataset.nativeListRenameInvoker ?? listNodeId
+  }
   editingNativeListId.val = listNodeId
   nativeListRenameDraft.val = name
   nativeListRenameError.val = null
   window.setTimeout(() => {
     const inputElement = document.getElementById(`native-list-rename-${listNodeId}`)
-    if (inputElement instanceof HTMLElement) inputElement.focus()
+    if (
+      inputElement instanceof HTMLElement &&
+      inputElement.isConnected &&
+      inputElement.closest('[hidden]') === null
+    ) {
+      inputElement.focus()
+    }
   }, 0)
 }
 
 function cancelNativeListRename(): void {
-  if (savingNativeListRename.val) return
+  if (savingNativeListRename.val || activeNativeListRenameRequest !== null) return
+  const invoker = nativeListRenameInvoker
   resetNativeListRenameEditor()
+  restoreNativeListRenameInvoker(invoker)
 }
 
 async function submitNativeListRename(listNodeId: string): Promise<void> {
-  if (savingNativeListRename.val || editingNativeListId.val !== listNodeId) return
+  if (
+    savingNativeListRename.val ||
+    activeNativeListRenameRequest !== null ||
+    editingNativeListId.val !== listNodeId
+  ) {
+    return
+  }
   const validation = validateNativeListRename(
     nativeListRenameDraft.val,
     listNodeId,
@@ -576,6 +607,11 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
     return
   }
 
+  const request: NativeListRenameRequest = {
+    token: ++nextNativeListRenameRequestToken,
+    accountId: appState.val.identity?.githubUserId ?? null
+  }
+  activeNativeListRenameRequest = request
   savingNativeListRename.val = true
   nativeListRenameError.val = null
   try {
@@ -585,7 +621,15 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
       name: validation.value
     })) as RuntimeResponse<AppState>
     if (!response.ok) {
-      nativeListRenameError.val = response.error.message
+      if (isCurrentNativeListRenameEditor(request, listNodeId)) {
+        nativeListRenameError.val = response.error.message
+      }
+      return
+    }
+    if (
+      !isCurrentNativeListRenameAccount(request) ||
+      response.data.identity?.githubUserId !== request.accountId
+    ) {
       return
     }
     applyState(response.data)
@@ -593,17 +637,58 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
       resetNativeListRenameEditor()
     }
   } catch (error) {
-    nativeListRenameError.val = sanitizeError(error).message
+    if (isCurrentNativeListRenameEditor(request, listNodeId)) {
+      nativeListRenameError.val = sanitizeError(error).message
+    }
   } finally {
-    savingNativeListRename.val = false
+    releaseNativeListRenameRequest(request)
   }
+}
+
+function isCurrentNativeListRenameAccount(request: NativeListRenameRequest): boolean {
+  return (
+    activeNativeListRenameRequest?.token === request.token &&
+    appState.val.identity?.githubUserId === request.accountId
+  )
+}
+
+function isCurrentNativeListRenameEditor(
+  request: NativeListRenameRequest,
+  listNodeId: string
+): boolean {
+  return (
+    isCurrentNativeListRenameAccount(request) &&
+    editingNativeListId.val === listNodeId
+  )
+}
+
+function releaseNativeListRenameRequest(request: NativeListRenameRequest): void {
+  if (activeNativeListRenameRequest?.token !== request.token) return
+  activeNativeListRenameRequest = null
+  savingNativeListRename.val = false
 }
 
 function resetNativeListRenameEditor(): void {
   editingNativeListId.val = null
   nativeListRenameDraft.val = ''
   nativeListRenameError.val = null
-  savingNativeListRename.val = false
+  nativeListRenameInvoker = null
+}
+
+function restoreNativeListRenameInvoker(invoker: NativeListRenameInvoker | null): void {
+  if (invoker === null) return
+  window.setTimeout(() => {
+    const editButton = [...document.querySelectorAll<HTMLButtonElement>(
+      '[data-native-list-rename-invoker]'
+    )].find((element) => element.dataset.nativeListRenameInvoker === invoker.listNodeId) ?? null
+    if (
+      editButton !== null &&
+      editButton.isConnected &&
+      editButton.closest('[hidden]') === null
+    ) {
+      editButton.focus()
+    }
+  }, 0)
 }
 
 function SelectionActions(
