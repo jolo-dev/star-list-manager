@@ -238,6 +238,47 @@ export interface RepositoryRecord extends AccountScopedRecord {
 export type NativeListVisibility = 'public' | 'private' | 'unknown'
 export type NativeListImportStatus = 'complete' | 'partial'
 
+export type NativeListLifecycleOperationId = string
+export type NativeListLifecycleIntent =
+  | {
+      readonly kind: 'create'
+      readonly name: string
+      readonly visibility: Exclude<NativeListVisibility, 'unknown'>
+    }
+  | {
+      readonly kind: 'delete'
+      readonly listNodeId: NativeListNodeId
+      readonly name: string
+      readonly visibility: NativeListVisibility
+      readonly reportedItemCount: number
+      readonly importStatus: NativeListImportStatus
+    }
+
+export type NativeListLifecyclePhase =
+  | 'queued'
+  | 'preflight'
+  | 'mutating'
+  | 'verifying'
+  | 'succeeded'
+  | 'already-deleted'
+  | 'needs-confirmation'
+  | 'blocked-unknown'
+  | 'failed'
+  | 'cancelled'
+
+export interface NativeListLifecycleOperationRecord extends AccountScopedRecord {
+  readonly operationId: NativeListLifecycleOperationId
+  readonly intent: NativeListLifecycleIntent
+  readonly phase: NativeListLifecyclePhase
+  readonly attemptCount: number
+  readonly candidateListNodeId: NativeListNodeId | null
+  readonly confirmationFingerprint: string | null
+  readonly lastError: SanitizedMutationError | null
+  readonly createdAt: IsoDateTime
+  readonly updatedAt: IsoDateTime
+  readonly completedAt: IsoDateTime | null
+}
+
 export interface NativeListRecord extends AccountScopedRecord {
   readonly listNodeId: NativeListNodeId
   readonly name: string

@@ -15,7 +15,7 @@ test('version 4 migrates durable queue and history records with membership detai
     transaction.objectStore('operationHistory').get(['account-a', 'history'])
   )
 
-  expect(database.version).toBe(4)
+  expect(database.version).toBe(5)
   expect(job).toMatchObject({jobId: 'job', membershipDetails: null})
   expect(history).toMatchObject({historyId: 'history', membershipDetails: null})
   database.close()

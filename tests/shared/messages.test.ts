@@ -193,6 +193,33 @@ describe('dashboard message decoding', () => {
     }
   })
 
+  test('accepts only explicit credential-free lifecycle confirmations', () => {
+    expect(
+      decodeDashboardRequest({
+        type: 'confirm-native-list-create',
+        name: '  Ideas  ',
+        visibility: 'private'
+      })
+    ).toEqual({
+      ok: true,
+      value: {type: 'confirm-native-list-create', name: 'Ideas', visibility: 'private'}
+    })
+    expect(
+      decodeDashboardRequest({
+        type: 'confirm-native-list-delete',
+        listNodeId: 'UL_one',
+        confirmationFingerprint: 'fresh-catalog-fingerprint'
+      }).ok
+    ).toBe(true)
+    for (const value of [
+      {type: 'confirm-native-list-create', name: ' ', visibility: 'public'},
+      {type: 'confirm-native-list-create', name: 'Ideas', visibility: 'unknown'},
+      {type: 'confirm-native-list-create', name: 'Ideas', visibility: 'public', accessToken: 'secret'},
+      {type: 'confirm-native-list-delete', listNodeId: '', confirmationFingerprint: 'fresh'},
+      {type: 'confirm-native-list-delete', listNodeId: 'UL_one', confirmationFingerprint: '', token: 'secret'}
+    ]) expect(decodeDashboardRequest(value).ok).toBe(false)
+  })
+
   test('validates import preview and apply settings selection', () => {
     expect(
       decodeDashboardRequest({

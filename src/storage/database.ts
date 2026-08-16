@@ -1,5 +1,5 @@
 export const libraryDatabaseName = 'star-list-manager'
-export const libraryDatabaseVersion = 4
+export const libraryDatabaseVersion = 5
 
 export const libraryStores = {
   repositories: 'repositories',
@@ -13,7 +13,8 @@ export const libraryStores = {
   mutationBatches: 'mutationBatches',
   mutationJobs: 'mutationJobs',
   mutationAttempts: 'mutationAttempts',
-  operationHistory: 'operationHistory'
+  operationHistory: 'operationHistory',
+  nativeListLifecycleOperations: 'nativeListLifecycleOperations'
 } as const
 
 export type LibraryStoreName = (typeof libraryStores)[keyof typeof libraryStores]
@@ -136,6 +137,17 @@ function migrateLibraryDatabase(
   }
   if (oldVersion < 3) createLibraryDatabaseVersionThree(database)
   if (oldVersion < 4) migrateLibraryDatabaseVersionFour(transaction)
+  if (oldVersion < 5) createLibraryDatabaseVersionFive(database)
+}
+
+function createLibraryDatabaseVersionFive(database: IDBDatabase): void {
+  const operations = database.createObjectStore(
+    libraryStores.nativeListLifecycleOperations,
+    {keyPath: ['githubUserId', 'operationId']}
+  )
+  operations.createIndex(libraryIndexes.byAccount, 'githubUserId')
+  operations.createIndex(libraryIndexes.byStatus, 'phase')
+  operations.createIndex(libraryIndexes.byAccountStatus, ['githubUserId', 'phase'])
 }
 
 function migrateLibraryDatabaseVersionFour(transaction: IDBTransaction): void {
