@@ -29,6 +29,7 @@ import {
   MembershipMutationExecutor,
   type MembershipMutationServices
 } from './membership-runner'
+import {NativeListMutationLock} from './native-list-mutation-lock'
 
 const defaultMaximumAutomaticAttempts = 3
 const defaultRetryDelayMs = 30_000
@@ -43,6 +44,7 @@ export interface MutationQueueRunnerOptions {
   readonly authStore: Pick<AuthStore, 'loadActive'>
   readonly service: UnstarQueueService
   readonly membershipService?: Omit<MembershipMutationServices, 'repositoryGuard'>
+  readonly nativeListMutationLock?: NativeListMutationLock
   readonly scheduleWake: (nextExecutionAt: IsoDateTime | null) => Promise<void>
   readonly now?: () => number
   readonly createId?: (kind: 'attempt' | 'history') => string
@@ -54,6 +56,7 @@ export class MutationQueueRunner {
   readonly #database: IDBDatabase
   readonly #authStore: Pick<AuthStore, 'loadActive'>
   readonly #service: UnstarQueueService
+  readonly #nativeListMutationLock: NativeListMutationLock
   readonly #membershipExecutor: MembershipMutationExecutor | null
   readonly #scheduleWake: (nextExecutionAt: IsoDateTime | null) => Promise<void>
   readonly #now: () => number
@@ -67,6 +70,7 @@ export class MutationQueueRunner {
     this.#database = options.database
     this.#authStore = options.authStore
     this.#service = options.service
+    this.#nativeListMutationLock = options.nativeListMutationLock ?? new NativeListMutationLock()
     this.#scheduleWake = options.scheduleWake
     this.#now = options.now ?? Date.now
     this.#createId = options.createId ?? defaultId
@@ -102,7 +106,7 @@ export class MutationQueueRunner {
   check(): Promise<void> {
     if (this.#paused) return Promise.resolve()
     if (this.#activeRun) return this.#activeRun
-    const run = this.#drain().finally(() => {
+    const run = this.#nativeListMutationLock.run(() => this.#drain()).finally(() => {
       if (this.#activeRun === run) this.#activeRun = null
     })
     this.#activeRun = run
