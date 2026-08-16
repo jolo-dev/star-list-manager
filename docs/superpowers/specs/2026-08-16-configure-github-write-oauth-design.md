@@ -14,8 +14,10 @@ The extension's existing background authorization flow will continue to request 
 
 1. Confirm `.env.local` contains both public client-ID variables without printing their values.
 2. Build the Chrome extension successfully so the environment variable is compiled into the local artifact.
-3. Verify the write OAuth App accepts a device-code request for `public_repo user` and returns a verification URI and user code; do not complete authorization outside the extension.
-4. Confirm `.env.local` remains ignored and no credential or token enters the Git diff.
+3. Load the built Chrome artifact and exercise **Settings → Review write authorization → Continue to GitHub**. Confirm it reaches the pending state and presents the GitHub verification action.
+4. Sanitize validation output: report only success/failure, the expected GitHub verification host, and whether a user code was present. Do not print or retain the raw device-code response, device code, user code, access token, or authorization headers.
+5. Cancel the pending authorization without completing it outside the extension.
+6. Confirm `.env.local` remains ignored and no credential or token enters the Git diff.
 
 ## Scope
 
