@@ -44,7 +44,7 @@ const githubUserId = '42'
 const timestamp = '2026-08-03T12:00:00Z'
 
 describe('library IndexedDB', () => {
-  test('creates schema version 4 through the initial upgrade', async () => {
+  test('creates schema version 5 through the initial upgrade', async () => {
     const upgrades: Array<readonly [number, number]> = []
     const database = await openLibraryDatabase({
       name: 'schema-test',
@@ -53,7 +53,7 @@ describe('library IndexedDB', () => {
     })
 
     expect(database.version).toBe(libraryDatabaseVersion)
-    expect(upgrades).toEqual([[0, 4]])
+    expect(upgrades).toEqual([[0, 5]])
     expect(Array.from(database.objectStoreNames).sort()).toEqual(
       Object.values(libraryStores).sort()
     )
@@ -122,7 +122,7 @@ describe('library IndexedDB', () => {
       onUpgrade: (oldVersion, newVersion) => upgrades.push([oldVersion, newVersion])
     })
 
-    expect(upgrades).toEqual([[1, 4]])
+    expect(upgrades).toEqual([[1, 5]])
     expect(Array.from(database.objectStoreNames).sort()).toEqual(
       Object.values(libraryStores).sort()
     )
@@ -145,7 +145,7 @@ describe('library IndexedDB', () => {
 
     const database = await openLibraryDatabase({name, factory})
 
-    expect(database.version).toBe(4)
+    expect(database.version).toBe(5)
     expect(await getAuthState(database, githubUserId)).toEqual(legacyAuthState)
     expect(await getWriteAuthState(database, githubUserId)).toEqual(
       legacyWriteAuthState

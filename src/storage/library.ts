@@ -2,6 +2,7 @@ import type {
   AnnotationRecord,
   AuthStateRecord,
   GitHubUserId,
+  NativeListLifecycleOperationRecord,
   NativeListNodeId,
   NativeListRecord,
   NativeMembershipRecord,
@@ -163,6 +164,71 @@ export async function listNativeLists(
     libraryStores.nativeLists,
     libraryIndexes.byAccount,
     githubUserId
+  )
+}
+
+const activeNativeListLifecyclePhases = new Set([
+  'queued',
+  'preflight',
+  'mutating',
+  'verifying'
+])
+
+export async function putNativeListLifecycleOperation(
+  database: IDBDatabase,
+  operation: NativeListLifecycleOperationRecord
+): Promise<void> {
+  await runLibraryTransaction(
+    database,
+    libraryStores.nativeListLifecycleOperations,
+    'readwrite',
+    async (transaction) => {
+      const store = transaction.objectStore(libraryStores.nativeListLifecycleOperations)
+      const existing = await requestResult(
+        store.index(libraryIndexes.byAccount).getAll(operation.githubUserId) as IDBRequest<
+          NativeListLifecycleOperationRecord[]
+        >
+      )
+      if (
+        activeNativeListLifecyclePhases.has(operation.phase) &&
+        existing.some(
+          (candidate) =>
+            candidate.operationId !== operation.operationId &&
+            activeNativeListLifecyclePhases.has(candidate.phase)
+        )
+      ) {
+        throw new Error('An active native List lifecycle operation already exists for this account.')
+      }
+      await requestResult(store.put(operation))
+    }
+  )
+}
+
+export async function listNativeListLifecycleOperations(
+  database: IDBDatabase,
+  githubUserId: GitHubUserId
+): Promise<readonly NativeListLifecycleOperationRecord[]> {
+  return getAllFromIndex<NativeListLifecycleOperationRecord>(
+    database,
+    libraryStores.nativeListLifecycleOperations,
+    libraryIndexes.byAccount,
+    githubUserId
+  )
+}
+
+export async function getActiveNativeListLifecycleOperation(
+  database: IDBDatabase,
+  githubUserId: GitHubUserId
+): Promise<NativeListLifecycleOperationRecord | null> {
+  const operations = await listNativeListLifecycleOperations(database, githubUserId)
+  return (
+    operations
+      .filter((operation) => activeNativeListLifecyclePhases.has(operation.phase))
+      .toSorted(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) ||
+          left.operationId.localeCompare(right.operationId)
+      )[0] ?? null
   )
 }
 
