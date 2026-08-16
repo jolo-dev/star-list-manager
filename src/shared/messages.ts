@@ -4,6 +4,7 @@ import type {
   LibrarySnapshot,
   MutationBatchRecord,
   MutationJobRecord,
+  NativeListLifecycleOperationRecord,
   OperationHistoryRecord,
   SyncStateRecord,
   TriageCounts,
@@ -55,6 +56,13 @@ export type NativeListRenameReadiness =
 
 export interface NativeListRenameUiState {
   readonly readiness: NativeListRenameReadiness
+}
+
+export type NativeListLifecycleReadiness = NativeListRenameReadiness
+
+export interface NativeListLifecycleUiState {
+  readonly readiness: NativeListLifecycleReadiness
+  readonly operation: NativeListLifecycleOperationRecord | null
 }
 
 export type MembershipOperationSelection =
@@ -134,6 +142,7 @@ export interface AppState {
   readonly writeAuthorization: WriteAuthorizationState
   readonly nativeListMembership?: NativeListMembershipUiState
   readonly nativeListRename?: NativeListRenameUiState
+  readonly nativeListLifecycle?: NativeListLifecycleUiState
   readonly sync: SyncStateRecord | null
   readonly nativeListSync: SyncStateRecord | null
   readonly triageCounts: TriageCounts | null
@@ -187,6 +196,16 @@ export type DashboardRequest =
       readonly type: 'rename-native-list'
       readonly listNodeId: string
       readonly name: string
+    }
+  | {
+      readonly type: 'confirm-native-list-create'
+      readonly name: string
+      readonly visibility: 'public' | 'private'
+    }
+  | {
+      readonly type: 'confirm-native-list-delete'
+      readonly listNodeId: string
+      readonly confirmationFingerprint: string
     }
   | {readonly type: 'cancel-mutation-job'; readonly jobId: string}
   | {
@@ -274,6 +293,27 @@ export function decodeDashboardRequest(
           )
         : invalidRequest()
     }
+    case 'confirm-native-list-create': {
+      const name = typeof value.name === 'string' ? value.name.trim() : ''
+      return name.length > 0 &&
+        (value.visibility === 'public' || value.visibility === 'private') &&
+        hasOnlyKeys(value, ['type', 'name', 'visibility'])
+        ? success({type: value.type, name, visibility: value.visibility})
+        : invalidRequest()
+    }
+    case 'confirm-native-list-delete':
+      return typeof value.listNodeId === 'string' &&
+        value.listNodeId.length > 0 &&
+        value.listNodeId.trim() === value.listNodeId &&
+        typeof value.confirmationFingerprint === 'string' &&
+        value.confirmationFingerprint.length > 0 &&
+        hasOnlyKeys(value, ['type', 'listNodeId', 'confirmationFingerprint'])
+        ? success({
+            type: value.type,
+            listNodeId: value.listNodeId,
+            confirmationFingerprint: value.confirmationFingerprint
+          })
+        : invalidRequest()
     case 'rename-native-list':
       return isNonBlankString(value.listNodeId) &&
         isNonBlankString(value.name) &&
