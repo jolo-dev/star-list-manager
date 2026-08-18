@@ -2034,12 +2034,7 @@ function currentQuery(): RepositoryQuery {
     filters: {
       ...filters,
       triageStates: triageState.val ? [triageState.val] : [],
-      starState:
-        activeView.val.kind === 'history'
-          ? 'unstarred'
-          : activeView.val.kind === 'unlist'
-            ? 'all'
-            : starState.val,
+      starState: activeView.val.kind === 'history' ? 'unstarred' : starState.val,
       language: language.val,
       archived: hideArchived.val ? 'exclude' : 'all',
       disabled: disabled.val,

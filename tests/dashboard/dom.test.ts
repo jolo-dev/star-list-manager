@@ -78,20 +78,47 @@ test('selects Unlist as the active ready view with a derived local header', asyn
   expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Derived local view')
 })
 
-test('shows unstarred unlisted repositories in Unlist and applies an explicitly selected star-state filter to a normal view', async () => {
+test('hides completed unstars from default Unlist and retains explicit unstarred history', async () => {
   const readyState = readyDashboardState()
-  const starredUnlisted = repositoryRecord('42', 'R_starred-unlisted', 'octocat/starred-unlisted')
-  const unstarredUnlisted = {
-    ...repositoryRecord('42', 'R_unstarred-unlisted', 'octocat/unstarred-unlisted'),
+  const stillStarredStatuses: readonly MutationJobStatus[] = [
+    'queued',
+    'checking',
+    'deleting',
+    'verifying',
+    'retry-waiting',
+    'failed',
+    'blocked-unknown',
+    'cancelled'
+  ]
+  const completedStatuses: readonly MutationJobStatus[] = ['succeeded', 'succeeded-external']
+  const stillStarredRepositories = stillStarredStatuses.map((status) =>
+    repositoryRecord('42', `R_${status}`, `octocat/${status}`)
+  )
+  const completedRepositories = completedStatuses.map((status) => ({
+    ...repositoryRecord('42', `R_${status}`, `octocat/${status}`),
     isStarred: false,
     unstarredAt: '2026-08-05T10:00:00Z'
-  }
+  }))
   const starredListed = repositoryRecord('42', 'R_starred-listed', 'octocat/starred-listed')
+  const repositories = [
+    ...stillStarredRepositories,
+    ...completedRepositories,
+    starredListed
+  ]
+  const jobs = [...stillStarredStatuses, ...completedStatuses].map((status, index) => {
+    const repository = repositories[index]!
+    return {
+      ...mutationJob('42', status, index),
+      repositoryNodeId: repository.repositoryNodeId,
+      ownerLogin: repository.ownerLogin,
+      repositoryName: repository.name
+    }
+  })
   const state: AppState = {
     ...readyState,
     library: {
       ...readyState.library!,
-      repositories: [starredUnlisted, unstarredUnlisted, starredListed],
+      repositories,
       nativeLists: [nativeList('L_current', 'Current List')],
       nativeMemberships: [
         {
@@ -102,7 +129,8 @@ test('shows unstarred unlisted repositories in Unlist and applies an explicitly 
         }
       ],
       annotations: []
-    }
+    },
+    mutations: {jobs, batches: [], history: []}
   }
   const browserWindow = createDashboardWindow()
   const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
@@ -114,10 +142,19 @@ test('shows unstarred unlisted repositories in Unlist and applies an explicitly 
   mountDashboard(root)
   await browserWindow.happyDOM.whenAsyncComplete()
 
-  expect(visibleRepositoryIds(root)).toEqual(
-    expect.arrayContaining(['R_starred-unlisted', 'R_unstarred-unlisted'])
+  const defaultRepositoryIds = visibleRepositoryIds(root)
+  expect(defaultRepositoryIds).toHaveLength(stillStarredStatuses.length)
+  expect(defaultRepositoryIds).toEqual(
+    expect.arrayContaining(stillStarredStatuses.map((status) => `R_${status}`))
   )
-  expect(visibleRepositoryIds(root)).not.toContain('R_starred-listed')
+  expect(defaultRepositoryIds).not.toContain('R_succeeded')
+  expect(defaultRepositoryIds).not.toContain('R_succeeded-external')
+  expect(defaultRepositoryIds).not.toContain('R_starred-listed')
+  expect(
+    [...root.querySelectorAll('.repository-row .mutation-status')].map((status) =>
+      status.getAttribute('data-status')
+    )
+  ).toEqual(expect.arrayContaining(stillStarredStatuses))
 
   const starStateSelect = [...root.querySelectorAll('label')].find(
     (label) => label.textContent?.includes('Star state')
@@ -125,20 +162,31 @@ test('shows unstarred unlisted repositories in Unlist and applies an explicitly 
   expect(starStateSelect).not.toBeNull()
   if (starStateSelect === null) return
 
-  starStateSelect.value = 'unstarred'
-  starStateSelect.dispatchEvent(
-    new browserWindow.Event('change', {bubbles: true}) as unknown as Event
-  )
-  await browserWindow.happyDOM.whenAsyncComplete()
+  try {
+    starStateSelect.value = 'unstarred'
+    starStateSelect.dispatchEvent(
+      new browserWindow.Event('change', {bubbles: true}) as unknown as Event
+    )
+    await browserWindow.happyDOM.whenAsyncComplete()
 
-  expect(visibleRepositoryIds(root)).toEqual(['R_unstarred-unlisted'])
-
-  // Module-level dashboard filter state is shared by this DOM suite; restore its default.
-  starStateSelect.value = 'starred'
-  starStateSelect.dispatchEvent(
-    new browserWindow.Event('change', {bubbles: true}) as unknown as Event
-  )
-  await browserWindow.happyDOM.whenAsyncComplete()
+    const unstarredRepositoryIds = visibleRepositoryIds(root)
+    expect(unstarredRepositoryIds).toHaveLength(completedStatuses.length)
+    expect(unstarredRepositoryIds).toEqual(
+      expect.arrayContaining(['R_succeeded', 'R_succeeded-external'])
+    )
+    expect(
+      [...root.querySelectorAll('.repository-row .mutation-status')].map((status) =>
+        status.getAttribute('data-status')
+      )
+    ).toEqual(expect.arrayContaining(completedStatuses))
+  } finally {
+    // Module-level dashboard filter state is shared by this DOM suite; restore its default.
+    starStateSelect.value = 'starred'
+    starStateSelect.dispatchEvent(
+      new browserWindow.Event('change', {bubbles: true}) as unknown as Event
+    )
+    await browserWindow.happyDOM.whenAsyncComplete()
+  }
 })
 
 test('resets a rendered ready dashboard to Unlist after another native List became active', async () => {
