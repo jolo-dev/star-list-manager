@@ -9,6 +9,9 @@ coverage
 # production
 dist
 
+# local agent worktrees
+.worktrees
+
 # misc
 .DS_Store
 
