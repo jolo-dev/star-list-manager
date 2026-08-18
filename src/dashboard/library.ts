@@ -136,11 +136,11 @@ export function deriveViewCounts(
   let history = 0
 
   for (const item of repositories) {
-    if (item.nativeLists.length === 0) unlist += 1
     if (!item.repository.isStarred) {
       history += 1
       continue
     }
+    if (item.nativeLists.length === 0) unlist += 1
     all += 1
     if (item.annotation?.triageState === 'inbox') inbox += 1
     if (item.annotation?.triageState === 'backlog') backlog += 1

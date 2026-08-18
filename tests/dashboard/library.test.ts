@@ -52,7 +52,7 @@ describe('repository discovery queries', () => {
       due: 1,
       organized: 0,
       all: 2,
-      unlist: 2,
+      unlist: 1,
       history: 1,
       lists: {UL_tools: 1},
       tags: {Research: 1, Queue: 1}
