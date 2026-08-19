@@ -26,26 +26,46 @@ export interface DashboardSliceFingerprints {
   readonly error: string
 }
 
-export function materialFingerprint(value: unknown): string {
-  return JSON.stringify(value) ?? 'undefined'
+export type JsonFingerprintValue =
+  | null
+  | boolean
+  | number
+  | string
+  | undefined
+  | readonly JsonFingerprintValue[]
+  | {readonly [key: string]: JsonFingerprintValue}
+
+export function materialFingerprint(value: JsonFingerprintValue): string {
+  if (value === undefined) return 'undefined'
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => materialFingerprint(item)).join(',')}]`
+  }
+  const record = value as {readonly [key: string]: JsonFingerprintValue}
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${materialFingerprint(record[key])}`)
+    .join(',')}}`
 }
 
 export function dashboardSliceFingerprints(
   state: AppState
 ): DashboardSliceFingerprints {
+  const fingerprintSlice = (value: object | null | undefined) =>
+    materialFingerprint(value as JsonFingerprintValue)
   return {
     phase: state.phase,
-    identity: materialFingerprint(state.identity),
-    authorization: materialFingerprint(state.authorization),
-    writeAuthorization: materialFingerprint(state.writeAuthorization),
-    sync: materialFingerprint(state.sync),
-    nativeListSync: materialFingerprint(state.nativeListSync),
-    nativeListMembership: materialFingerprint(state.nativeListMembership),
-    nativeListRename: materialFingerprint(state.nativeListRename),
-    triageCounts: materialFingerprint(state.triageCounts),
-    library: materialFingerprint(state.library),
-    mutations: materialFingerprint(state.mutations),
-    error: materialFingerprint(state.error)
+    identity: fingerprintSlice(state.identity),
+    authorization: fingerprintSlice(state.authorization),
+    writeAuthorization: fingerprintSlice(state.writeAuthorization),
+    sync: fingerprintSlice(state.sync),
+    nativeListSync: fingerprintSlice(state.nativeListSync),
+    nativeListMembership: fingerprintSlice(state.nativeListMembership),
+    nativeListRename: fingerprintSlice(state.nativeListRename),
+    triageCounts: fingerprintSlice(state.triageCounts),
+    library: fingerprintSlice(state.library),
+    mutations: fingerprintSlice(state.mutations),
+    error: fingerprintSlice(state.error)
   }
 }
 

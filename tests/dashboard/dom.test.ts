@@ -42,6 +42,46 @@ test('mounts accessible dashboard navigation and loading state', async () => {
   expect(unlist?.getAttribute('aria-current')).toBe('page')
 })
 
+test('transitions a cold loading mount through ready utilities and recreates after phase exit', async () => {
+  const browserWindow = createDashboardWindow()
+  const {mountDashboard, renderAppState} = await import('../../src/dashboard/scripts')
+  const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+  browserWindow.document.body.append(
+    root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  mountDashboard(root)
+  expect(root.querySelector('[aria-busy="true"]')).not.toBeNull()
+
+  const ready: AppState = {
+    ...readyDashboardState(),
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists')
+  }
+  renderAppState(ready)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.library-page')).not.toBeNull()
+
+  const navigate = async (label: string) => {
+    [...root.querySelectorAll<HTMLButtonElement>('.nav-item')]
+      .find((button) => button.querySelector('.nav-label')?.textContent === label)!
+      .click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+  }
+  await navigate('Operations')
+  expect(root.querySelector('.operations-page h1')?.textContent).toBe('Operations')
+  await navigate('Settings')
+  const firstSettingsPage = root.querySelector('.settings-page')
+  expect(firstSettingsPage?.querySelector('h1')?.textContent).toBe('Settings')
+
+  renderAppState({...ready, phase: 'loading'})
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.settings-page')).toBeNull()
+  renderAppState(ready)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.settings-page')).not.toBe(firstSettingsPage)
+  expect(root.querySelector('.settings-page h1')?.textContent).toBe('Settings')
+})
+
 test('renders Unlist before alphabetized imported native Lists regardless of input order', async () => {
   const readyState = readyDashboardState()
   const state: AppState = {
@@ -165,13 +205,12 @@ test('hides completed unstars from default Unlist and retains explicit unstarred
     mutations: {jobs, batches: [], history: []}
   }
   const browserWindow = createDashboardWindow()
-  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
-  renderLibraryState(state)
+  const {mountDashboard} = await import('../../src/dashboard/scripts')
   const root = browserWindow.document.createElement('main') as unknown as HTMLElement
   browserWindow.document.body.append(
     root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
-  mountDashboard(root)
+  mountDashboard(root, state)
   await browserWindow.happyDOM.whenAsyncComplete()
 
   const defaultRepositoryIds = visibleRepositoryIds(root)
@@ -284,13 +323,12 @@ test('returns to Unlist when a normal refresh removes the active native List', a
   })
 
   try {
-    const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
-    renderLibraryState(state)
+    const {mountDashboard} = await import('../../src/dashboard/scripts')
     const root = browserWindow.document.createElement('main') as unknown as HTMLElement
     browserWindow.document.body.append(
       root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
     )
-    mountDashboard(root)
+    mountDashboard(root, state)
     await browserWindow.happyDOM.whenAsyncComplete()
 
     const currentList = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
@@ -328,16 +366,15 @@ test('returns sidebar selection to Unlist after disconnect and complete-data rem
     {actionLabel: 'Delete all local data', messageType: 'clear-all-data'}
   ] as const) {
     const browserWindow = createDashboardWindow()
-    const {mountDashboard, renderLibraryState, renderSettingsState} = await import(
+    const {mountDashboard, renderSettingsState} = await import(
       '../../src/dashboard/scripts'
     )
     const state = readyDashboardState()
-    renderLibraryState(state)
     const root = browserWindow.document.createElement('main') as unknown as HTMLElement
     browserWindow.document.body.append(
       root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
     )
-    mountDashboard(root)
+    mountDashboard(root, state)
     await browserWindow.happyDOM.whenAsyncComplete()
     const currentList = [...root.querySelectorAll<HTMLButtonElement>('button')].find(
       (button) => button.textContent?.includes('Current List')
@@ -810,16 +847,15 @@ test('publishes the complete empty authentication state before awaiting the runt
       }
     }
   })
-  const {mountDashboard, renderLibraryState, sendDashboardAction} = await import(
+  const {mountDashboard, sendDashboardAction} = await import(
     '../../src/dashboard/scripts'
   )
   const state = renameReadyDashboardState()
-  renderLibraryState(state)
   const root = browserWindow.document.createElement('main') as unknown as HTMLElement
   browserWindow.document.body.append(
     root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
-  mountDashboard(root)
+  mountDashboard(root, state)
   await browserWindow.happyDOM.whenAsyncComplete()
   expect(root.querySelector('.library-page')).not.toBeNull()
 
@@ -861,14 +897,12 @@ test('keeps dashboard nodes, focus, scroll, and query work stable across equival
     ...base,
     mutations: {jobs: [failedJob], batches: [], history: []}
   }
-  const root = await mountReadyDashboard(state)
-  const {renderAppState, renderLibraryState} = await import('../../src/dashboard/scripts')
   let queryCalls = 0
-  const queryProbe = renderLibraryState(state, (...args) => {
+  const root = await mountReadyDashboard(state, (...args) => {
     queryCalls += 1
     return queryRepositories(...args)
   })
-  document.body.append(queryProbe)
+  const {renderAppState} = await import('../../src/dashboard/scripts')
   queryCalls = 0
   const sidebar = root.querySelector('.sidebar')
   const page = root.querySelector('.library-page')
@@ -916,19 +950,16 @@ test('keeps dashboard nodes, focus, scroll, and query work stable across equival
   expect(root.querySelector('[aria-current="page"]')).toBe(navButton)
   expect(document.activeElement).toBe(navButton)
   expect(queryCalls).toBe(0)
-  queryProbe.remove()
 })
 
 test('updates material library metadata while restoring row and Search focus', async () => {
   const state = readyDashboardState()
-  const root = await mountReadyDashboard(state)
-  const {renderAppState, renderLibraryState} = await import('../../src/dashboard/scripts')
   let queryCalls = 0
-  const queryProbe = renderLibraryState(state, (...args) => {
+  const root = await mountReadyDashboard(state, (...args) => {
     queryCalls += 1
     return queryRepositories(...args)
   })
-  document.body.append(queryProbe)
+  const {renderAppState} = await import('../../src/dashboard/scripts')
   queryCalls = 0
   const page = root.querySelector('.library-page')
   const list = root.querySelector<HTMLElement>('.repository-list')!
@@ -984,7 +1015,33 @@ test('updates material library metadata while restoring row and Search focus', a
   expect(search.value).toBe('rename')
   expect(search.selectionStart).toBe(2)
   expect(search.selectionEnd).toBe(5)
-  queryProbe.remove()
+  expect(queryCalls).toBe(2)
+})
+
+test('restores focused native List navigation after material metadata publication', async () => {
+  const state = renameReadyDashboardState()
+  const root = await mountReadyDashboard(state)
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const currentList = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')]
+    .find((button) => button.querySelector('.nav-label')?.textContent === 'Current List')!
+  currentList.focus()
+
+  renderAppState({
+    ...state,
+    library: {
+      ...state.library!,
+      nativeLists: state.library!.nativeLists.map((list) =>
+        list.listNodeId === 'L_current' ? {...list, name: 'Renamed Current List'} : list
+      )
+    }
+  })
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+
+  const renamed = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')]
+    .find((button) => button.dataset.viewKey === currentList.dataset.viewKey)!
+  expect(renamed).not.toBe(currentList)
+  expect(renamed.querySelector('.nav-label')?.textContent).toBe('Renamed Current List')
+  expect(document.activeElement).toBe(renamed)
 })
 
 test('keeps Operations and Settings page content stable across unrelated slice updates', async () => {
@@ -1004,10 +1061,11 @@ test('keeps Operations and Settings page content stable across unrelated slice u
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
   const operationsPage = root.querySelector('.operations-page')
   const operationsContent = root.querySelector('.operations-page .state-page-content')
-  renderAppState({
+  const writeUpdated = {
     ...base,
     writeAuthorization: {...base.writeAuthorization, previewVisible: true}
-  })
+  }
+  renderAppState(writeUpdated)
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
   expect(root.querySelector('.operations-page')).toBe(operationsPage)
   expect(root.querySelector('.operations-page .state-page-content')).toBe(operationsContent)
@@ -1017,7 +1075,7 @@ test('keeps Operations and Settings page content stable across unrelated slice u
   const settingsPage = root.querySelector('.settings-page')
   const settingsContent = root.querySelector('.settings-page .state-page-content')
   renderAppState({
-    ...base,
+    ...writeUpdated,
     mutations: {
       jobs: [{...mutationJob('42', 'failed', 1), repositoryNodeId: 'R_one'}],
       batches: [],
@@ -1206,6 +1264,76 @@ test('moves focus to an available repository when a filter removes the focused r
   language.value = ''
   language.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
   await browserWindow.happyDOM.whenAsyncComplete()
+})
+
+test('supersedes rapid query focus work and respects intentional focus movement', async () => {
+  const base = readyDashboardState()
+  const state: AppState = {
+    ...base,
+    library: {
+      ...base.library!,
+      repositories: [
+        {...base.library!.repositories[0]!, primaryLanguage: 'TypeScript'},
+        {...repositoryRecord('42', 'R_two', 'octocat/two'), primaryLanguage: 'Rust'}
+      ]
+    }
+  }
+  let queryCalls = 0
+  const root = await mountReadyDashboard(state, (...args) => {
+    queryCalls += 1
+    return queryRepositories(...args)
+  })
+  queryCalls = 0
+  const focused = root.querySelector<HTMLElement>(
+    '.repository-row[data-repository-node-id="R_two"]'
+  )!
+  focused.focus()
+  const search = root.querySelector<HTMLInputElement>('#library-search')!
+  search.value = 'octocat'
+  search.dispatchEvent(new Event('input', {bubbles: true}))
+  const language = [...root.querySelectorAll<HTMLLabelElement>('label')].find(
+    (candidate) => candidate.firstElementChild?.textContent === 'Language'
+  )!.querySelector<HTMLSelectElement>('select')!
+  language.value = 'TypeScript'
+  language.dispatchEvent(new Event('change', {bubbles: true}))
+  const intentionalTarget = root.querySelector<HTMLButtonElement>('.refresh-button')!
+  intentionalTarget.focus()
+
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(queryCalls).toBe(1)
+  expect(root.querySelector('[data-repository-node-id="R_two"]')).toBeNull()
+  expect(document.activeElement).toBe(intentionalTarget)
+})
+
+test('cancels pending query reconciliation when its dashboard is unmounted', async () => {
+  const base = readyDashboardState()
+  const state: AppState = {
+    ...base,
+    library: {
+      ...base.library!,
+      repositories: [
+        {...base.library!.repositories[0]!, primaryLanguage: 'TypeScript'},
+        {...repositoryRecord('42', 'R_two', 'octocat/two'), primaryLanguage: 'Rust'}
+      ]
+    }
+  }
+  let queryCalls = 0
+  const root = await mountReadyDashboard(state, (...args) => {
+    queryCalls += 1
+    return queryRepositories(...args)
+  })
+  queryCalls = 0
+  root.querySelector<HTMLElement>('[data-repository-node-id="R_two"]')!.focus()
+  const language = [...root.querySelectorAll<HTMLLabelElement>('label')].find(
+    (candidate) => candidate.firstElementChild?.textContent === 'Language'
+  )!.querySelector<HTMLSelectElement>('select')!
+  language.value = 'TypeScript'
+  language.dispatchEvent(new Event('change', {bubbles: true}))
+  root.remove()
+
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(queryCalls).toBe(0)
+  expect(root.isConnected).toBe(false)
 })
 
 test('reindexes repository jobs when only the active account changes', async () => {
@@ -1926,7 +2054,7 @@ test('mounts existing native List controls separately from local tags', async ()
     Event: browserWindow.Event,
     KeyboardEvent: browserWindow.KeyboardEvent
   })
-  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
+  const {mountDashboard} = await import('../../src/dashboard/scripts')
   const repository = repositoryRecord('42', 'R_one', 'octocat/one')
   const state: AppState = {
     ...accountState('42', {
@@ -1964,10 +2092,9 @@ test('mounts existing native List controls separately from local tags', async ()
     },
     mutations: {batches: [], jobs: [], history: []}
   }
-  renderLibraryState(state)
   const root = browserWindow.document.createElement('main')
   browserWindow.document.body.append(root)
-  mountDashboard(root as unknown as HTMLElement)
+  mountDashboard(root as unknown as HTMLElement, state)
   const currentListNavigationItem = [...root.querySelectorAll('button')].find(
     (element) => element.textContent?.includes('Current List')
   )
@@ -3305,7 +3432,7 @@ function operationHistory(
 test('restores focus to an available result when filtering removes the inspected repository', async () => {
   const browserWindow = createDashboardWindow()
   // @ts-expect-error Bun query strings create a test-only module instance.
-  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts?stale-focus')
+  const {mountDashboard} = await import('../../src/dashboard/scripts?stale-focus')
   const inspected = {
     ...repositoryRecord('42', 'R_inspected', 'octocat/inspected'),
     primaryLanguage: 'TypeScript'
@@ -3314,7 +3441,7 @@ test('restores focus to an available result when filtering removes the inspected
     ...repositoryRecord('42', 'R_fallback', 'github/fallback'),
     primaryLanguage: 'JavaScript'
   }
-  renderLibraryState({
+  const state: AppState = {
     ...membershipReadyDashboardState(),
     library: {
       repositories: [inspected, fallback],
@@ -3323,12 +3450,12 @@ test('restores focus to an available result when filtering removes the inspected
       annotations: []
     },
     mutations: {batches: [], jobs: [], history: []}
-  })
+  }
   const library = browserWindow.document.createElement('main') as unknown as HTMLElement
   browserWindow.document.body.append(
     library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
-  mountDashboard(library)
+  mountDashboard(library, state)
   const inspectedRow = library.querySelector<HTMLButtonElement>(
     '[data-repository-node-id="R_inspected"]'
   )
@@ -3366,10 +3493,10 @@ test('restores focus to an available result when filtering removes the inspected
 test('restores focus to an available result when search removes the inspected repository', async () => {
   const browserWindow = createDashboardWindow()
   // @ts-expect-error Bun query strings create a test-only module instance.
-  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts?stale-search-focus')
+  const {mountDashboard} = await import('../../src/dashboard/scripts?stale-search-focus')
   const inspected = repositoryRecord('42', 'R_inspected', 'octocat/inspected')
   const fallback = repositoryRecord('42', 'R_fallback', 'github/fallback')
-  renderLibraryState({
+  const state: AppState = {
     ...membershipReadyDashboardState(),
     library: {
       repositories: [inspected, fallback],
@@ -3378,12 +3505,12 @@ test('restores focus to an available result when search removes the inspected re
       annotations: []
     },
     mutations: {batches: [], jobs: [], history: []}
-  })
+  }
   const library = browserWindow.document.createElement('main') as unknown as HTMLElement
   browserWindow.document.body.append(
     library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
-  mountDashboard(library)
+  mountDashboard(library, state)
   const inspectedRow = library.querySelector<HTMLButtonElement>(
     '[data-repository-node-id="R_inspected"]'
   )
@@ -3439,15 +3566,17 @@ function deferred(): {readonly promise: Promise<void>; readonly resolve: () => v
   return {promise, resolve}
 }
 
-async function mountReadyDashboard(state: AppState = readyDashboardState()): Promise<HTMLElement> {
+async function mountReadyDashboard(
+  state: AppState = readyDashboardState(),
+  runQuery: typeof queryRepositories = queryRepositories
+): Promise<HTMLElement> {
   const browserWindow = createDashboardWindow()
-  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
-  renderLibraryState(state)
+  const {mountDashboard} = await import('../../src/dashboard/scripts')
   const root = browserWindow.document.createElement('main') as unknown as HTMLElement
   browserWindow.document.body.append(
     root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
-  mountDashboard(root)
+  mountDashboard(root, state, runQuery)
   await browserWindow.happyDOM.whenAsyncComplete()
   return root as unknown as HTMLElement
 }
@@ -3531,11 +3660,10 @@ async function mountNativeListRenameDashboard(
   const browserWindow = createDashboardWindow()
   const previousChrome = (globalThis as {chrome?: unknown}).chrome
   Object.assign(globalThis, {chrome: {runtime: {sendMessage}}})
-  const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
-  renderLibraryState(state)
+  const {mountDashboard} = await import('../../src/dashboard/scripts')
   const root = browserWindow.document.createElement('main')
   browserWindow.document.body.append(root)
-  mountDashboard(root as unknown as HTMLElement)
+  mountDashboard(root as unknown as HTMLElement, state)
   const list = [...root.querySelectorAll('.nav-item')].find(
     (item) => item.textContent?.includes('Current List')
   ) as unknown as HTMLButtonElement | undefined

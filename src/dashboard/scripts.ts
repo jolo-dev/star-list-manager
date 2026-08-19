@@ -95,50 +95,121 @@ const emptyState: AppState = {
   mutations: null,
   error: null
 }
-const appState = van.state<AppState>(emptyState)
-const publishedPhase = van.state<AppPhase>(emptyState.phase)
-const publishedIdentity = van.state<AppState['identity']>(emptyState.identity)
-const publishedAuthorization = van.state<AppState['authorization']>(emptyState.authorization)
-const publishedWriteAuthorization = van.state<AppState['writeAuthorization']>(emptyState.writeAuthorization)
-const publishedSync = van.state<AppState['sync']>(emptyState.sync)
-const publishedNativeListSync = van.state<AppState['nativeListSync']>(emptyState.nativeListSync)
-const publishedNativeListMembership = van.state<AppState['nativeListMembership']>(emptyState.nativeListMembership)
-const publishedNativeListRename = van.state<AppState['nativeListRename']>(emptyState.nativeListRename)
-const publishedTriageCounts = van.state<AppState['triageCounts']>(emptyState.triageCounts)
-const publishedLibrary = van.state<AppState['library']>(emptyState.library)
-const publishedMutations = van.state<AppState['mutations']>(emptyState.mutations)
-const publishedError = van.state<AppState['error']>(emptyState.error)
-let publishedFingerprints: DashboardSliceFingerprints = dashboardSliceFingerprints(emptyState)
-const activeView = van.state<LibraryView>({kind: 'unlist'})
-const searchText = van.state('')
-const sort = van.state<RepositorySort>('starred-at')
-const ascending = van.state(false)
-const language = van.state<string | null>(null)
-const hideArchived = van.state(true)
-const starState = van.state<StarFilter>('starred')
-const disabled = van.state<InclusionFilter>('all')
-const triageState = van.state<TriageState | null>(null)
-const starredAfter = van.state<string | null>(null)
-const starredBefore = van.state<string | null>(null)
-const pushedAfter = van.state<string | null>(null)
-const pushedBefore = van.state<string | null>(null)
-const selectedRepositoryNodeId = van.state<string | null>(null)
-const inspectedRepositoryNodeId = van.state<string | null>(null)
-const selectedForUnstar = van.state<ReadonlySet<string>>(new Set())
-const pendingUnstarTargets = van.state<readonly UnstarConfirmationTarget[]>([])
-const enqueueingUnstars = van.state(false)
-const selectedNativeListIds = van.state<ReadonlySet<string>>(new Set())
-const membershipOperation = van.state<'add' | 'remove' | 'move'>('add')
-const moveSourceListNodeId = van.state('')
-const moveDestinationListNodeId = van.state('')
-const membershipActivity = van.state<string | null>(null)
-const pendingMembershipPreview = van.state<StableMembershipPreviewResponse | null>(null)
-const confirmingMembership = van.state(false)
-const syncing = van.state(false)
-const editingNativeListId = van.state<string | null>(null)
-const nativeListRenameDraft = van.state('')
-const nativeListRenameError = van.state<string | null>(null)
-const savingNativeListRename = van.state(false)
+interface DashboardSignal<T> {
+  val: T
+}
+
+interface DashboardStore {
+  readonly appState: DashboardSignal<AppState>
+  readonly phase: DashboardSignal<AppPhase>
+  readonly identity: DashboardSignal<AppState['identity']>
+  readonly authorization: DashboardSignal<AppState['authorization']>
+  readonly writeAuthorization: DashboardSignal<AppState['writeAuthorization']>
+  readonly sync: DashboardSignal<AppState['sync']>
+  readonly nativeListSync: DashboardSignal<AppState['nativeListSync']>
+  readonly nativeListMembership: DashboardSignal<AppState['nativeListMembership']>
+  readonly nativeListRename: DashboardSignal<AppState['nativeListRename']>
+  readonly triageCounts: DashboardSignal<AppState['triageCounts']>
+  readonly library: DashboardSignal<AppState['library']>
+  readonly mutations: DashboardSignal<AppState['mutations']>
+  readonly error: DashboardSignal<AppState['error']>
+  fingerprints: DashboardSliceFingerprints
+  latestJobsAccountId: string | null
+  latestJobsMutationFingerprint: string
+}
+
+function createDashboardStore(initialState: AppState): DashboardStore {
+  const fingerprints = dashboardSliceFingerprints(initialState)
+  return {
+    appState: van.state(initialState),
+    phase: van.state(initialState.phase),
+    identity: van.state(initialState.identity),
+    authorization: van.state(initialState.authorization),
+    writeAuthorization: van.state(initialState.writeAuthorization),
+    sync: van.state(initialState.sync),
+    nativeListSync: van.state(initialState.nativeListSync),
+    nativeListMembership: van.state(initialState.nativeListMembership),
+    nativeListRename: van.state(initialState.nativeListRename),
+    triageCounts: van.state(initialState.triageCounts),
+    library: van.state(initialState.library),
+    mutations: van.state(initialState.mutations),
+    error: van.state(initialState.error),
+    fingerprints,
+    latestJobsAccountId: initialState.identity?.githubUserId ?? null,
+    latestJobsMutationFingerprint: fingerprints.mutations
+  }
+}
+
+let dashboardStore = createDashboardStore(emptyState)
+let appState = dashboardStore.appState
+let publishedPhase = dashboardStore.phase
+let publishedIdentity = dashboardStore.identity
+let publishedAuthorization = dashboardStore.authorization
+let publishedWriteAuthorization = dashboardStore.writeAuthorization
+let publishedSync = dashboardStore.sync
+let publishedNativeListSync = dashboardStore.nativeListSync
+let publishedNativeListMembership = dashboardStore.nativeListMembership
+let publishedNativeListRename = dashboardStore.nativeListRename
+let publishedTriageCounts = dashboardStore.triageCounts
+let publishedLibrary = dashboardStore.library
+let publishedMutations = dashboardStore.mutations
+let publishedError = dashboardStore.error
+let publishedFingerprints = dashboardStore.fingerprints
+
+function activateDashboardStore(initialState: AppState): void {
+  dashboardStore = createDashboardStore(initialState)
+  appState = dashboardStore.appState
+  publishedPhase = dashboardStore.phase
+  publishedIdentity = dashboardStore.identity
+  publishedAuthorization = dashboardStore.authorization
+  publishedWriteAuthorization = dashboardStore.writeAuthorization
+  publishedSync = dashboardStore.sync
+  publishedNativeListSync = dashboardStore.nativeListSync
+  publishedNativeListMembership = dashboardStore.nativeListMembership
+  publishedNativeListRename = dashboardStore.nativeListRename
+  publishedTriageCounts = dashboardStore.triageCounts
+  publishedLibrary = dashboardStore.library
+  publishedMutations = dashboardStore.mutations
+  publishedError = dashboardStore.error
+  publishedFingerprints = dashboardStore.fingerprints
+  latestJobsByRepository = van.state(
+    indexLatestRepositoryJobs(
+      initialState.mutations?.jobs ?? [],
+      initialState.identity?.githubUserId ?? null
+    )
+  )
+}
+
+let activeView = van.state<LibraryView>({kind: 'unlist'})
+let searchText = van.state('')
+let sort = van.state<RepositorySort>('starred-at')
+let ascending = van.state(false)
+let language = van.state<string | null>(null)
+let hideArchived = van.state(true)
+let starState = van.state<StarFilter>('starred')
+let disabled = van.state<InclusionFilter>('all')
+let triageState = van.state<TriageState | null>(null)
+let starredAfter = van.state<string | null>(null)
+let starredBefore = van.state<string | null>(null)
+let pushedAfter = van.state<string | null>(null)
+let pushedBefore = van.state<string | null>(null)
+let selectedRepositoryNodeId = van.state<string | null>(null)
+let inspectedRepositoryNodeId = van.state<string | null>(null)
+let selectedForUnstar = van.state<ReadonlySet<string>>(new Set())
+let pendingUnstarTargets = van.state<readonly UnstarConfirmationTarget[]>([])
+let enqueueingUnstars = van.state(false)
+let selectedNativeListIds = van.state<ReadonlySet<string>>(new Set())
+let membershipOperation = van.state<'add' | 'remove' | 'move'>('add')
+let moveSourceListNodeId = van.state('')
+let moveDestinationListNodeId = van.state('')
+let membershipActivity = van.state<string | null>(null)
+let pendingMembershipPreview = van.state<StableMembershipPreviewResponse | null>(null)
+let confirmingMembership = van.state(false)
+let syncing = van.state(false)
+let editingNativeListId = van.state<string | null>(null)
+let nativeListRenameDraft = van.state('')
+let nativeListRenameError = van.state<string | null>(null)
+let savingNativeListRename = van.state(false)
 let nextNativeListRenameRequestToken = 0
 let activeNativeListRenameRequest: NativeListRenameRequest | null = null
 let nativeListRenameInvoker: NativeListRenameInvoker | null = null
@@ -150,8 +221,10 @@ let activeMembershipPreviewRequestToken: number | null = null
 let pollTimer: number | null = null
 let autoSyncAccountId: string | null = null
 let dashboardAccountId: string | null = null
-const latestJobsByRepository = van.state<ReadonlyMap<string, MutationJobRecord>>(new Map())
-let latestJobsInputKey = ''
+let mountedDashboardRoot: HTMLElement | null = null
+let nextDashboardMountId = 0
+let activeDashboardMountId = 0
+let latestJobsByRepository = van.state<ReadonlyMap<string, MutationJobRecord>>(new Map())
 
 export interface UnstarConfirmationTarget {
   readonly repositoryNodeId: string
@@ -172,37 +245,27 @@ interface NativeListRenameInvoker {
   readonly listNodeId: string
 }
 
-const workspaceKind = van.derive(() =>
-  classifyWorkspace(publishedPhase.val, activeView.val)
-)
-
-function Dashboard() {
-  const workspaces = {
-    library: ReadyLibraryState(),
-    operations: PersistentStatePage(
-      'operations-page',
-      OperationsState,
-      operationsPublishedState
-    ),
-    settings: PersistentStatePage(
-      'settings-page',
-      SettingsState,
-      settingsPublishedState
-    ),
-    phase: div(
-      {class: 'phase-workspace'},
-      () => renderState(phasePublishedState())
-    )
-  }
+function Dashboard(runQuery: RepositoryQueryRunner = queryRepositories) {
+  let retainedKind: DashboardWorkspace | null = null
+  let retainedWorkspace: HTMLElement | null = null
   return div(
     {class: 'app-shell'},
     Navigation(),
     main(
-      {class: 'workspace', 'data-workspace-kind': workspaceKind},
-      () => renderWorkspace(
-        classifyWorkspace(publishedPhase.val, activeView.val),
-        workspaces
-      )
+      {
+        class: 'workspace',
+        'data-workspace-kind': () =>
+          classifyWorkspace(publishedPhase.val, activeView.val)
+      },
+      () => {
+        const kind = classifyWorkspace(publishedPhase.val, activeView.val)
+        if (kind === retainedKind && retainedWorkspace !== null) {
+          return retainedWorkspace
+        }
+        retainedKind = kind
+        retainedWorkspace = createWorkspace(kind, runQuery)
+        return retainedWorkspace
+      }
     )
   )
 }
@@ -344,19 +407,29 @@ function writeAuthorizationPublishedState(): AppState {
   }
 }
 
-function renderWorkspace(
+function createWorkspace(
   kind: DashboardWorkspace,
-  workspaces: {
-    readonly library: HTMLElement
-    readonly operations: HTMLElement
-    readonly settings: HTMLElement
-    readonly phase: HTMLElement
+  runQuery: RepositoryQueryRunner
+): HTMLElement {
+  if (kind === 'library') return ReadyLibraryState(runQuery)
+  if (kind === 'operations') {
+    return PersistentStatePage(
+      'operations-page',
+      OperationsState,
+      operationsPublishedState
+    )
   }
-) {
-  if (kind === 'library') return workspaces.library
-  if (kind === 'operations') return workspaces.operations
-  if (kind === 'settings') return workspaces.settings
-  return workspaces.phase
+  if (kind === 'settings') {
+    return PersistentStatePage(
+      'settings-page',
+      SettingsState,
+      settingsPublishedState
+    )
+  }
+  return div(
+    {class: 'phase-workspace'},
+    () => renderState(phasePublishedState())
+  )
 }
 
 function PersistentStatePage(
@@ -406,20 +479,14 @@ function ReadyLibraryState(
   const repositories = van.derive(() =>
     publishedLibrary.val ? buildLibraryRepositories(publishedLibrary.val) : []
   )
-  let page: HTMLElement | null = null
-  let wasConnected = false
-  let lastMatches: readonly LibraryRepository[] = []
   const repositoryMatches = van.derive(() => {
-    if (page?.isConnected) wasConnected = true
-    if (wasConnected && !page?.isConnected) return lastMatches
     const snapshot = publishedLibrary.val
     const queryRepositoriesInput = snapshot
       ? buildLibraryRepositories(snapshot)
       : []
-    lastMatches = runQuery(queryRepositoriesInput, currentQuery(), Date.now())
-    return lastMatches
+    return runQuery(queryRepositoriesInput, currentQuery(), Date.now())
   })
-  page = div(
+  const page = div(
     {class: 'library-page'},
     LibraryHeader(repositories, repositoryMatches),
     () => SelectionActions(libraryActionPublishedState(), repositories.val),
@@ -453,9 +520,7 @@ function ReadyLibraryState(
           )
         : ''
   )
-  window.setTimeout(() => {
-    if (page?.isConnected) wasConnected = true
-  }, 0)
+  registerLibraryPage(page)
   return page
 }
 
@@ -650,7 +715,7 @@ function LibraryViewContext() {
     ),
     () => {
       const nativeList = currentNativeList()
-      if (!nativeList || !hasEditor()) return null
+      if (!nativeList || !hasEditor()) return ''
       const editing = () => editingNativeListId.val === nativeList.listNodeId
       return div(
         {class: 'native-list-header-editor'},
@@ -2678,7 +2743,6 @@ async function sendAction(message: RuntimeMessage): Promise<boolean> {
 function applyState(state: AppState): void {
   const nextAccountId = state.identity?.githubUserId ?? null
   const nextFingerprints = dashboardSliceFingerprints(state)
-  const phaseChanged = nextFingerprints.phase !== publishedFingerprints.phase
   const libraryChanged = nextFingerprints.library !== publishedFingerprints.library
   const position = libraryChanged ? captureDashboardPosition() : null
   if (dashboardAccountId !== nextAccountId) {
@@ -2692,11 +2756,15 @@ function applyState(state: AppState): void {
     resetMembershipPreview()
     resetNativeListRenameEditor()
     dashboardAccountId = nextAccountId
+    const mountedPage = mountedDashboardRoot?.querySelector<HTMLElement>('.library-page')
+    const lifecycle = mountedPage
+      ? libraryPageLifecycles.get(mountedPage)
+      : undefined
+    if (lifecycle) lifecycle.accountId = nextAccountId
   }
   reconcileActiveNativeList(state)
   appState.val = state
   publishStateSlices(state, nextFingerprints)
-  if (phaseChanged) refreshWorkspacePhase(state.phase)
   if (position) scheduleRepositoryQueryReconciliation(position)
   if (state.library) {
     const selectable = new Set(
@@ -2728,26 +2796,6 @@ function applyState(state: AppState): void {
   if (shouldStartAutoSync(state, autoSyncAccountId)) {
     autoSyncAccountId = state.identity?.githubUserId ?? null
     window.setTimeout(() => void sendAction({type: 'start-sync', force: false}), 0)
-  }
-}
-
-function refreshWorkspacePhase(phase: AppPhase): void {
-  for (const workspace of document.querySelectorAll<HTMLElement>('.workspace')) {
-    if (phase !== 'ready') {
-      workspace.replaceChildren(renderState(phasePublishedState()))
-      continue
-    }
-    if (activeView.val.kind === 'operations') {
-      workspace.replaceChildren(
-        PersistentStatePage('operations-page', OperationsState, operationsPublishedState)
-      )
-    } else if (activeView.val.kind === 'settings') {
-      workspace.replaceChildren(
-        PersistentStatePage('settings-page', SettingsState, settingsPublishedState)
-      )
-    } else {
-      workspace.replaceChildren(ReadyLibraryState())
-    }
   }
 }
 
@@ -2823,13 +2871,18 @@ function publishStateSlices(
     state.error
   )
   publishedFingerprints = next
+  dashboardStore.fingerprints = next
 
-  const nextJobsInputKey = `${state.identity?.githubUserId ?? ''}:${next.mutations}`
-  if (nextJobsInputKey !== latestJobsInputKey) {
-    latestJobsInputKey = nextJobsInputKey
+  const nextAccountId = state.identity?.githubUserId ?? null
+  if (
+    nextAccountId !== dashboardStore.latestJobsAccountId ||
+    next.mutations !== dashboardStore.latestJobsMutationFingerprint
+  ) {
+    dashboardStore.latestJobsAccountId = nextAccountId
+    dashboardStore.latestJobsMutationFingerprint = next.mutations
     latestJobsByRepository.val = indexLatestRepositoryJobs(
       state.mutations?.jobs ?? [],
-      state.identity?.githubUserId ?? null
+      nextAccountId
     )
   }
 }
@@ -2844,7 +2897,19 @@ function publishIfMateriallyChanged<T>(
   return nextFingerprint
 }
 
+interface LibraryPageLifecycle {
+  generation: number
+  accountId: string | null
+  readonly mountId: number
+}
+
 interface DashboardPosition {
+  readonly page: HTMLElement
+  readonly scope: HTMLElement
+  readonly lifecycle: LibraryPageLifecycle
+  readonly accountId: string | null
+  readonly focusAnchor: HTMLElement | null
+  readonly focusedViewKey: string | null
   readonly scrollTop: number
   readonly repositoryNodeId: string | null
   readonly repositoryIndex: number
@@ -2857,6 +2922,16 @@ interface DashboardPosition {
   readonly dialogInvoker: DialogInvoker | null
 }
 
+const libraryPageLifecycles = new WeakMap<HTMLElement, LibraryPageLifecycle>()
+
+function registerLibraryPage(page: HTMLElement): void {
+  libraryPageLifecycles.set(page, {
+    generation: 0,
+    accountId: dashboardAccountId,
+    mountId: activeDashboardMountId
+  })
+}
+
 function updateRepositoryQuery(update: () => void): void {
   const position = captureDashboardPosition()
   update()
@@ -2865,19 +2940,33 @@ function updateRepositoryQuery(update: () => void): void {
 
 function captureDashboardPosition(): DashboardPosition | null {
   const active = document.activeElement as HTMLElement | null
+  const activeScope = active?.closest<HTMLElement>('.app-shell') ?? null
+  const page = active?.closest<HTMLElement>('.library-page') ??
+    activeScope?.querySelector<HTMLElement>('.library-page') ??
+    mountedDashboardRoot?.querySelector<HTMLElement>('.library-page') ??
+    [...document.querySelectorAll<HTMLElement>('.library-page')]
+      .find((candidate) => candidate.isConnected) ??
+    null
+  if (page === null) return null
+  const lifecycle = libraryPageLifecycles.get(page)
+  if (lifecycle === undefined) return null
+  const scope = page.closest<HTMLElement>('.app-shell') ?? page
+  const list = page.querySelector<HTMLElement>('.repository-list')
   const focusedRow = active?.closest<HTMLElement>('.repository-row') ?? null
-  const searchInput = active?.id === 'library-search'
-    ? active as HTMLInputElement
-    : null
-  const libraryPage = focusedRow?.closest<HTMLElement>('.library-page') ??
-    searchInput?.closest<HTMLElement>('.library-page') ??
-    document.querySelector<HTMLElement>('.library-page')
-  const list = libraryPage?.querySelector<HTMLElement>('.repository-list') ?? null
   const rows = list
     ? [...list.querySelectorAll<HTMLElement>('.repository-row')]
     : []
-  if (!list && !focusedRow && !searchInput && !repositoryDialogInvoker) return null
+  const searchInput = active?.id === 'library-search'
+    ? active as HTMLInputElement
+    : null
+  const focusedNavigation = active?.closest<HTMLElement>('.nav-item') ?? null
   return {
+    page,
+    scope,
+    lifecycle,
+    accountId: dashboardAccountId,
+    focusAnchor: active === document.body ? null : active,
+    focusedViewKey: focusedNavigation?.dataset.viewKey ?? null,
     scrollTop: list?.scrollTop ?? 0,
     repositoryNodeId: focusedRow?.dataset.repositoryNodeId ?? null,
     repositoryIndex: focusedRow ? rows.indexOf(focusedRow) : -1,
@@ -2896,62 +2985,102 @@ function captureDashboardPosition(): DashboardPosition | null {
 function scheduleRepositoryQueryReconciliation(
   position: DashboardPosition | null
 ): void {
-  window.setTimeout(() => window.setTimeout(() => {
-    reconcileStaleRepositoryInspection(position)
-    if (position) restoreDashboardPosition(position)
-  }, 0), 0)
+  if (position === null) return
+  const generation = ++position.lifecycle.generation
+  const expectedViewKey = JSON.stringify(activeView.val)
+  const isCurrent = () =>
+    position.page.isConnected &&
+    libraryPageLifecycles.get(position.page) === position.lifecycle &&
+    position.lifecycle.generation === generation &&
+    position.lifecycle.mountId === activeDashboardMountId &&
+    position.lifecycle.accountId === dashboardAccountId &&
+    position.accountId === dashboardAccountId &&
+    JSON.stringify(activeView.val) === expectedViewKey
+  const restoreCurrentPosition = () => {
+    if (!isCurrent()) return
+    const ownerDocument = position.page.ownerDocument
+    const currentFocus = ownerDocument.activeElement as HTMLElement | null
+    const anchorRetained = position.focusAnchor?.isConnected === true
+    const focusWasIntentionallyMoved = anchorRetained
+      ? currentFocus !== position.focusAnchor
+      : currentFocus !== null &&
+        currentFocus !== ownerDocument.body &&
+        position.scope.contains(currentFocus)
+    restoreDashboardPosition(position, !focusWasIntentionallyMoved)
+  }
+  queueMicrotask(() => {
+    if (!isCurrent()) return
+    if (reconcileStaleRepositoryInspection(position)) {
+      queueMicrotask(restoreCurrentPosition)
+      return
+    }
+    restoreCurrentPosition()
+  })
 }
 
 function reconcileStaleRepositoryInspection(
-  position: DashboardPosition | null
-): void {
+  position: DashboardPosition
+): boolean {
   if (
     inspectedRepositoryNodeId.val === null ||
-    document.querySelector('.repository-inspection-dialog') !== null
+    position.page.querySelector('.repository-inspection-dialog') !== null
   ) {
-    return
+    return false
   }
-  const invoker = dismissRepositoryInspection() ?? position?.dialogInvoker ?? null
-  if (!position?.hadRepositoryFocus && position?.search === null) {
-    restoreDialogInvoker(invoker, '.repository-list .repository-row:not(:disabled)', true)
-  }
+  dismissRepositoryInspection()
+  return true
 }
 
-function restoreDashboardPosition(position: DashboardPosition): void {
-  const libraryPage = document.querySelector<HTMLElement>('.library-page')
-  const list = libraryPage?.querySelector<HTMLElement>('.repository-list') ?? null
+function restoreDashboardPosition(
+  position: DashboardPosition,
+  restoreFocus: boolean
+): void {
+  const list = position.page.querySelector<HTMLElement>('.repository-list')
   if (list) list.scrollTop = position.scrollTop
+  if (!restoreFocus) return
 
   if (position.search) {
     const searchInput = position.search.element.isConnected
       ? position.search.element
-      : document.getElementById('library-search') as HTMLInputElement | null
+      : position.page.querySelector<HTMLInputElement>('#library-search')
     searchInput?.focus()
     searchInput?.setSelectionRange(position.search.start, position.search.end)
     return
   }
 
-  if (!position.hadRepositoryFocus) return
-  const rows = list
-    ? [...list.querySelectorAll<HTMLElement>('.repository-row:not(:disabled)')]
-    : []
-  const retained = position.repositoryNodeId
-    ? rows.find((row) => row.dataset.repositoryNodeId === position.repositoryNodeId) ?? null
-    : null
-  const fallback = rows[position.repositoryIndex] ??
-    rows[Math.min(Math.max(position.repositoryIndex - 1, 0), rows.length - 1)] ??
-    rows[0] ??
-    null
-  const target = retained ?? fallback
-  if (target) {
-    target.focus()
+  if (position.focusedViewKey) {
+    const retainedNavigation = [...position.scope.querySelectorAll<HTMLElement>('.nav-item')]
+      .find((item) => item.dataset.viewKey === position.focusedViewKey) ?? null
+    retainedNavigation?.focus()
+    if (retainedNavigation) return
+  }
+
+  if (position.hadRepositoryFocus) {
+    const rows = list
+      ? [...list.querySelectorAll<HTMLElement>('.repository-row:not(:disabled)')]
+      : []
+    const retained = position.repositoryNodeId
+      ? rows.find((row) => row.dataset.repositoryNodeId === position.repositoryNodeId) ?? null
+      : null
+    const fallback = rows[position.repositoryIndex] ??
+      rows[Math.min(Math.max(position.repositoryIndex - 1, 0), rows.length - 1)] ??
+      rows[0] ??
+      null
+    const target = retained ?? fallback
+    if (target) {
+      target.focus()
+      return
+    }
+  }
+
+  const dialogInvoker = position.dialogInvoker?.element
+  if (dialogInvoker?.isConnected) {
+    dialogInvoker.focus()
     return
   }
-  focusDialogInvoker(
-    position.dialogInvoker,
-    '.repository-list .repository-row:not(:disabled)',
-    true
-  )
+  position.page
+    .querySelector<HTMLElement>('.repository-list .repository-row:not(:disabled)')
+    ?.focus()
 }
 
 function reconcileActiveNativeList(state: AppState): void {
@@ -3082,24 +3211,11 @@ function setActiveView(view: LibraryView): void {
   if (JSON.stringify(previous) !== JSON.stringify(view)) resetNativeListRenameEditor()
   const applyView = () => {
     activeView.val = view
-    refreshActiveViewDom(view)
   }
   const previousIsLibrary = previous.kind === 'unlist' || previous.kind === 'list'
   const nextIsLibrary = view.kind === 'unlist' || view.kind === 'list'
   if (previousIsLibrary && nextIsLibrary) updateRepositoryQuery(applyView)
   else applyView()
-}
-
-function refreshActiveViewDom(view: LibraryView): void {
-  const viewKey = JSON.stringify(view)
-  for (const item of document.querySelectorAll<HTMLElement>('.nav-item')) {
-    const active = item.dataset.viewKey === viewKey
-    item.classList.toggle('is-active', active)
-    if (active) item.setAttribute('aria-current', 'page')
-    else item.removeAttribute('aria-current')
-  }
-  const context = document.querySelector<HTMLElement>('.library-view-context')
-  context?.replaceWith(LibraryViewContext())
 }
 
 function isActiveView(view: LibraryView): boolean {
@@ -3274,8 +3390,20 @@ function toEndOfDay(value: string | null): string | null {
   return value ? `${value}T23:59:59Z` : null
 }
 
-export function mountDashboard(root: HTMLElement): void {
-  van.add(root, Dashboard())
+export function mountDashboard(
+  root: HTMLElement,
+  initialState: AppState = emptyState,
+  runQuery: RepositoryQueryRunner = queryRepositories
+): void {
+  if (pollTimer !== null) window.clearTimeout(pollTimer)
+  pollTimer = null
+  activateDashboardStore(initialState)
+  resetDashboardUiState()
+  activeDashboardMountId = ++nextDashboardMountId
+  dashboardAccountId = initialState.identity?.githubUserId ?? null
+  autoSyncAccountId = dashboardAccountId
+  mountedDashboardRoot = root
+  van.add(root, Dashboard(runQuery))
 }
 
 export function renderSettingsState(state: AppState): HTMLElement {
@@ -3286,59 +3414,56 @@ export function renderLibraryState(
   state: AppState,
   runQuery: RepositoryQueryRunner = queryRepositories
 ): HTMLElement {
-  resetNativeListRenameEditor()
-  setStateImmediately(activeView, {kind: 'unlist'})
-  setStateImmediately(selectedRepositoryNodeId, null)
-  setStateImmediately(inspectedRepositoryNodeId, null)
-  repositoryDialogInvoker = null
-  setStateImmediately(selectedForUnstar, new Set())
-  resetUnstarConfirmation()
-  setStateImmediately(selectedNativeListIds, new Set())
-  setStateImmediately(membershipActivity, null)
-  resetMembershipPreview()
-  setStateImmediately(appState, state)
+  activateDashboardStore(state)
+  resetDashboardUiState()
+  activeDashboardMountId = ++nextDashboardMountId
   dashboardAccountId = state.identity?.githubUserId ?? null
   autoSyncAccountId = dashboardAccountId
-  publishTestStateImmediately(state)
+  mountedDashboardRoot = null
   const host = div()
-  van.add(host, ReadyLibraryState(runQuery))
+  van.add(host, () => ReadyLibraryState(runQuery))
   const library = host.firstElementChild
   if (library === null) throw new Error('Ready dashboard did not render.')
   return library as HTMLElement
 }
 
-function setStateImmediately<T>(signal: {val: T}, value: T): void {
-  const internal = signal as unknown as {rawVal: T; _oldVal: T}
-  internal.rawVal = value
-  internal._oldVal = value
-}
-
-function publishTestStateImmediately(state: AppState): void {
-  setStateImmediately(
-    workspaceKind,
-    classifyWorkspace(state.phase, activeView.val)
-  )
-  setStateImmediately(publishedPhase, state.phase)
-  setStateImmediately(publishedIdentity, state.identity)
-  setStateImmediately(publishedAuthorization, state.authorization)
-  setStateImmediately(publishedWriteAuthorization, state.writeAuthorization)
-  setStateImmediately(publishedSync, state.sync)
-  setStateImmediately(publishedNativeListSync, state.nativeListSync)
-  setStateImmediately(publishedNativeListMembership, state.nativeListMembership)
-  setStateImmediately(publishedNativeListRename, state.nativeListRename)
-  setStateImmediately(publishedTriageCounts, state.triageCounts)
-  setStateImmediately(publishedLibrary, state.library)
-  setStateImmediately(publishedMutations, state.mutations)
-  setStateImmediately(publishedError, state.error)
-  publishedFingerprints = dashboardSliceFingerprints(state)
-  latestJobsInputKey = `${state.identity?.githubUserId ?? ''}:${publishedFingerprints.mutations}`
-  setStateImmediately(
-    latestJobsByRepository,
-    indexLatestRepositoryJobs(
-      state.mutations?.jobs ?? [],
-      state.identity?.githubUserId ?? null
-    )
-  )
+function resetDashboardUiState(): void {
+  activeView = van.state<LibraryView>({kind: 'unlist'})
+  searchText = van.state('')
+  sort = van.state<RepositorySort>('starred-at')
+  ascending = van.state(false)
+  language = van.state<string | null>(null)
+  hideArchived = van.state(true)
+  starState = van.state<StarFilter>('starred')
+  disabled = van.state<InclusionFilter>('all')
+  triageState = van.state<TriageState | null>(null)
+  starredAfter = van.state<string | null>(null)
+  starredBefore = van.state<string | null>(null)
+  pushedAfter = van.state<string | null>(null)
+  pushedBefore = van.state<string | null>(null)
+  selectedRepositoryNodeId = van.state<string | null>(null)
+  inspectedRepositoryNodeId = van.state<string | null>(null)
+  selectedForUnstar = van.state<ReadonlySet<string>>(new Set())
+  pendingUnstarTargets = van.state<readonly UnstarConfirmationTarget[]>([])
+  enqueueingUnstars = van.state(false)
+  selectedNativeListIds = van.state<ReadonlySet<string>>(new Set())
+  membershipOperation = van.state<'add' | 'remove' | 'move'>('add')
+  moveSourceListNodeId = van.state('')
+  moveDestinationListNodeId = van.state('')
+  membershipActivity = van.state<string | null>(null)
+  pendingMembershipPreview = van.state<StableMembershipPreviewResponse | null>(null)
+  confirmingMembership = van.state(false)
+  syncing = van.state(false)
+  editingNativeListId = van.state<string | null>(null)
+  nativeListRenameDraft = van.state('')
+  nativeListRenameError = van.state<string | null>(null)
+  savingNativeListRename = van.state(false)
+  activeNativeListRenameRequest = null
+  nativeListRenameInvoker = null
+  unstarDialogInvoker = null
+  membershipDialogInvoker = null
+  repositoryDialogInvoker = null
+  activeMembershipPreviewRequestToken = null
 }
 
 export function renderAppState(state: AppState): void {

@@ -53,6 +53,17 @@ test('fingerprints every dashboard publication slice without mutating state', ()
   }
 })
 
+test('canonicalizes JSON-compatible fingerprints without reordering arrays', () => {
+  expect(materialFingerprint({z: 1, nested: {b: true, a: null}, items: ['b', 'a']})).toBe(
+    materialFingerprint({items: ['b', 'a'], nested: {a: null, b: true}, z: 1})
+  )
+  expect(materialFingerprint({items: ['a', 'b']})).not.toBe(
+    materialFingerprint({items: ['b', 'a']})
+  )
+  expect(materialFingerprint({optional: undefined})).not.toBe(materialFingerprint({}))
+  expect(materialFingerprint(undefined)).toBe('undefined')
+})
+
 test('detects material changes across every structured dashboard slice', () => {
   const state: AppState = {
     phase: 'ready',
