@@ -689,7 +689,7 @@ function LibraryHeader(
         {class: 'archive-filter-container', 'aria-labelledby': 'archive-filter-heading'},
         h2({class: 'archive-filter-heading', id: 'archive-filter-heading'}, 'Status'),
         details(
-        {class: 'view-options archive-filter-group', 'aria-labelledby': 'archive-filter-heading'},
+        {class: 'view-options archive-filter-group'},
         summary('View options'),
         div(
           {class: 'view-options-controls'},
@@ -2214,7 +2214,7 @@ function nativeListMembershipWriteReadinessCopy(state: AppState): string {
 function AdvancedFilters() {
   const constraints = activeAdvancedFilterLabels()
   return details(
-    {class: 'advanced-filters archive-filter-group', 'aria-labelledby': 'archive-filter-heading'},
+    {class: 'advanced-filters archive-filter-group'},
     summary(
       'Filters',
       constraints.length > 0

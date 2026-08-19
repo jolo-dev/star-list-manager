@@ -154,7 +154,9 @@ test('groups real View options and Filters under one archive Status container', 
   expect(containers).toHaveLength(1)
   const container = containers[0] ?? null
   expect(container?.tagName).toBe('SECTION')
+  expect(container?.getAttribute('aria-labelledby')).toBe('archive-filter-heading')
   expect(container?.contains(heading ?? document.createElement('h2'))).toBe(true)
+  expect(heading?.textContent).toBe('Status')
 
   const viewOptions = container?.querySelector<HTMLDetailsElement>('details.view-options') ?? null
   const advancedFilters =
@@ -163,6 +165,8 @@ test('groups real View options and Filters under one archive Status container', 
   expect(advancedFilters).not.toBeNull()
   expect(viewOptions?.parentElement).toBe(container)
   expect(advancedFilters?.parentElement).toBe(container)
+  expect(viewOptions?.hasAttribute('aria-labelledby')).toBe(false)
+  expect(advancedFilters?.hasAttribute('aria-labelledby')).toBe(false)
   expect(viewOptions?.querySelector('summary')?.textContent).toBe('View options')
   expect(advancedFilters?.querySelector('summary')?.textContent).toBe('Filters')
 
