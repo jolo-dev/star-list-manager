@@ -55,14 +55,63 @@ test('Archive.Stars provides a self-contained light archive token system and str
   )
 })
 
+test('Archive.Stars reference layout uses an editorial frame and divided archive records', () => {
+  const frame = ruleFor(styles, '.archive-frame')
+  const header = ruleFor(styles, '.archive-app-header')
+  const workspace = ruleFor(styles, '.archive-workspace-frame')
+  const primaryLink = ruleFor(styles, '.archive-primary-link')
+  const directoryIndex = ruleFor(styles, '.archive-directory-index')
+  const indexNumber = ruleFor(styles, '.archive-index-number')
+  const directoryCount = ruleFor(styles, '.archive-directory-count')
+  const controlStrip = ruleFor(styles, '.archive-control-strip')
+  const row = ruleFor(styles, '.repository-row')
+  const summary = ruleFor(styles, '.archive-record-summary')
+  const facts = ruleFor(styles, '.archive-record-facts')
+  const sharedDocumentHeader = exactRuleFor(styles, [
+    '.archive-document-header',
+    '.archive-dialog-header'
+  ])
+
+  expect(frame).toMatch(/max-width:\s*1440px/)
+  expect(frame).toMatch(/margin(?:-inline)?:\s*(?:0 auto|auto)/)
+  expect(header).toMatch(/min-height:\s*96px/)
+  expect(workspace).toMatch(/grid-template-columns:\s*(?:minmax\([^)]*\)|\d+px|\d+rem)\s+minmax\(0,\s*1fr\)/)
+  expect(workspace).toMatch(/gap:\s*(?:clamp\([^)]*\)|[4-9]\dpx|[3-9]rem)/)
+
+  for (const [selector, declarations] of [
+    ['.archive-primary-link', primaryLink],
+    ['.archive-directory-index', directoryIndex],
+    ['.archive-index-number', indexNumber],
+    ['.archive-directory-count', directoryCount],
+    ['.archive-control-strip', controlStrip]
+  ] as const) {
+    expect(declarations, selector).toMatch(/font-family:\s*var\(--font-technical\)/)
+  }
+  expect(primaryLink).toMatch(/min-height:\s*(?:36|38|40)px/)
+  expect(indexNumber).toMatch(/font-variant-numeric:\s*tabular-nums/)
+
+  expect(row).toMatch(/width:\s*100%/)
+  expect(row).toMatch(/border(?:-top|-bottom)?:\s*1px solid var\(--archive-line\)/)
+  expect(row).not.toMatch(/border-radius:|box-shadow:/)
+  expect(summary).toMatch(/min-width:\s*0/)
+  expect(facts).toMatch(/display:\s*grid/)
+  expect(facts).toMatch(/grid-template-columns:/)
+  expect(facts).toMatch(/justify-items:\s*end/)
+  expect(sharedDocumentHeader).toMatch(/border-bottom:\s*1px solid var\(--archive-line\)/)
+
+  expect(styles).not.toMatch(/https?:\/\//i)
+  expect(ruleFor(styles, '.repository-inspection-dialog')).not.toMatch(/border-radius:|box-shadow:/)
+  expect(ruleFor(styles, '.confirmation-dialog')).not.toMatch(/border-radius:|box-shadow:/)
+})
+
 test('Archive.Stars keeps its desktop directory rail visible without constraining the mobile stack', () => {
   const directory = ruleFor(styles, '.archive-directory')
   const mobileDirectory = ruleFor(extractMedia(styles, '(max-width: 700px)'), '.archive-directory')
 
   expect(directory).toMatch(/position:\s*sticky/)
-  expect(directory).toMatch(/top:\s*72px/)
+  expect(directory).toMatch(/top:\s*96px/)
   expect(directory).toMatch(/align-self:\s*start/)
-  expect(directory).toMatch(/max-height:\s*calc\(100vh - 72px\)/)
+  expect(directory).toMatch(/max-height:\s*calc\(100vh - 96px\)/)
   expect(directory).toMatch(/overflow-y:\s*auto/)
 
   expect(mobileDirectory).toMatch(/position:\s*static/)
