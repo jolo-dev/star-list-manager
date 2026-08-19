@@ -55,6 +55,21 @@ test('Archive.Stars provides a self-contained light archive token system and str
   )
 })
 
+test('Archive.Stars keeps its desktop directory rail visible without constraining the mobile stack', () => {
+  const directory = ruleFor(styles, '.archive-directory')
+  const mobileDirectory = ruleFor(extractMedia(styles, '(max-width: 700px)'), '.archive-directory')
+
+  expect(directory).toMatch(/position:\s*sticky/)
+  expect(directory).toMatch(/top:\s*72px/)
+  expect(directory).toMatch(/align-self:\s*start/)
+  expect(directory).toMatch(/max-height:\s*calc\(100vh - 72px\)/)
+  expect(directory).toMatch(/overflow-y:\s*auto/)
+
+  expect(mobileDirectory).toMatch(/position:\s*static/)
+  expect(mobileDirectory).toMatch(/max-height:\s*none/)
+  expect(mobileDirectory).toMatch(/overflow-y:\s*visible/)
+})
+
 test('Archive.Stars styles its shell, library, state, and dialog primitives', () => {
   const primitives = [
     '.archive-app-shell',
