@@ -1089,6 +1089,261 @@ test('rejects stale and out-of-order get-app-state responses', async () => {
   }
 })
 
+test('keeps a membership confirmation authoritative over attempted polling and resumes polling afterward', async () => {
+  const browserWindow = createDashboardWindow()
+  const pendingMembership = deferred()
+  const base = membershipReadyDashboardState()
+  const pollingState: AppState = {
+    ...base,
+    mutations: {
+      batches: [],
+      jobs: [mutationJob('42', 'queued', 999)],
+      history: []
+    }
+  }
+  let getAppStateRequests = 0
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {
+    chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+      if (message.type === 'preview-native-list-membership') {
+        return {ok: true, data: membershipPreview('add', null)}
+      }
+      if (message.type === 'confirm-native-list-membership-preview') {
+        await pendingMembership.promise
+        return {ok: true, data: pollingState}
+      }
+      if (message.type === 'get-app-state') {
+        getAppStateRequests += 1
+        return {ok: true, data: base}
+      }
+      throw new Error(`Unexpected runtime message: ${message.type}`)
+    }}}
+  })
+
+  try {
+    const {mountDashboard, sendDashboardAction} = await import('../../src/dashboard/scripts')
+    const root = browserWindow.document.createElement('div') as unknown as HTMLElement
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(root, pollingState)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await openAndConfirmMembership(root, browserWindow)
+
+    expect(await sendDashboardAction({type: 'get-app-state'})).toBe(false)
+    expect(getAppStateRequests).toBe(0)
+    expect(root.querySelector<HTMLButtonElement>('.membership-confirmation .primary-action')?.disabled).toBe(true)
+
+    pendingMembership.resolve()
+    await nextTurn(browserWindow)
+    expect(root.querySelector('.membership-confirmation')).toBeNull()
+    const row = root.querySelector<HTMLButtonElement>('.repository-row')
+    expect(row?.isConnected).toBe(true)
+    expect((browserWindow.document.activeElement as unknown) === row).toBe(true)
+
+    await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 1100))
+    await nextTurn(browserWindow)
+    expect(getAppStateRequests).toBe(1)
+  } finally {
+    pendingMembership.resolve()
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('keeps an unstar confirmation authoritative over attempted polling and clears selection', async () => {
+  const browserWindow = createDashboardWindow()
+  const pendingUnstar = deferred()
+  const base = membershipReadyDashboardState()
+  const pollingState: AppState = {
+    ...base,
+    mutations: {
+      batches: [],
+      jobs: [mutationJob('42', 'queued', 999)],
+      history: []
+    }
+  }
+  let getAppStateRequests = 0
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {
+    chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+      if (message.type === 'enqueue-confirmed-unstars') {
+        await pendingUnstar.promise
+        return {ok: true, data: base}
+      }
+      if (message.type === 'get-app-state') {
+        getAppStateRequests += 1
+        return {ok: true, data: pollingState}
+      }
+      throw new Error(`Unexpected runtime message: ${message.type}`)
+    }}}
+  })
+
+  try {
+    const {mountDashboard, selectedUnstarRepositoryIds, sendDashboardAction} = await import(
+      '../../src/dashboard/scripts'
+    )
+    const root = browserWindow.document.createElement('div') as unknown as HTMLElement
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(root, pollingState)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    const checkbox = root.querySelector<HTMLInputElement>(
+      'input[aria-label="Select octocat/one for unstar"]'
+    )
+    if (checkbox === null) throw new Error('Unstar selection did not render.')
+    checkbox.checked = true
+    checkbox.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    ;[...root.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === 'Review unstar for 1')?.click()
+    await nextTurn(browserWindow)
+    ;[...root.querySelectorAll<HTMLButtonElement>('.unstar-confirmation button')]
+      .find((button) => button.textContent?.includes('Confirm unstar'))?.click()
+
+    expect(await sendDashboardAction({type: 'get-app-state'})).toBe(false)
+    expect(getAppStateRequests).toBe(0)
+    expect(selectedUnstarRepositoryIds()).toEqual(['R_one'])
+
+    pendingUnstar.resolve()
+    await nextTurn(browserWindow)
+    expect(root.querySelector('.unstar-confirmation')).toBeNull()
+    expect(selectedUnstarRepositoryIds()).toEqual([])
+    const row = root.querySelector<HTMLButtonElement>('.repository-row')
+    expect(row?.isConnected).toBe(true)
+    expect((browserWindow.document.activeElement as unknown) === row).toBe(true)
+  } finally {
+    pendingUnstar.resolve()
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('discards a poll that was already in flight when a foreground action begins', async () => {
+  const browserWindow = createDashboardWindow()
+  const pendingPoll = deferred()
+  const pendingAction = deferred()
+  const base = membershipReadyDashboardState()
+  const pollState: AppState = {
+    ...base,
+    library: {
+      ...base.library!,
+      repositories: [repositoryRecord('42', 'R_poll', 'octocat/poll')],
+      annotations: [],
+      nativeMemberships: []
+    }
+  }
+  const actionState: AppState = {
+    ...base,
+    library: {
+      ...base.library!,
+      repositories: [repositoryRecord('42', 'R_action', 'octocat/action')],
+      annotations: [],
+      nativeMemberships: []
+    }
+  }
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {
+    chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+      if (message.type === 'get-app-state') {
+        await pendingPoll.promise
+        return {ok: true, data: pollState}
+      }
+      if (message.type === 'start-sync') {
+        await pendingAction.promise
+        return {ok: true, data: actionState}
+      }
+      throw new Error(`Unexpected runtime message: ${message.type}`)
+    }}}
+  })
+
+  try {
+    const {mountDashboard, sendDashboardAction} = await import('../../src/dashboard/scripts')
+    const root = browserWindow.document.createElement('div') as unknown as HTMLElement
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(root, base)
+    const poll = sendDashboardAction({type: 'get-app-state'})
+    const action = sendDashboardAction({type: 'start-sync', force: true})
+    pendingAction.resolve()
+    expect(await action).toBe(true)
+    pendingPoll.resolve()
+    expect(await poll).toBe(false)
+    await nextTurn(browserWindow)
+    expect(visibleRepositoryIds(root)).toEqual(['R_action'])
+  } finally {
+    pendingPoll.resolve()
+    pendingAction.resolve()
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('applies independent foreground responses in arrival order', async () => {
+  const browserWindow = createDashboardWindow()
+  const firstPending = deferred()
+  const secondPending = deferred()
+  const base = membershipReadyDashboardState()
+  const firstState: AppState = {
+    ...base,
+    library: {
+      ...base.library!,
+      repositories: [repositoryRecord('42', 'R_first', 'octocat/first')],
+      annotations: [],
+      nativeMemberships: []
+    }
+  }
+  const secondState: AppState = {
+    ...base,
+    library: {
+      ...base.library!,
+      repositories: [repositoryRecord('42', 'R_second', 'octocat/second')],
+      annotations: [],
+      nativeMemberships: []
+    }
+  }
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {
+    chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+      if (message.type === 'start-sync') {
+        await firstPending.promise
+        return {ok: true, data: firstState}
+      }
+      if (message.type === 'disconnect-write-auth') {
+        await secondPending.promise
+        return {ok: true, data: secondState}
+      }
+      throw new Error(`Unexpected runtime message: ${message.type}`)
+    }}}
+  })
+
+  try {
+    const {mountDashboard, sendDashboardAction} = await import('../../src/dashboard/scripts')
+    const root = browserWindow.document.createElement('div') as unknown as HTMLElement
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(root, base)
+    const first = sendDashboardAction({type: 'start-sync', force: true})
+    const second = sendDashboardAction({type: 'disconnect-write-auth'})
+    firstPending.resolve()
+    expect(await first).toBe(true)
+    await nextTurn(browserWindow)
+    expect(visibleRepositoryIds(root)).toEqual(['R_first'])
+    secondPending.resolve()
+    expect(await second).toBe(true)
+    await nextTurn(browserWindow)
+    expect(visibleRepositoryIds(root)).toEqual(['R_second'])
+  } finally {
+    firstPending.resolve()
+    secondPending.resolve()
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
 test('keeps dashboard nodes, focus, scroll, and query work stable across equivalent and mutation-only polls', async () => {
   const base = readyDashboardState()
   const failedJob = {

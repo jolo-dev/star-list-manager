@@ -248,7 +248,10 @@ let mountedDashboardRoot: HTMLElement | null = null
 let nextDashboardMountId = 0
 let activeDashboardMountId = 0
 let nextAppStateRequestId = 0
-let latestAppStateRequestId = 0
+let appStateRequestGeneration = 0
+let latestPollRequestId = 0
+let pollInvalidationGeneration = 0
+const activeForegroundAppStateRequestIds = new Set<number>()
 let latestJobsByRepository = van.state<ReadonlyMap<string, MutationJobRecord>>(new Map())
 
 export interface UnstarConfirmationTarget {
@@ -288,8 +291,13 @@ interface SuccessFocusRequest {
   readonly view: LibraryView
 }
 
+type AppStateRequestLane = 'foreground' | 'poll'
+
 interface AppStateRequestContext {
   readonly requestId: number
+  readonly lane: AppStateRequestLane
+  readonly requestGeneration: number
+  readonly pollInvalidationGeneration: number
   readonly mountId: number
   readonly dashboardRoot: HTMLElement | null
   readonly accountId: string | null
@@ -906,7 +914,7 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
   const request: NativeListRenameRequest = {
     token: ++nextNativeListRenameRequestToken,
     accountId: appState.val.identity?.githubUserId ?? null,
-    appStateContext: beginAppStateRequest(),
+    appStateContext: beginAppStateRequest('foreground'),
     focusLifecycle: captureFocusLifecycle(invokerElement)
   }
   activeNativeListRenameRequest = request
@@ -959,6 +967,7 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
       nativeListRenameError.val = 'Unable to rename the GitHub List. Please try again.'
     }
   } finally {
+    finishAppStateRequest(request.appStateContext)
     releaseNativeListRenameRequest(request)
   }
 }
@@ -2826,7 +2835,7 @@ async function confirmMembershipPreview(): Promise<void> {
     membershipDialogInvoker,
     preview.repositories.map((repository) => repository.repositoryNodeId)
   )
-  const requestContext = beginAppStateRequest()
+  const requestContext = beginAppStateRequest('foreground')
   const confirmationToken = ++nextMembershipConfirmationToken
   activeMembershipConfirmationToken = confirmationToken
   confirmingMembership.val = true
@@ -2851,6 +2860,7 @@ async function confirmMembershipPreview(): Promise<void> {
       activeMembershipConfirmationToken = null
       confirmingMembership.val = false
     }
+    finishAppStateRequest(requestContext)
   }
 }
 
@@ -2991,7 +3001,10 @@ async function sendAction(message: RuntimeMessage): Promise<boolean> {
     invalidateAppStateRequests()
     applyState(emptyState)
   }
-  const requestContext = beginAppStateRequest()
+  const requestContext = message.type === 'get-app-state'
+    ? beginAppStateRequest('poll')
+    : beginAppStateRequest('foreground')
+  if (requestContext === null) return false
   const syncRequestToken = message.type === 'start-sync'
     ? ++nextSyncRequestToken
     : null
@@ -3014,14 +3027,29 @@ async function sendAction(message: RuntimeMessage): Promise<boolean> {
       activeSyncRequestToken = null
       syncing.val = false
     }
+    finishAppStateRequest(requestContext)
   }
 }
 
-function beginAppStateRequest(): AppStateRequestContext {
+function beginAppStateRequest(lane: 'foreground'): AppStateRequestContext
+function beginAppStateRequest(lane: 'poll'): AppStateRequestContext | null
+function beginAppStateRequest(
+  lane: AppStateRequestLane
+): AppStateRequestContext | null {
+  if (lane === 'poll' && activeForegroundAppStateRequestIds.size > 0) return null
   const requestId = ++nextAppStateRequestId
-  latestAppStateRequestId = requestId
+  if (lane === 'poll') {
+    latestPollRequestId = requestId
+  } else {
+    activeForegroundAppStateRequestIds.add(requestId)
+    pollInvalidationGeneration += 1
+    clearStatePoll()
+  }
   return {
     requestId,
+    lane,
+    requestGeneration: appStateRequestGeneration,
+    pollInvalidationGeneration,
     mountId: activeDashboardMountId,
     dashboardRoot: mountedDashboardRoot,
     accountId: dashboardAccountId,
@@ -3029,18 +3057,37 @@ function beginAppStateRequest(): AppStateRequestContext {
   }
 }
 
+function finishAppStateRequest(context: AppStateRequestContext): void {
+  if (
+    context.lane === 'foreground' &&
+    activeForegroundAppStateRequestIds.delete(context.requestId) &&
+    activeForegroundAppStateRequestIds.size === 0
+  ) {
+    scheduleStatePoll(appState.val)
+  }
+}
+
 function invalidateAppStateRequests(): void {
-  latestAppStateRequestId = ++nextAppStateRequestId
+  appStateRequestGeneration += 1
+  pollInvalidationGeneration += 1
+  latestPollRequestId = ++nextAppStateRequestId
+  activeForegroundAppStateRequestIds.clear()
+  clearStatePoll()
 }
 
 function isAppStateRequestCurrent(context: AppStateRequestContext): boolean {
   return (
-    context.requestId === latestAppStateRequestId &&
+    context.requestGeneration === appStateRequestGeneration &&
     context.mountId === activeDashboardMountId &&
     context.dashboardRoot === mountedDashboardRoot &&
     (context.dashboardRoot === null || context.dashboardRoot.isConnected) &&
     context.accountId === dashboardAccountId &&
-    context.accountGeneration === dashboardAccountGeneration
+    context.accountGeneration === dashboardAccountGeneration &&
+    (context.lane === 'foreground' || (
+      context.requestId === latestPollRequestId &&
+      context.pollInvalidationGeneration === pollInvalidationGeneration &&
+      activeForegroundAppStateRequestIds.size === 0
+    ))
   )
 }
 
@@ -3108,16 +3155,30 @@ function applyState(state: AppState): void {
     }
   }
   if (!state.identity) autoSyncAccountId = null
-  if (pollTimer !== null) window.clearTimeout(pollTimer)
-  pollTimer =
-    state.phase === 'authorization-pending' ||
-    state.writeAuthorization.readiness === 'pending' ||
-    hasNonterminalMutationJobs(state)
-      ? window.setTimeout(() => void loadAppState(), 1000)
-      : null
+  scheduleStatePoll(state)
   if (shouldStartAutoSync(state, autoSyncAccountId)) {
     autoSyncAccountId = state.identity?.githubUserId ?? null
     window.setTimeout(() => void sendAction({type: 'start-sync', force: false}), 0)
+  }
+}
+
+function clearStatePoll(): void {
+  if (pollTimer !== null) window.clearTimeout(pollTimer)
+  pollTimer = null
+}
+
+function scheduleStatePoll(state: AppState): void {
+  clearStatePoll()
+  if (
+    activeForegroundAppStateRequestIds.size === 0 &&
+    (state.phase === 'authorization-pending' ||
+      state.writeAuthorization.readiness === 'pending' ||
+      hasNonterminalMutationJobs(state))
+  ) {
+    pollTimer = window.setTimeout(() => {
+      pollTimer = null
+      void loadAppState()
+    }, 1000)
   }
 }
 
@@ -3530,16 +3591,20 @@ async function confirmCompleteRemoval(): Promise<void> {
   ) {
     return
   }
-  const requestContext = beginAppStateRequest()
-  const response = (await sendRuntimeMessage({
-    type: 'clear-all-data'
-  })) as RuntimeResponse<AppState>
-  if (!isAppStateRequestCurrent(requestContext)) return
-  if (response.ok) {
-    if (!applyAppStateResponse(requestContext, response.data)) return
-    setActiveView({kind: 'unlist'})
-  } else {
-    applyAppStateResponse(requestContext, {...appState.val, error: response.error})
+  const requestContext = beginAppStateRequest('foreground')
+  try {
+    const response = (await sendRuntimeMessage({
+      type: 'clear-all-data'
+    })) as RuntimeResponse<AppState>
+    if (!isAppStateRequestCurrent(requestContext)) return
+    if (response.ok) {
+      if (!applyAppStateResponse(requestContext, response.data)) return
+      setActiveView({kind: 'unlist'})
+    } else {
+      applyAppStateResponse(requestContext, {...appState.val, error: response.error})
+    }
+  } finally {
+    finishAppStateRequest(requestContext)
   }
 }
 
