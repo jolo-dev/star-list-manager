@@ -1,6 +1,7 @@
 import {readdir, readFile} from 'node:fs/promises'
 import {basename, extname, join, relative} from 'node:path'
 import {fileURLToPath} from 'node:url'
+import {readPngDimensions} from './png'
 
 const root = fileURLToPath(new URL('../dist', import.meta.url))
 const defaultBrowsers = ['chrome', 'firefox'] as const
@@ -39,6 +40,7 @@ const expectedHosts = [
   'https://api.github.com/*',
   'https://github.com/login/*'
 ] as const
+const expectedIconSizes = [16, 32, 48, 64, 128] as const
 
 for (const browser of browsers) {
   const directory = join(root, browser)
@@ -46,6 +48,9 @@ for (const browser of browsers) {
   const manifest = JSON.parse(manifestText) as unknown
   const manifestRecord = requireRecord(manifest, `${browser} manifest`)
   const serialized = JSON.stringify(manifest)
+  if (serialized.includes('images/icon.png')) {
+    throw new Error(`${browser} manifest references the high-resolution icon source`)
+  }
   for (const forbidden of forbiddenManifestText) {
     if (serialized.includes(forbidden)) {
       throw new Error(`${browser} manifest contains forbidden ${forbidden}`)
@@ -72,10 +77,18 @@ for (const browser of browsers) {
   )
   assertExactValues(browserPermissions, ['alarms', 'storage'], `${browser} permissions`)
   assertExactValues(hosts, expectedHosts, `${browser} GitHub hosts`)
+  await assertIconContract(manifestRecord, directory, browser)
 
   const files = await collectFiles(directory)
   if (files.some((file) => file.includes('.env'))) {
     throw new Error(`${browser} build contains an environment file`)
+  }
+  if (
+    files.some(
+      (file) => relative(directory, file).replaceAll('\\', '/') === 'images/icon.png'
+    )
+  ) {
+    throw new Error(`${browser} build contains the high-resolution icon source`)
   }
   if (
     !files.some(
@@ -111,6 +124,56 @@ for (const browser of browsers) {
 }
 
 console.log('Built manifest and bundle inspection passed')
+
+async function assertIconContract(
+  manifest: Readonly<Record<string, unknown>>,
+  directory: string,
+  browser: Browser
+): Promise<void> {
+  const actionKey = browser === 'firefox' ? 'browser_action' : 'action'
+  const action = requireRecord(manifest[actionKey], `${browser} ${actionKey}`)
+  const sections = [
+    {
+      label: `${browser} icons`,
+      icons: requireRecord(manifest.icons, `${browser} icons`)
+    },
+    {
+      label: `${browser} ${actionKey} icons`,
+      icons: requireRecord(action.default_icon, `${browser} ${actionKey} icons`)
+    }
+  ] as const
+  const expectedKeys = expectedIconSizes.map(String)
+  const pathSizes = new Map<string, number>()
+
+  for (const section of sections) {
+    assertExactValues(Object.keys(section.icons), expectedKeys, section.label)
+    for (const size of expectedIconSizes) {
+      const path = section.icons[String(size)]
+      if (typeof path !== 'string') {
+        throw new Error(`${section.label} ${size} path is invalid`)
+      }
+      const previousSize = pathSizes.get(path)
+      if (previousSize !== undefined && previousSize !== size) {
+        throw new Error(
+          `${browser} icon path ${path} is associated with sizes ${previousSize} and ${size}`
+        )
+      }
+      pathSizes.set(path, size)
+      if (path !== `images/icon-${size}.png`) {
+        throw new Error(`${section.label} ${size} must map to images/icon-${size}.png`)
+      }
+    }
+  }
+
+  for (const [path, size] of pathSizes) {
+    const dimensions = readPngDimensions(await readFile(join(directory, path)))
+    if (dimensions.width !== size || dimensions.height !== size) {
+      throw new Error(
+        `${browser} icon ${path} must be ${size}x${size}, got ${dimensions.width}x${dimensions.height}`
+      )
+    }
+  }
+}
 
 function collectUrls(value: unknown): readonly string[] {
   if (typeof value === 'string') return value.startsWith('https://') ? [value] : []

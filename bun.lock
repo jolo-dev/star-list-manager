@@ -14,6 +14,7 @@
         "extension": "^4.0.27",
         "fake-indexeddb": "^6.2.5",
         "happy-dom": "^20.11.1",
+        "sharp": "^0.35.3",
         "typescript": "7.0.2",
       },
     },

@@ -7,6 +7,7 @@
     "extension": "^4.0.27",
     "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.11.1",
+    "sharp": "^0.35.3",
     "typescript": "7.0.2"
   },
   "description": "A local-first dashboard for finding and revisiting GitHub stars.",
@@ -23,6 +24,7 @@
     "build:edge": "EXTENSION_TELEMETRY=0 extension build --browser edge",
     "check:source": "bun scripts/check-no-any.ts",
     "inspect:build": "bun scripts/inspect-build.ts",
+    "generate:icons": "bun scripts/generate-icons.ts",
     "spike:github-app": "bun scripts/github-app-capability-spike.ts",
     "probe:oauth-starring": "bun scripts/oauth-starring-capability-probe.ts",
     "probe:oauth-list-membership": "bun scripts/oauth-list-membership-capability-probe.ts",

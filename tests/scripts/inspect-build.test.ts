@@ -1,5 +1,14 @@
 import {expect, test} from 'bun:test'
-import {cp, mkdtemp, readdir, readFile, rename, rm, stat} from 'node:fs/promises'
+import {
+  cp,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile
+} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {extname, join, relative} from 'node:path'
 import {fileURLToPath} from 'node:url'
@@ -7,11 +16,12 @@ import {createHash} from 'node:crypto'
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url))
 const chromiumBuildDirectory = join(projectRoot, 'dist', 'chromium-based')
+const firefoxBuildDirectory = join(projectRoot, 'dist', 'firefox')
 
 test('inspects the requested Chromium-based build', async () => {
   const originalBuild = await artifactFingerprint(chromiumBuildDirectory)
 
-  await withRestoredChromiumBuild(async () => {
+  await withRestoredBuild(chromiumBuildDirectory, async () => {
     const build = await run([
       'bunx',
       '--no-install',
@@ -22,21 +32,134 @@ test('inspects the requested Chromium-based build', async () => {
     ])
     expect(build.exitCode).toBe(0)
 
-    const font = await findGeistMonoFont(chromiumBuildDirectory)
-    await rename(font, `${font}.missing`)
-
-    const inspection = await run([
+    const validInspection = await run([
       'bun',
       'scripts/inspect-build.ts',
       'chromium-based'
     ])
-    expect(inspection.exitCode).toBe(1)
-    expect(inspection.output).toContain(
+    expect(validInspection.exitCode).toBe(0)
+    expect(validInspection.output).toContain(
+      'Built manifest and bundle inspection passed'
+    )
+
+    const manifestPath = join(chromiumBuildDirectory, 'manifest.json')
+    const originalManifest = await readFile(manifestPath, 'utf8')
+    const manifest = JSON.parse(originalManifest) as {
+      readonly action: {readonly default_icon: Record<string, string>}
+    }
+    manifest.action.default_icon['32'] = 'images/icon-16.png'
+    await writeFile(manifestPath, JSON.stringify(manifest))
+
+    const reusedAcrossSizes = await run([
+      'bun',
+      'scripts/inspect-build.ts',
+      'chromium-based'
+    ])
+    expect(reusedAcrossSizes.exitCode).toBe(1)
+    expect(reusedAcrossSizes.output).toContain(
+      'icon path images/icon-16.png is associated with sizes 16 and 32'
+    )
+
+    await writeFile(manifestPath, originalManifest)
+    const icon32Path = join(chromiumBuildDirectory, 'images', 'icon-32.png')
+    const originalIcon32 = await readFile(icon32Path)
+    await cp(join(chromiumBuildDirectory, 'images', 'icon-16.png'), icon32Path)
+
+    const wrongDimensions = await run([
+      'bun',
+      'scripts/inspect-build.ts',
+      'chromium-based'
+    ])
+    expect(wrongDimensions.exitCode).toBe(1)
+    expect(wrongDimensions.output).toContain(
+      'icon images/icon-32.png must be 32x32, got 16x16'
+    )
+
+    await writeFile(icon32Path, originalIcon32)
+
+    const missingKeyManifest = JSON.parse(originalManifest) as {
+      readonly action: {readonly default_icon: Record<string, string>}
+    }
+    delete missingKeyManifest.action.default_icon['64']
+    await writeFile(manifestPath, JSON.stringify(missingKeyManifest))
+    const missingKey = await run([
+      'bun',
+      'scripts/inspect-build.ts',
+      'chromium-based'
+    ])
+    expect(missingKey.exitCode).toBe(1)
+    expect(missingKey.output).toContain(
+      'chromium-based action icons do not match the required minimal set'
+    )
+
+    const wrongNameManifest = JSON.parse(originalManifest) as {
+      readonly icons: Record<string, string>
+    }
+    wrongNameManifest.icons['32'] = 'images/wrong-name.png'
+    await writeFile(manifestPath, JSON.stringify(wrongNameManifest))
+    const wrongName = await run([
+      'bun',
+      'scripts/inspect-build.ts',
+      'chromium-based'
+    ])
+    expect(wrongName.exitCode).toBe(1)
+    expect(wrongName.output).toContain(
+      'chromium-based icons 32 must map to images/icon-32.png'
+    )
+
+    const sourceManifest = JSON.parse(originalManifest) as {
+      readonly icons: Record<string, string>
+    }
+    sourceManifest.icons['16'] = 'images/icon.png'
+    await writeFile(manifestPath, JSON.stringify(sourceManifest))
+    const sourceReference = await run([
+      'bun',
+      'scripts/inspect-build.ts',
+      'chromium-based'
+    ])
+    expect(sourceReference.exitCode).toBe(1)
+    expect(sourceReference.output).toContain(
+      'manifest references the high-resolution icon source'
+    )
+
+    await writeFile(manifestPath, originalManifest)
+    const font = await findGeistMonoFont(chromiumBuildDirectory)
+    await rename(font, `${font}.missing`)
+
+    const missingFont = await run([
+      'bun',
+      'scripts/inspect-build.ts',
+      'chromium-based'
+    ])
+    expect(missingFont.exitCode).toBe(1)
+    expect(missingFont.output).toContain(
       'chromium-based build is missing a local GeistMono-Variable font asset'
     )
   })
 
   expect(await artifactFingerprint(chromiumBuildDirectory)).toEqual(originalBuild)
+})
+
+test('inspects Firefox browser action icon slots', async () => {
+  const originalBuild = await artifactFingerprint(firefoxBuildDirectory)
+
+  await withRestoredBuild(firefoxBuildDirectory, async () => {
+    const build = await run([
+      'bunx',
+      '--no-install',
+      'extension',
+      'build',
+      '--browser',
+      'firefox'
+    ])
+    expect(build.exitCode).toBe(0)
+
+    const inspection = await run(['bun', 'scripts/inspect-build.ts', 'firefox'])
+    expect(inspection.exitCode).toBe(0)
+    expect(inspection.output).toContain('Built manifest and bundle inspection passed')
+  })
+
+  expect(await artifactFingerprint(firefoxBuildDirectory)).toEqual(originalBuild)
 })
 
 test('rejects multiple inspection targets', async () => {
@@ -103,28 +226,31 @@ async function findGeistMonoFont(directory: string): Promise<string> {
   throw new Error('Geist Mono font not found')
 }
 
-async function withRestoredChromiumBuild(action: () => Promise<void>): Promise<void> {
+async function withRestoredBuild(
+  buildDirectory: string,
+  action: () => Promise<void>
+): Promise<void> {
   const snapshotDirectory = await mkdtemp(
     join(tmpdir(), 'star-list-manager-inspect-build-')
   )
-  const snapshotBuildDirectory = join(snapshotDirectory, 'chromium-based')
+  const snapshotBuildDirectory = join(snapshotDirectory, 'build')
   let originalBuildExists = false
   let snapshotCreated = false
 
   try {
-    originalBuildExists = await pathExists(chromiumBuildDirectory)
+    originalBuildExists = await pathExists(buildDirectory)
     if (originalBuildExists) {
-      await cp(chromiumBuildDirectory, snapshotBuildDirectory, {recursive: true})
+      await cp(buildDirectory, snapshotBuildDirectory, {recursive: true})
       snapshotCreated = true
     }
     await action()
   } finally {
     try {
       if (snapshotCreated) {
-        await rm(chromiumBuildDirectory, {recursive: true, force: true})
-        await cp(snapshotBuildDirectory, chromiumBuildDirectory, {recursive: true})
+        await rm(buildDirectory, {recursive: true, force: true})
+        await cp(snapshotBuildDirectory, buildDirectory, {recursive: true})
       } else if (!originalBuildExists) {
-        await rm(chromiumBuildDirectory, {recursive: true, force: true})
+        await rm(buildDirectory, {recursive: true, force: true})
       }
     } finally {
       await rm(snapshotDirectory, {recursive: true, force: true})
