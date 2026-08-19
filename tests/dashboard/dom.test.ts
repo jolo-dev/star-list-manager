@@ -356,6 +356,175 @@ test('keeps Archive.Stars state pages and dialogs inside the archive results lan
   }
 })
 
+test('composes archive state, secondary, and dialog documents without changing safeguards', async () => {
+  const browserWindow = createDashboardWindow()
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const runtimeMessages: string[] = []
+  Object.assign(globalThis, {
+    chrome: {
+      runtime: {
+        sendMessage: async (message: {readonly type: string}) => {
+          runtimeMessages.push(message.type)
+          if (message.type === 'preview-native-list-membership') {
+            return {ok: true, data: membershipPreview('add', null)}
+          }
+          if (message.type === 'start-sync') return {ok: true, data: membershipReadyDashboardState()}
+          throw new Error(`Unexpected runtime message: ${message.type}`)
+        }
+      }
+    }
+  })
+  const root = browserWindow.document.createElement('div') as unknown as HTMLElement
+  const signedOut: AppState = {
+    ...signedOutDashboardState(),
+    error: {
+      category: 'network',
+      message: 'GitHub is unavailable. No local data was changed.',
+      retryable: true
+    }
+  }
+  try {
+    const {mountDashboard, renderAppState} = await import('../../src/dashboard/scripts')
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(root, signedOut)
+    await browserWindow.happyDOM.whenAsyncComplete()
+
+    const frame = root.querySelector<HTMLElement>('.archive-frame')
+    const archiveMain = root.querySelector<HTMLElement>('main.archive-main')
+    const expectArchiveDocument = (element: HTMLElement | null) => {
+      expect(element).not.toBeNull()
+      expect(element?.closest('.archive-frame')).toBe(frame)
+      expect(element?.closest('main.archive-main')).toBe(archiveMain)
+    }
+    const signedOutPanel = root.querySelector<HTMLElement>('.archive-state-document.state-panel')
+    expectArchiveDocument(signedOutPanel)
+    expect(signedOutPanel?.querySelector('.archive-document-header h2')?.textContent).toBe(
+      'Reconnect your GitHub library'
+    )
+    expect(signedOutPanel?.textContent).toContain(
+      'Notes, tags, favorites, and revisit dates remain local.'
+    )
+    expect(signedOutPanel?.querySelector('[role="alert"]')?.textContent).toBe(
+      'GitHub is unavailable. No local data was changed.'
+    )
+    expect(
+      [...(signedOutPanel?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
+        (button) => button.textContent?.trim() === 'Connect GitHubDevice flow'
+      )?.getAttribute('type')
+    ).toBe('button')
+
+    renderAppState({...signedOut, phase: 'loading', error: null})
+    await browserWindow.happyDOM.whenAsyncComplete()
+    const loading = root.querySelector<HTMLElement>('.archive-state-document.state-panel[aria-busy="true"]')
+    expectArchiveDocument(loading)
+    expect(loading?.querySelector('.archive-document-header h2')?.textContent).toBe(
+      'Preparing your dashboard'
+    )
+
+    renderAppState({...signedOut, phase: 'authorization-expired', error: null})
+    await browserWindow.happyDOM.whenAsyncComplete()
+    const authorizationError = root.querySelector<HTMLElement>('.archive-state-document.state-panel')
+    expectArchiveDocument(authorizationError)
+    expect(authorizationError?.querySelector('.archive-document-header h2')?.textContent).toBe(
+      'Code expired'
+    )
+
+    const ready = membershipReadyDashboardState()
+    renderAppState(ready)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    const utility = (label: string) =>
+      [...root.querySelectorAll<HTMLButtonElement>('.archive-primary-link')].find(
+        (button) => button.textContent === label
+      ) ?? null
+
+    utility('Operations')?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    const operations = root.querySelector<HTMLElement>('.operations-page.archive-document')
+    expectArchiveDocument(operations)
+    expect(operations?.querySelector('header.archive-document-header > h1')?.textContent).toBe('Operations')
+
+    utility('Settings')?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    const settings = root.querySelector<HTMLElement>('.settings-page.archive-document')
+    expectArchiveDocument(settings)
+    expect(settings?.querySelector('header.archive-document-header > h1')?.textContent).toBe('Settings')
+
+    utility('Library')?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    const row = root.querySelector<HTMLButtonElement>('.repository-row')
+    if (row === null) throw new Error('The repository inspection invoker is required.')
+    row.click()
+    await nextTurn(browserWindow)
+    const inspection = root.querySelector<HTMLElement>('.repository-inspection-dialog')
+    expectArchiveDocument(inspection)
+    expect(inspection?.getAttribute('role')).toBe('dialog')
+    expect(inspection?.getAttribute('aria-modal')).toBe('true')
+    expect(accessibleDialogName(inspection)).toBe('one')
+    expect(inspection?.querySelector('.archive-dialog-header h2')?.textContent).toBe('one')
+
+    const reviewUnstar = [...(inspection?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
+      (button) => button.textContent === 'Review unstar'
+    )
+    if (reviewUnstar === undefined) throw new Error('The unstar confirmation action is required.')
+    reviewUnstar.click()
+    await nextTurn(browserWindow)
+    const unstar = root.querySelector<HTMLElement>('.unstar-confirmation[role="dialog"]')
+    expectArchiveDocument(unstar)
+    expect(unstar?.getAttribute('aria-modal')).toBe('true')
+    expect(accessibleDialogName(unstar)).toBe('Remove 1 star from GitHub?')
+    expect(unstar?.querySelector('.archive-dialog-header h2')?.textContent).toBe(
+      'Remove 1 star from GitHub?'
+    )
+    expect(unstar?.textContent).toContain('There is no Undo or re-star control')
+    const cancelUnstar = [...(unstar?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
+      (button) => button.textContent === 'Cancel'
+    )
+    if (cancelUnstar === undefined) throw new Error('The unstar cancellation action is required.')
+    cancelUnstar.click()
+    await nextTurn(browserWindow)
+    expect(runtimeMessages).not.toContain('enqueue-confirmed-unstars')
+
+    const restoredRow = root.querySelector<HTMLButtonElement>('.repository-row')
+    if (restoredRow === null) throw new Error('The repository inspection invoker is required.')
+    restoredRow.click()
+    await nextTurn(browserWindow)
+    const listChoice = root.querySelector<HTMLInputElement>(
+      '.native-list-choices input[type="checkbox"]'
+    )
+    if (listChoice === null) throw new Error('The membership choice is required.')
+    listChoice.checked = true
+    listChoice.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    const reviewMembership = [...root.querySelectorAll<HTMLButtonElement>('.membership-review')].find(
+      (button) => button.textContent?.includes('Review additive assignment')
+    )
+    if (reviewMembership === undefined) throw new Error('The membership review action is required.')
+    reviewMembership.click()
+    await nextTurn(browserWindow)
+    const membership = root.querySelector<HTMLElement>('.membership-confirmation[role="dialog"]')
+    expectArchiveDocument(membership)
+    expect(membership?.getAttribute('aria-modal')).toBe('true')
+    expect(accessibleDialogName(membership)).toBe('Review List memberships for 2 repositories')
+    expect(membership?.querySelector('.archive-dialog-header h2')?.textContent).toBe(
+      'Review List memberships for 2 repositories'
+    )
+    expect(membership?.textContent).toContain('GitHub replaces the complete List membership set')
+    const cancelMembership = [...(membership?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
+      (button) => button.textContent === 'Cancel'
+    )
+    if (cancelMembership === undefined) throw new Error('The membership cancellation action is required.')
+    cancelMembership.click()
+    await nextTurn(browserWindow)
+    expect(runtimeMessages).not.toContain('confirm-native-list-membership-preview')
+  } finally {
+    root.remove()
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
 test('groups real View options and Filters under one archive Status container', async () => {
   const root = await mountReadyDashboard()
   const browserWindow = window as unknown as Window

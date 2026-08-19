@@ -510,14 +510,14 @@ function createWorkspace(
   if (kind === 'library') return ReadyLibraryState(runQuery)
   if (kind === 'operations') {
     return PersistentStatePage(
-      'operations-page',
+      'operations-page archive-document',
       OperationsState,
       operationsPublishedState
     )
   }
   if (kind === 'settings') {
     return PersistentStatePage(
-      'settings-page',
+      'settings-page archive-document',
       SettingsState,
       settingsPublishedState
     )
@@ -1344,7 +1344,7 @@ function MembershipConfirmation(
     {class: 'dialog-backdrop', role: 'presentation'},
     section(
       {
-        class: `confirmation-dialog membership-confirmation${destructive ? ' is-destructive' : ''}`,
+        class: `confirmation-dialog membership-confirmation archive-dialog-document${destructive ? ' is-destructive' : ''}`,
         role: 'dialog',
         'aria-modal': 'true',
         'aria-labelledby': 'membership-confirmation-title',
@@ -1352,13 +1352,16 @@ function MembershipConfirmation(
         onkeydown: (event: KeyboardEvent) =>
           handleDialogKeydown(event, !confirmingMembership.val, onCancel)
       },
-      p(
-        {class: 'eyebrow'},
-        preview.refreshedFromJobId
-          ? 'Refreshed confirmation required'
-          : 'Remote GitHub List change'
+      header(
+        {class: 'archive-dialog-header'},
+        p(
+          {class: 'eyebrow'},
+          preview.refreshedFromJobId
+            ? 'Refreshed confirmation required'
+            : 'Remote GitHub List change'
+        ),
+        h2({id: 'membership-confirmation-title'}, `Review List memberships for ${repositoryCount} ${repositoryNoun}`)
       ),
-      h2({id: 'membership-confirmation-title'}, `Review List memberships for ${repositoryCount} ${repositoryNoun}`),
       p({class: 'membership-preview-scope'}, `Preview scope: ${repositoryCount} ${repositoryNoun}.`),
       p(
         {class: 'membership-outcome'},
@@ -1465,7 +1468,7 @@ function UnstarConfirmation(
     },
     section(
       {
-        class: 'confirmation-dialog unstar-confirmation',
+        class: 'confirmation-dialog unstar-confirmation archive-dialog-document',
         role: 'dialog',
         'aria-modal': 'true',
         'aria-labelledby': 'unstar-confirmation-title',
@@ -1473,10 +1476,13 @@ function UnstarConfirmation(
         onkeydown: (event: KeyboardEvent) =>
           handleDialogKeydown(event, !enqueueingUnstars.val, onCancel)
       },
-      p({class: 'eyebrow'}, 'Remote GitHub account change'),
-      h2(
-        {id: 'unstar-confirmation-title'},
-        `Remove ${targets.length} ${targets.length === 1 ? 'star' : 'stars'} from GitHub?`
+      header(
+        {class: 'archive-dialog-header'},
+        p({class: 'eyebrow'}, 'Remote GitHub account change'),
+        h2(
+          {id: 'unstar-confirmation-title'},
+          `Remove ${targets.length} ${targets.length === 1 ? 'star' : 'stars'} from GitHub?`
+        )
       ),
       p(
         `This will change the connected GitHub account for exactly ${targets.length} ${targets.length === 1 ? 'repository' : 'repositories'}. Local annotations are retained.`
@@ -1551,8 +1557,9 @@ function OperationsState(state: AppState) {
       right.historyId.localeCompare(left.historyId)
   )
   return div(
-    {class: 'operations-page'},
+    {class: 'operations-page archive-document'},
     header(
+      {class: 'archive-document-header'},
       p({class: 'eyebrow'}, 'Connected account only'),
       h1('Operations'),
       p(
@@ -1868,7 +1875,7 @@ function RepositoryInspector(item: LibraryRepository) {
   const githubUrl = safeGitHubUrl(repository.htmlUrl)
   return section(
     {
-      class: 'inspector repository-inspection-dialog',
+      class: 'inspector repository-inspection-dialog archive-dialog-document',
       role: 'dialog',
       'aria-modal': 'true',
       'aria-labelledby': 'repository-inspection-title',
@@ -1876,8 +1883,8 @@ function RepositoryInspector(item: LibraryRepository) {
       onkeydown: (event: KeyboardEvent) =>
         handleDialogKeydown(event, true, closeRepositoryInspection)
     },
-    div(
-      {class: 'inspector-heading'},
+    header(
+      {class: 'inspector-heading archive-dialog-header'},
       div(p({class: 'eyebrow'}, repository.ownerLogin), h2({id: 'repository-inspection-title'}, repository.name)),
       div(
         {class: 'inspector-actions'},
@@ -2048,8 +2055,12 @@ function DetailGroup(title: string, ...values: Array<string | null>) {
 
 function SettingsState(state: AppState) {
   return div(
-    {class: 'settings-page'},
-    header(p({class: 'eyebrow'}, 'Local account controls'), h1('Settings')),
+    {class: 'settings-page archive-document'},
+    header(
+      {class: 'archive-document-header'},
+      p({class: 'eyebrow'}, 'Local account controls'),
+      h1('Settings')
+    ),
     section(
       {class: 'settings-card'},
       h2(state.identity ? `Connected as ${state.identity.login}` : 'GitHub disconnected'),
@@ -2380,9 +2391,12 @@ function NoResultsState(searching: boolean) {
 
 function EmptyLibraryState() {
   return section(
-    {class: 'state-panel'},
-    p({class: 'eyebrow'}, 'Empty library'),
-    h2('No public stars found'),
+    {class: 'state-panel archive-state-document'},
+    header(
+      {class: 'archive-document-header'},
+      p({class: 'eyebrow'}, 'Empty library'),
+      h2('No public stars found')
+    ),
     p('Star a public repository on GitHub, then refresh this dashboard.')
   )
 }
@@ -2390,9 +2404,12 @@ function EmptyLibraryState() {
 
 function LoadingState(copy: string) {
   return section(
-    {class: 'state-panel', 'aria-busy': 'true'},
-    p({class: 'eyebrow'}, 'Opening library'),
-    h2('Preparing your dashboard'),
+    {class: 'state-panel archive-state-document', 'aria-busy': 'true'},
+    header(
+      {class: 'archive-document-header'},
+      p({class: 'eyebrow'}, 'Opening library'),
+      h2('Preparing your dashboard')
+    ),
     p(copy),
     div({class: 'skeleton-list', 'aria-hidden': 'true'}, div({class: 'skeleton-row'}), div({class: 'skeleton-row'}))
   )
@@ -2400,9 +2417,12 @@ function LoadingState(copy: string) {
 
 function FirstRunState(returningUser: boolean, error: string | null) {
   return section(
-    {class: 'state-panel'},
-    p({class: 'eyebrow'}, returningUser ? 'Signed out' : 'First run'),
-    h2(returningUser ? 'Reconnect your GitHub library' : 'Turn stars into a working library'),
+    {class: 'state-panel archive-state-document'},
+    header(
+      {class: 'archive-document-header'},
+      p({class: 'eyebrow'}, returningUser ? 'Signed out' : 'First run'),
+      h2(returningUser ? 'Reconnect your GitHub library' : 'Turn stars into a working library')
+    ),
     p('Connect GitHub to import public stars and native Lists. Notes, tags, favorites, and revisit dates remain local.'),
     error ? p({class: 'inline-error', role: 'alert'}, error) : null,
     button(
@@ -2417,9 +2437,12 @@ function AuthorizationPendingState(state: AppState) {
   const authorization = state.authorization
   if (!authorization) return LoadingState('Waiting for GitHub authorization details.')
   return section(
-    {class: 'state-panel'},
-    p({class: 'eyebrow'}, 'GitHub authorization'),
-    h2('Approve this device'),
+    {class: 'state-panel archive-state-document'},
+    header(
+      {class: 'archive-document-header'},
+      p({class: 'eyebrow'}, 'GitHub authorization'),
+      h2('Approve this device')
+    ),
     p('Open GitHub, enter the code below, and approve read-only access.'),
     div({class: 'auth-code'}, authorization.userCode),
     div(
@@ -2432,9 +2455,12 @@ function AuthorizationPendingState(state: AppState) {
 
 function AuthorizationResultState(title: string, copy: string) {
   return section(
-    {class: 'state-panel'},
-    p({class: 'eyebrow'}, 'Sign-in incomplete'),
-    h2(title),
+    {class: 'state-panel archive-state-document'},
+    header(
+      {class: 'archive-document-header'},
+      p({class: 'eyebrow'}, 'Sign-in incomplete'),
+      h2(title)
+    ),
     p(copy),
     button({class: 'primary-action', type: 'button', onclick: () => void sendAction({type: 'start-device-auth'})}, 'Try again')
   )
