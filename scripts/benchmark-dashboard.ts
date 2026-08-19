@@ -1,9 +1,14 @@
-import type {MutationJobRecord, RepositoryRecord} from '../src/domain/types'
+import type {
+  LibrarySnapshot,
+  MutationJobRecord,
+  RepositoryRecord
+} from '../src/domain/types'
 import {
   deriveRepositoryResults,
   indexLatestRepositoryJobs
 } from '../src/dashboard/derivations'
 import {
+  buildLibraryRepositories,
   defaultRepositoryFilters,
   queryRepositories,
   type LibraryRepository,
@@ -15,9 +20,8 @@ const jobCount = 50_000
 const legacyLookupSampleSize = 200
 const iterations = 5
 
-const repositories = Array.from({length: repositoryCount}, (_, index) =>
-  libraryRepository(index)
-)
+const snapshot = librarySnapshot()
+const repositories = buildLibraryRepositories(snapshot)
 const jobs = Array.from({length: jobCount}, (_, index) => mutationJob(index))
 const query: RepositoryQuery = {
   view: {kind: 'unlist'},
@@ -45,6 +49,21 @@ const indexedLookupMs = measureMedian(() => {
   }
   indexedLookupChecksum = checksum
 })
+let projectionChecksum = 0
+const legacyRepeatedProjectionMs = measureMedian(() => {
+  const first = buildLibraryRepositories(snapshot)
+  const second = buildLibraryRepositories(snapshot)
+  const third = buildLibraryRepositories(snapshot)
+  projectionChecksum =
+    projectionResultChecksum(first) +
+    projectionResultChecksum(second) +
+    projectionResultChecksum(third)
+})
+const sharedProjectionMs = measureMedian(() => {
+  const shared = buildLibraryRepositories(snapshot)
+  const checksum = projectionResultChecksum(shared)
+  projectionChecksum = checksum * 3
+})
 const repeatedMs = measureMedian(() => {
   queryRepositories(repositories, query, 0)
   queryRepositories(repositories, query, 0)
@@ -69,6 +88,12 @@ console.log(
         indexedLookupChecksum,
         indexedAmortizedMsPerLookup,
         normalizedLookupSpeedup: legacyMsPerLookup / indexedAmortizedMsPerLookup
+      },
+      projection: {
+        legacyRepeatedProjectionMs,
+        sharedProjectionMs,
+        projectionChecksum,
+        speedup: legacyRepeatedProjectionMs / sharedProjectionMs
       },
       query: {
         repeatedMs,
@@ -132,8 +157,68 @@ function mutationJob(index: number): MutationJobRecord {
   }
 }
 
-function libraryRepository(index: number): LibraryRepository {
-  const repository: RepositoryRecord = {
+function librarySnapshot(): LibrarySnapshot {
+  const nativeLists = Array.from({length: 100}, (_, index) => ({
+    githubUserId: '42',
+    listNodeId: `L_${index}`,
+    name: `List ${index.toString().padStart(3, '0')}`,
+    description: index % 2 === 0 ? `Benchmark list ${index}` : null,
+    visibility: index % 7 === 0 ? 'private' as const : 'public' as const,
+    slug: `list-${index}`,
+    createdAt: '2025-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    lastAddedAt: '2026-01-01T00:00:00.000Z',
+    reportedItemCount: 300,
+    importedItemCount: 300,
+    importStatus: 'complete' as const,
+    lastObservedAt: '2026-08-01T00:00:00.000Z'
+  }))
+  return {
+    repositories: Array.from({length: repositoryCount}, (_, index) =>
+      repository(index)
+    ),
+    nativeLists,
+    nativeMemberships: Array.from(
+      {length: repositoryCount * 3},
+      (_, membershipIndex) => {
+        const repositoryIndex = Math.floor(membershipIndex / 3)
+        return {
+          githubUserId: '42',
+          repositoryNodeId: `R_${repositoryIndex}`,
+          listNodeId: `L_${(repositoryIndex + membershipIndex % 3) % nativeLists.length}`,
+          lastObservedAt: '2026-08-01T00:00:00.000Z'
+        }
+      }
+    ),
+    annotations: Array.from({length: repositoryCount}, (_, index) => ({
+      githubUserId: '42',
+      repositoryNodeId: `R_${index}`,
+      triageState: index % 2 === 0 ? 'inbox' as const : 'backlog' as const,
+      tags: ['benchmark', `group-${index % 20}`],
+      note: `Deterministic annotation ${index}`,
+      favorite: index % 11 === 0,
+      revisitAt: index % 13 === 0 ? '2026-12-01T09:00:00.000Z' : null,
+      reviewedAt: null,
+      localModifiedAt: '2026-08-01T00:00:00.000Z'
+    }))
+  }
+}
+
+function projectionResultChecksum(
+  projected: readonly LibraryRepository[]
+): number {
+  return projected.reduce(
+    (checksum, item) =>
+      checksum +
+      item.repository.repositoryNodeId.length +
+      (item.annotation?.note.length ?? 0) +
+      item.nativeLists.reduce((length, list) => length + list.listNodeId.length, 0),
+    0
+  )
+}
+
+function repository(index: number): RepositoryRecord {
+  return {
     githubUserId: '42',
     repositoryNodeId: `R_${index}`,
     ownerLogin: `owner-${index % 100}`,
@@ -152,5 +237,4 @@ function libraryRepository(index: number): LibraryRepository {
     lastObservedAt: '2026-08-01T00:00:00.000Z',
     unstarredAt: null
   }
-  return {repository, annotation: null, nativeLists: []}
 }

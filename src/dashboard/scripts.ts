@@ -99,6 +99,8 @@ interface DashboardSignal<T> {
   val: T
 }
 
+type LibraryRepositoryBuilder = typeof buildLibraryRepositories
+
 interface DashboardStore {
   readonly appState: DashboardSignal<AppState>
   readonly phase: DashboardSignal<AppPhase>
@@ -111,14 +113,19 @@ interface DashboardStore {
   readonly nativeListRename: DashboardSignal<AppState['nativeListRename']>
   readonly triageCounts: DashboardSignal<AppState['triageCounts']>
   readonly library: DashboardSignal<AppState['library']>
+  readonly repositories: DashboardSignal<readonly LibraryRepository[]>
   readonly mutations: DashboardSignal<AppState['mutations']>
   readonly error: DashboardSignal<AppState['error']>
   fingerprints: DashboardSliceFingerprints
   latestJobsAccountId: string | null
   latestJobsMutationFingerprint: string
+  readonly buildRepositories: LibraryRepositoryBuilder
 }
 
-function createDashboardStore(initialState: AppState): DashboardStore {
+function createDashboardStore(
+  initialState: AppState,
+  buildRepositories: LibraryRepositoryBuilder = buildLibraryRepositories
+): DashboardStore {
   const fingerprints = dashboardSliceFingerprints(initialState)
   return {
     appState: van.state(initialState),
@@ -132,11 +139,15 @@ function createDashboardStore(initialState: AppState): DashboardStore {
     nativeListRename: van.state(initialState.nativeListRename),
     triageCounts: van.state(initialState.triageCounts),
     library: van.state(initialState.library),
+    repositories: van.state(
+      initialState.library ? buildRepositories(initialState.library) : []
+    ),
     mutations: van.state(initialState.mutations),
     error: van.state(initialState.error),
     fingerprints,
     latestJobsAccountId: initialState.identity?.githubUserId ?? null,
-    latestJobsMutationFingerprint: fingerprints.mutations
+    latestJobsMutationFingerprint: fingerprints.mutations,
+    buildRepositories
   }
 }
 
@@ -152,12 +163,16 @@ let publishedNativeListMembership = dashboardStore.nativeListMembership
 let publishedNativeListRename = dashboardStore.nativeListRename
 let publishedTriageCounts = dashboardStore.triageCounts
 let publishedLibrary = dashboardStore.library
+let publishedRepositories = dashboardStore.repositories
 let publishedMutations = dashboardStore.mutations
 let publishedError = dashboardStore.error
 let publishedFingerprints = dashboardStore.fingerprints
 
-function activateDashboardStore(initialState: AppState): void {
-  dashboardStore = createDashboardStore(initialState)
+function activateDashboardStore(
+  initialState: AppState,
+  buildRepositories: LibraryRepositoryBuilder = buildLibraryRepositories
+): void {
+  dashboardStore = createDashboardStore(initialState, buildRepositories)
   appState = dashboardStore.appState
   publishedPhase = dashboardStore.phase
   publishedIdentity = dashboardStore.identity
@@ -169,6 +184,7 @@ function activateDashboardStore(initialState: AppState): void {
   publishedNativeListRename = dashboardStore.nativeListRename
   publishedTriageCounts = dashboardStore.triageCounts
   publishedLibrary = dashboardStore.library
+  publishedRepositories = dashboardStore.repositories
   publishedMutations = dashboardStore.mutations
   publishedError = dashboardStore.error
   publishedFingerprints = dashboardStore.fingerprints
@@ -205,7 +221,13 @@ let moveDestinationListNodeId = van.state('')
 let membershipActivity = van.state<string | null>(null)
 let pendingMembershipPreview = van.state<StableMembershipPreviewResponse | null>(null)
 let confirmingMembership = van.state(false)
+let nextMembershipConfirmationToken = 0
+let activeMembershipConfirmationToken: number | null = null
+let nextUnstarConfirmationToken = 0
+let activeUnstarConfirmationToken: number | null = null
 let syncing = van.state(false)
+let nextSyncRequestToken = 0
+let activeSyncRequestToken: number | null = null
 let editingNativeListId = van.state<string | null>(null)
 let nativeListRenameDraft = van.state('')
 let nativeListRenameError = van.state<string | null>(null)
@@ -225,6 +247,8 @@ let dashboardAccountGeneration = 0
 let mountedDashboardRoot: HTMLElement | null = null
 let nextDashboardMountId = 0
 let activeDashboardMountId = 0
+let nextAppStateRequestId = 0
+let latestAppStateRequestId = 0
 let latestJobsByRepository = van.state<ReadonlyMap<string, MutationJobRecord>>(new Map())
 
 export interface UnstarConfirmationTarget {
@@ -240,6 +264,7 @@ interface DialogInvoker {
 interface NativeListRenameRequest {
   readonly token: number
   readonly accountId: string | null
+  readonly appStateContext: AppStateRequestContext
   readonly focusLifecycle: FocusLifecycle
 }
 
@@ -261,6 +286,14 @@ interface SuccessFocusRequest {
   readonly invoker: DialogInvoker | null
   readonly repositoryNodeIds: readonly string[]
   readonly view: LibraryView
+}
+
+interface AppStateRequestContext {
+  readonly requestId: number
+  readonly mountId: number
+  readonly dashboardRoot: HTMLElement | null
+  readonly accountId: string | null
+  readonly accountGeneration: number
 }
 
 function Dashboard(runQuery: RepositoryQueryRunner = queryRepositories) {
@@ -300,9 +333,7 @@ function Navigation() {
 }
 
 function NavigationGroups() {
-  const repositories = publishedLibrary.val
-    ? buildLibraryRepositories(publishedLibrary.val)
-    : []
+  const repositories = publishedRepositories.val
   const counts = deriveViewCounts(
     repositories,
     hideArchived.val ? 'exclude' : 'all'
@@ -495,16 +526,10 @@ function renderState(state: AppState) {
 function ReadyLibraryState(
   runQuery: RepositoryQueryRunner = queryRepositories
 ) {
-  const repositories = van.derive(() =>
-    publishedLibrary.val ? buildLibraryRepositories(publishedLibrary.val) : []
+  const repositories = publishedRepositories
+  const repositoryMatches = van.derive(() =>
+    runQuery(publishedRepositories.val, currentQuery(), Date.now())
   )
-  const repositoryMatches = van.derive(() => {
-    const snapshot = publishedLibrary.val
-    const queryRepositoriesInput = snapshot
-      ? buildLibraryRepositories(snapshot)
-      : []
-    return runQuery(queryRepositoriesInput, currentQuery(), Date.now())
-  })
   const page = div(
     {class: 'library-page'},
     LibraryHeader(repositories, repositoryMatches),
@@ -512,7 +537,7 @@ function ReadyLibraryState(
     () => AdvancedFilters(),
     () => StatusBanners(statusPublishedState()),
     () => {
-      publishedLibrary.val
+      publishedRepositories.val
       return LibraryResults(
         projectRepositoryResults(
           repositoryMatches.val,
@@ -881,6 +906,7 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
   const request: NativeListRenameRequest = {
     token: ++nextNativeListRenameRequestToken,
     accountId: appState.val.identity?.githubUserId ?? null,
+    appStateContext: beginAppStateRequest(),
     focusLifecycle: captureFocusLifecycle(invokerElement)
   }
   activeNativeListRenameRequest = request
@@ -896,12 +922,16 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
       if (
         response.data !== undefined &&
         isCurrentNativeListRenameAccount(request) &&
+        isAppStateRequestCurrent(request.appStateContext) &&
         response.data.identity?.githubUserId === request.accountId
       ) {
         const targetExists = response.data.library?.nativeLists.some(
           (list) => list.listNodeId === listNodeId
         ) ?? false
-        applyState({...response.data, error: response.error})
+        applyAppStateResponse(
+          request.appStateContext,
+          {...response.data, error: response.error}
+        )
         if (targetExists && isCurrentNativeListRenameEditor(request, listNodeId)) {
           nativeListRenameError.val = response.error.message
         }
@@ -914,11 +944,12 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
     }
     if (
       !isCurrentNativeListRenameAccount(request) ||
+      !isAppStateRequestCurrent(request.appStateContext) ||
       response.data.identity?.githubUserId !== request.accountId
     ) {
       return
     }
-    applyState(response.data)
+    if (!applyAppStateResponse(request.appStateContext, response.data)) return
     if (activeView.val.kind === 'list' && activeView.val.listNodeId === listNodeId) {
       resetNativeListRenameEditor()
       restoreNativeListRenameInvoker(invoker, request.focusLifecycle)
@@ -2690,8 +2721,12 @@ async function updateAnnotation(
   repositoryNodeId: string,
   patch: AnnotationPatch
 ): Promise<void> {
-  await sendAction({type: 'update-annotation', repositoryNodeId, patch})
-  selectedRepositoryNodeId.val = repositoryNodeId
+  const updated = await sendAction({
+    type: 'update-annotation',
+    repositoryNodeId,
+    patch
+  })
+  if (updated) selectedRepositoryNodeId.val = repositoryNodeId
 }
 
 function toggleNativeListSelection(listNodeId: string, selected: boolean): void {
@@ -2791,24 +2826,31 @@ async function confirmMembershipPreview(): Promise<void> {
     membershipDialogInvoker,
     preview.repositories.map((repository) => repository.repositoryNodeId)
   )
+  const requestContext = beginAppStateRequest()
+  const confirmationToken = ++nextMembershipConfirmationToken
+  activeMembershipConfirmationToken = confirmationToken
   confirmingMembership.val = true
   try {
     const response = (await sendRuntimeMessage({
       type: 'confirm-native-list-membership-preview',
       previewId: preview.previewId
     })) as RuntimeResponse<AppState>
+    if (!isAppStateRequestCurrent(requestContext)) return
     if (!response.ok) {
       membershipActivity.val = response.error.message
-      applyState({...appState.val, error: response.error})
+      applyAppStateResponse(requestContext, {...appState.val, error: response.error})
       return
     }
+    if (!applyAppStateResponse(requestContext, response.data)) return
     resetMembershipPreview()
     selectedNativeListIds.val = new Set()
     membershipActivity.val = 'Membership work queued for observation and remote verification.'
-    applyState(response.data)
     restoreMembershipSuccessFocus(focusRequest)
   } finally {
-    confirmingMembership.val = false
+    if (activeMembershipConfirmationToken === confirmationToken) {
+      activeMembershipConfirmationToken = null
+      confirmingMembership.val = false
+    }
   }
 }
 
@@ -2887,6 +2929,8 @@ async function confirmPendingUnstars(): Promise<void> {
     unstarDialogInvoker,
     repositoryNodeIds
   )
+  const confirmationToken = ++nextUnstarConfirmationToken
+  activeUnstarConfirmationToken = confirmationToken
   enqueueingUnstars.val = true
   try {
     const queued = await sendAction({
@@ -2899,7 +2943,10 @@ async function confirmPendingUnstars(): Promise<void> {
       restoreUnstarSuccessFocus(focusRequest)
     }
   } finally {
-    enqueueingUnstars.val = false
+    if (activeUnstarConfirmationToken === confirmationToken) {
+      activeUnstarConfirmationToken = null
+      enqueueingUnstars.val = false
+    }
   }
 }
 
@@ -2940,19 +2987,70 @@ async function loadAppState(): Promise<void> {
 
 async function sendAction(message: RuntimeMessage): Promise<boolean> {
   const authenticationAction = isAuthenticationAction(message.type)
-  if (authenticationAction) applyState(emptyState)
-  if (message.type === 'start-sync') syncing.val = true
+  if (authenticationAction) {
+    invalidateAppStateRequests()
+    applyState(emptyState)
+  }
+  const requestContext = beginAppStateRequest()
+  const syncRequestToken = message.type === 'start-sync'
+    ? ++nextSyncRequestToken
+    : null
+  if (syncRequestToken !== null) {
+    activeSyncRequestToken = syncRequestToken
+    syncing.val = true
+  }
   try {
     const response = (await sendRuntimeMessage(message)) as RuntimeResponse<AppState>
-    applyState(
-      response.ok
-        ? response.data
-        : {...appState.val, phase: fallbackPhase(appState.val), error: response.error}
-    )
-    return response.ok
+    if (!isAppStateRequestCurrent(requestContext)) return false
+    const state = response.ok
+      ? response.data
+      : {...appState.val, phase: fallbackPhase(appState.val), error: response.error}
+    return applyAppStateResponse(requestContext, state) && response.ok
   } finally {
-    if (message.type === 'start-sync') syncing.val = false
+    if (
+      syncRequestToken !== null &&
+      activeSyncRequestToken === syncRequestToken
+    ) {
+      activeSyncRequestToken = null
+      syncing.val = false
+    }
   }
+}
+
+function beginAppStateRequest(): AppStateRequestContext {
+  const requestId = ++nextAppStateRequestId
+  latestAppStateRequestId = requestId
+  return {
+    requestId,
+    mountId: activeDashboardMountId,
+    dashboardRoot: mountedDashboardRoot,
+    accountId: dashboardAccountId,
+    accountGeneration: dashboardAccountGeneration
+  }
+}
+
+function invalidateAppStateRequests(): void {
+  latestAppStateRequestId = ++nextAppStateRequestId
+}
+
+function isAppStateRequestCurrent(context: AppStateRequestContext): boolean {
+  return (
+    context.requestId === latestAppStateRequestId &&
+    context.mountId === activeDashboardMountId &&
+    context.dashboardRoot === mountedDashboardRoot &&
+    (context.dashboardRoot === null || context.dashboardRoot.isConnected) &&
+    context.accountId === dashboardAccountId &&
+    context.accountGeneration === dashboardAccountGeneration
+  )
+}
+
+function applyAppStateResponse(
+  context: AppStateRequestContext,
+  state: AppState
+): boolean {
+  if (!isAppStateRequestCurrent(context)) return false
+  applyState(state)
+  return true
 }
 
 function applyState(state: AppState): void {
@@ -2968,8 +3066,16 @@ function applyState(state: AppState): void {
     repositoryDialogInvoker = null
     selectedNativeListIds.val = new Set()
     membershipActivity.val = null
+    confirmingMembership.val = false
+    activeMembershipConfirmationToken = null
+    enqueueingUnstars.val = false
+    activeUnstarConfirmationToken = null
+    syncing.val = false
+    activeSyncRequestToken = null
     resetMembershipPreview()
     resetNativeListRenameEditor()
+    activeNativeListRenameRequest = null
+    savingNativeListRename.val = false
     dashboardAccountGeneration += 1
     dashboardAccountId = nextAccountId
     const mountedPage = mountedDashboardRoot?.querySelector<HTMLElement>('.library-page')
@@ -2984,13 +3090,13 @@ function applyState(state: AppState): void {
   if (position) scheduleRepositoryQueryReconciliation(position)
   if (state.library) {
     const selectable = new Set(
-      state.library.repositories
+      publishedRepositories.val
         .filter(
-          (repository) =>
-            repository.isStarred &&
-            !hasActiveRepositoryJob(repository.repositoryNodeId)
+          (item) =>
+            item.repository.isStarred &&
+            !hasActiveRepositoryJob(item.repository.repositoryNodeId)
         )
-        .map((repository) => repository.repositoryNodeId)
+        .map((item) => item.repository.repositoryNodeId)
     )
     const retained = new Set(
       [...selectedForUnstar.val].filter((repositoryNodeId) =>
@@ -3068,6 +3174,11 @@ function publishStateSlices(
     next.triageCounts,
     state.triageCounts
   )
+  if (publishedFingerprints.library !== next.library) {
+    publishedRepositories.val = state.library
+      ? dashboardStore.buildRepositories(state.library)
+      : []
+  }
   publishIfMateriallyChanged(
     publishedLibrary,
     publishedFingerprints.library,
@@ -3334,8 +3445,8 @@ export function shouldStartAutoSync(
 
 async function confirmDisconnect(): Promise<void> {
   if (window.confirm('Disconnect GitHub? Local annotations will be retained.')) {
-    await sendAction({type: 'disconnect'})
-    setActiveView({kind: 'unlist'})
+    const disconnected = await sendAction({type: 'disconnect'})
+    if (disconnected) setActiveView({kind: 'unlist'})
   }
 }
 
@@ -3419,14 +3530,16 @@ async function confirmCompleteRemoval(): Promise<void> {
   ) {
     return
   }
+  const requestContext = beginAppStateRequest()
   const response = (await sendRuntimeMessage({
     type: 'clear-all-data'
   })) as RuntimeResponse<AppState>
+  if (!isAppStateRequestCurrent(requestContext)) return
   if (response.ok) {
+    if (!applyAppStateResponse(requestContext, response.data)) return
     setActiveView({kind: 'unlist'})
-    applyState(response.data)
   } else {
-    applyState({...appState.val, error: response.error})
+    applyAppStateResponse(requestContext, {...appState.val, error: response.error})
   }
 }
 
@@ -3617,11 +3730,13 @@ function toEndOfDay(value: string | null): string | null {
 export function mountDashboard(
   root: HTMLElement,
   initialState: AppState = emptyState,
-  runQuery: RepositoryQueryRunner = queryRepositories
+  runQuery: RepositoryQueryRunner = queryRepositories,
+  buildRepositories: LibraryRepositoryBuilder = buildLibraryRepositories
 ): void {
   if (pollTimer !== null) window.clearTimeout(pollTimer)
   pollTimer = null
-  activateDashboardStore(initialState)
+  invalidateAppStateRequests()
+  activateDashboardStore(initialState, buildRepositories)
   resetDashboardUiState()
   activeDashboardMountId = ++nextDashboardMountId
   dashboardAccountId = initialState.identity?.githubUserId ?? null
@@ -3636,9 +3751,11 @@ export function renderSettingsState(state: AppState): HTMLElement {
 
 export function renderLibraryState(
   state: AppState,
-  runQuery: RepositoryQueryRunner = queryRepositories
+  runQuery: RepositoryQueryRunner = queryRepositories,
+  buildRepositories: LibraryRepositoryBuilder = buildLibraryRepositories
 ): HTMLElement {
-  activateDashboardStore(state)
+  invalidateAppStateRequests()
+  activateDashboardStore(state, buildRepositories)
   resetDashboardUiState()
   activeDashboardMountId = ++nextDashboardMountId
   dashboardAccountId = state.identity?.githubUserId ?? null
@@ -3677,7 +3794,10 @@ function resetDashboardUiState(): void {
   membershipActivity = van.state<string | null>(null)
   pendingMembershipPreview = van.state<StableMembershipPreviewResponse | null>(null)
   confirmingMembership = van.state(false)
+  activeMembershipConfirmationToken = null
+  activeUnstarConfirmationToken = null
   syncing = van.state(false)
+  activeSyncRequestToken = null
   editingNativeListId = van.state<string | null>(null)
   nativeListRenameDraft = van.state('')
   nativeListRenameError = van.state<string | null>(null)
@@ -3691,6 +3811,7 @@ function resetDashboardUiState(): void {
 }
 
 export function renderAppState(state: AppState): void {
+  invalidateAppStateRequests()
   applyState(state)
 }
 

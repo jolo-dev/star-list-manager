@@ -17,7 +17,10 @@ import type {
   MembershipListPreviewItem,
   StableMembershipPreviewResponse
 } from '../../src/shared/messages'
-import {queryRepositories} from '../../src/dashboard/library'
+import {
+  buildLibraryRepositories,
+  queryRepositories
+} from '../../src/dashboard/library'
 
 test('mounts one main landmark without a broad application live region', async () => {
   const indexHtml = await readFile(
@@ -972,6 +975,114 @@ test('publishes the complete empty authentication state before awaiting the runt
     await browserWindow.happyDOM.whenAsyncComplete()
     expect(root.textContent).toContain('Preparing a new GitHub authorization')
     expect(root.querySelector('.library-page')).toBeNull()
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('projects repositories once per material library publication', async () => {
+  const browserWindow = createDashboardWindow()
+  const state = readyDashboardState()
+  let projectionCalls = 0
+  const countedBuilder: typeof buildLibraryRepositories = (snapshot) => {
+    projectionCalls += 1
+    return buildLibraryRepositories(snapshot)
+  }
+  const {mountDashboard, renderAppState} = await import('../../src/dashboard/scripts')
+  const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+  browserWindow.document.body.append(
+    root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+
+  mountDashboard(root, state, queryRepositories, countedBuilder)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(projectionCalls).toBe(1)
+
+  renderAppState(structuredClone(state))
+  renderAppState({
+    ...state,
+    mutations: {
+      batches: [],
+      jobs: [mutationJob('42', 'failed', 1)],
+      history: []
+    }
+  })
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(projectionCalls).toBe(1)
+
+  renderAppState({
+    ...state,
+    library: {
+      ...state.library!,
+      annotations: state.library!.annotations.map((annotation) => ({
+        ...annotation,
+        note: 'Material projection update'
+      }))
+    }
+  })
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(projectionCalls).toBe(2)
+})
+
+test('rejects stale and out-of-order get-app-state responses', async () => {
+  const browserWindow = createDashboardWindow()
+  const accountA = membershipReadyDashboardState()
+  const accountB = accountBDashboardState()
+  const sameAccountNewer: AppState = {
+    ...accountB,
+    library: {
+      ...accountB.library!,
+      repositories: [repositoryRecord('7', 'R_newer', 'account-b/newer')],
+      annotations: [],
+      nativeMemberships: []
+    }
+  }
+  const pendingResolvers: Array<(value: unknown) => void> = []
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {
+    chrome: {
+      runtime: {
+        sendMessage: () => new Promise((resolve) => pendingResolvers.push(resolve))
+      }
+    }
+  })
+
+  try {
+    const {mountDashboard, renderAppState, sendDashboardAction} = await import(
+      '../../src/dashboard/scripts'
+    )
+    const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+    const sentinel = browserWindow.document.createElement('button')
+    sentinel.textContent = 'Account B focus'
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0],
+      sentinel
+    )
+    mountDashboard(root, accountA)
+
+    const staleAccountRequest = sendDashboardAction({type: 'get-app-state'})
+    renderAppState(accountB)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    sentinel.focus()
+    pendingResolvers.shift()?.({ok: true, data: accountA})
+    await staleAccountRequest
+    await nextTurn(browserWindow)
+
+    expect((browserWindow.document.activeElement as unknown) === sentinel).toBe(true)
+    await expectAccountBDashboard(root, browserWindow)
+    root.querySelector<HTMLButtonElement>('[data-view-kind="unlist"]')?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+
+    const olderRequest = sendDashboardAction({type: 'get-app-state'})
+    const newerRequest = sendDashboardAction({type: 'get-app-state'})
+    pendingResolvers[1]?.({ok: true, data: sameAccountNewer})
+    await newerRequest
+    await nextTurn(browserWindow)
+    pendingResolvers[0]?.({ok: true, data: accountB})
+    await olderRequest
+    await nextTurn(browserWindow)
+    expect(visibleRepositoryIds(root)).toEqual(['R_newer'])
   } finally {
     if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
     else Object.assign(globalThis, {chrome: previousChrome})
@@ -3233,14 +3344,11 @@ test('membership success falls back to visible Unlist when its repository disapp
   }
 })
 
-test('does not restore pending membership focus after an account lifecycle change', async () => {
+test('rejects a delayed membership response after an account lifecycle change', async () => {
   const browserWindow = createDashboardWindow()
   const pending = deferred()
   const state = membershipReadyDashboardState()
-  const switched: AppState = {
-    ...state,
-    identity: {...state.identity!, githubUserId: '7', userNodeId: 'U_7', login: 'other'}
-  }
+  const switched = accountBDashboardState()
   const previousChrome = (globalThis as {chrome?: unknown}).chrome
   Object.assign(globalThis, {
     chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
@@ -3275,6 +3383,55 @@ test('does not restore pending membership focus after an account lifecycle chang
     await nextTurn(browserWindow)
 
     expect((browserWindow.document.activeElement as unknown) === sentinel).toBe(true)
+    await expectAccountBDashboard(root, browserWindow)
+  } finally {
+    pending.resolve()
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('rejects a delayed unstar response after an account lifecycle change', async () => {
+  const browserWindow = createDashboardWindow()
+  const pending = deferred()
+  const accountA = membershipReadyDashboardState()
+  const accountB = accountBDashboardState()
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {
+    chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+      if (message.type === 'enqueue-confirmed-unstars') {
+        await pending.promise
+        return {ok: true, data: accountA}
+      }
+      throw new Error(`Unexpected runtime message: ${message.type}`)
+    }}}
+  })
+  try {
+    const {mountDashboard, renderAppState} = await import('../../src/dashboard/scripts')
+    const root = browserWindow.document.createElement('div') as unknown as HTMLElement
+    const sentinel = browserWindow.document.createElement('button')
+    sentinel.textContent = 'Switched account focus'
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0],
+      sentinel
+    )
+    mountDashboard(root, accountA)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await openRepositoryDetails(root, browserWindow)
+    ;[...root.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === 'Review unstar')?.click()
+    await nextTurn(browserWindow)
+    ;[...root.querySelectorAll<HTMLButtonElement>('.unstar-confirmation button')]
+      .find((button) => button.textContent?.includes('Confirm unstar'))?.click()
+
+    renderAppState(accountB)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    sentinel.focus()
+    pending.resolve()
+    await nextTurn(browserWindow)
+
+    expect((browserWindow.document.activeElement as unknown) === sentinel).toBe(true)
+    await expectAccountBDashboard(root, browserWindow)
   } finally {
     pending.resolve()
     if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
@@ -4008,6 +4165,55 @@ function membershipReadyDashboardState(): AppState {
       error: null
     }
   }
+}
+
+function accountBDashboardState(): AppState {
+  const repository = repositoryRecord('7', 'R_account_b', 'account-b/repository')
+  const job = {
+    ...mutationJob('7', 'failed', 77),
+    repositoryNodeId: repository.repositoryNodeId,
+    ownerLogin: repository.ownerLogin,
+    repositoryName: repository.name
+  }
+  return {
+    ...membershipReadyDashboardState(),
+    identity: accountState('7').identity,
+    sync: {...completeSyncState('stars'), githubUserId: '7'},
+    nativeListSync: {...completeSyncState('native-lists'), githubUserId: '7'},
+    library: {
+      repositories: [repository],
+      nativeLists: [],
+      nativeMemberships: [],
+      annotations: [{
+        githubUserId: '7',
+        repositoryNodeId: repository.repositoryNodeId,
+        triageState: 'backlog',
+        tags: ['account-b-only'],
+        note: 'Account B private note',
+        favorite: true,
+        revisitAt: null,
+        reviewedAt: null,
+        localModifiedAt: '2026-08-19T10:00:00Z'
+      }]
+    },
+    mutations: {batches: [mutationBatch('7', [job])], jobs: [job], history: []}
+  }
+}
+
+async function expectAccountBDashboard(root: HTMLElement, browserWindow: Window): Promise<void> {
+  expect(visibleRepositoryIds(root)).toEqual(['R_account_b'])
+  await openRepositoryDetails(root, browserWindow)
+  expect(root.querySelector<HTMLTextAreaElement>('.annotation-editor textarea')?.textContent).toBe(
+    'Account B private note'
+  )
+  const operations = root.querySelector<HTMLButtonElement>('[data-view-kind="operations"]')
+  operations?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.operations-page')?.textContent).toContain('repository')
+  const settings = root.querySelector<HTMLButtonElement>('[data-view-kind="settings"]')
+  settings?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.settings-page')?.textContent).toContain('account-7')
 }
 
 function renameReadyDashboardState(): AppState {
