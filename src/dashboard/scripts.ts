@@ -309,34 +309,64 @@ function Dashboard(runQuery: RepositoryQueryRunner = queryRepositories) {
   let retainedWorkspace: HTMLElement | null = null
   return div(
     {class: 'app-shell'},
-    Navigation(),
-    main(
-      {
-        class: 'workspace',
-        'data-workspace-kind': () =>
-          classifyWorkspace(publishedPhase.val, activeView.val)
-      },
-      () => {
-        const kind = classifyWorkspace(publishedPhase.val, activeView.val)
-        if (kind === retainedKind && retainedWorkspace !== null) {
-          return retainedWorkspace
-        }
-        retainedKind = kind
-        retainedWorkspace = createWorkspace(kind, runQuery)
-        return retainedWorkspace
-      }
+    ArchiveHeader(),
+    div(
+      {class: 'archive-workspace'},
+      Navigation(),
+      div(
+        {class: 'archive-results'},
+        main(
+          {
+            class: 'workspace',
+            'data-workspace-kind': () =>
+              classifyWorkspace(publishedPhase.val, activeView.val)
+          },
+          () => {
+            const kind = classifyWorkspace(publishedPhase.val, activeView.val)
+            if (kind === retainedKind && retainedWorkspace !== null) {
+              return retainedWorkspace
+            }
+            retainedKind = kind
+            retainedWorkspace = createWorkspace(kind, runQuery)
+            return retainedWorkspace
+          }
+        )
+      )
     )
   )
 }
-function Navigation() {
-  return nav(
-    {class: 'sidebar', 'aria-label': 'Library'},
+
+function ArchiveHeader() {
+  return header(
+    {class: 'archive-app-header'},
     div(
-      {class: 'brand'},
-      span({class: 'brand-mark', 'aria-hidden': 'true'}, 'S'),
-      div(span({class: 'brand-name'}, 'Star List'), span('Manager'))
+      {class: 'archive-brand'},
+      span({class: 'archive-star-mark', 'aria-hidden': 'true'}, '★'),
+      span({class: 'archive-wordmark'}, 'Archive.Stars')
     ),
-    () => div({class: 'nav-groups'}, ...NavigationGroups())
+    nav(
+      {class: 'archive-utilities', 'aria-label': 'Utilities'},
+      ul(
+        {class: 'archive-utility-list'},
+        NavItem('Operations', {kind: 'operations'}, null, 'archive-utility-link'),
+        NavItem('Settings', {kind: 'settings'}, null, 'archive-utility-link')
+      )
+    )
+  )
+}
+
+function Navigation() {
+  return div(
+    {class: 'archive-directory'},
+    nav(
+      {class: 'sidebar', 'aria-label': 'Library'},
+      div(
+        {class: 'brand'},
+        span({class: 'brand-mark', 'aria-hidden': 'true'}, 'S'),
+        div(span({class: 'brand-name'}, 'Star List'), span('Manager'))
+      ),
+      () => div({class: 'nav-groups'}, ...NavigationGroups())
+    )
   )
 }
 
@@ -377,11 +407,19 @@ function NavigationGroups() {
   ]
 }
 
-function NavItem(title: string, view: LibraryView, count: number | null) {
+function NavItem(
+  title: string,
+  view: LibraryView,
+  count: number | null,
+  additionalClassName = ''
+) {
   return li(
     button(
       {
-        class: () => isActiveView(view) ? 'nav-item is-active' : 'nav-item',
+        class: () =>
+          ['nav-item', additionalClassName, isActiveView(view) ? 'is-active' : '']
+            .filter(Boolean)
+            .join(' '),
         type: 'button',
         'aria-current': () => isActiveView(view) ? 'page' : null,
         'data-view-kind': view.kind,

@@ -55,7 +55,7 @@ test('mounts one main landmark without a broad application live region', async (
     expect(root.querySelectorAll('main')).toHaveLength(1)
     expect(root.querySelector('main')?.classList.contains('workspace')).toBe(true)
     expect(root.hasAttribute('aria-live')).toBe(false)
-    expect(root.querySelector('nav')?.getAttribute('aria-label')).toBe('Library')
+    expect(root.querySelector('nav[aria-label="Library"]')).not.toBeNull()
     expect(root.querySelector('[aria-busy="true"]')).not.toBeNull()
     expect(root.textContent).toContain('Star List')
     const unlist = [...root.querySelectorAll('button')].find(
@@ -70,6 +70,67 @@ test('mounts one main landmark without a broad application live region', async (
       else delete (globalThis as Record<string, unknown>)[key]
     }
   }
+})
+
+test('renders the Archive.Stars frame without changing repository activation contracts', async () => {
+  const ready = readyDashboardState()
+  const secondRepository = repositoryRecord('42', 'R_two', 'octocat/two')
+  const root = await mountReadyDashboard({
+    ...ready,
+    library: {
+      ...ready.library!,
+      repositories: [...ready.library!.repositories, secondRepository]
+    }
+  })
+  const browserWindow = window as unknown as Window
+  const header = root.querySelector<HTMLElement>('.archive-app-header')
+  const directory = root.querySelector<HTMLElement>('.archive-directory')
+  const results = root.querySelector<HTMLElement>('.archive-results')
+
+  expect(header).not.toBeNull()
+  expect(header?.querySelector('.archive-wordmark')?.textContent).toContain('Archive.Stars')
+  expect(directory?.querySelector('nav')?.getAttribute('aria-label')).toBe('Library')
+  expect(results?.querySelectorAll('main.workspace')).toHaveLength(1)
+  expect(
+    [...(header?.querySelectorAll<HTMLButtonElement>('.archive-utility-link') ?? [])].map(
+      (element) => element.textContent
+    )
+  ).toEqual(expect.arrayContaining(['Operations', 'Settings']))
+
+  const repositoryList = results?.querySelector<HTMLUListElement>('.repository-list') ?? null
+  const rows = [...(repositoryList?.querySelectorAll<HTMLButtonElement>('.repository-row') ?? [])]
+  const firstRow = rows[0] ?? null
+  const nextRow = rows[1] ?? null
+  expect(repositoryList?.getAttribute('aria-label')).toBe('Repositories')
+  expect(firstRow?.tagName).toBe('BUTTON')
+  expect(firstRow?.dataset.repositoryNodeId).toBe('R_one')
+  expect(nextRow?.dataset.repositoryNodeId).toBe('R_two')
+  if (firstRow === null || nextRow === null) throw new Error('Repository rows are required.')
+
+  firstRow.focus()
+  firstRow.dispatchEvent(
+    new browserWindow.KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}) as unknown as Event
+  )
+  await browserWindow.happyDOM.whenAsyncComplete()
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+  const focusedNextRow = results?.querySelector<HTMLButtonElement>(
+    '[data-repository-node-id="R_two"]'
+  ) ?? null
+  expect(browserWindow.document.activeElement).toBe(focusedNextRow)
+  focusedNextRow?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(results?.querySelector('.repository-inspection-dialog h2')?.textContent).toBe('two')
+
+  const utilityButton = (label: string) =>
+    [...(header?.querySelectorAll<HTMLButtonElement>('.archive-utility-link') ?? [])].find(
+      (element) => element.textContent === label
+    ) ?? null
+  utilityButton('Operations')?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(results?.querySelector('.operations-page h1')?.textContent).toBe('Operations')
+  utilityButton('Settings')?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(results?.querySelector('.settings-page h1')?.textContent).toBe('Settings')
 })
 
 test('uses only targeted dashboard live regions', async () => {
