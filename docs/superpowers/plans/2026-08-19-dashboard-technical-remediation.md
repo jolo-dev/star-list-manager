@@ -730,6 +730,8 @@ bun scripts/benchmark-dashboard.ts
 
 Expected: no unexplained detector findings; benchmark declares the bounded 200-lookup legacy sample, full 10,000-repository/50,000-job indexed/query datasets, raw medians, normalized job cost per lookup, and indexed/shared paths faster than legacy/repeated paths. Record all actual output in the completion report.
 
+Final post-review benchmark: indexed lookup **1128.49×**, shared projection **3.35×**, and shared query **3.83×** faster on the development machine. The detector reported only the documented Geist Mono `@font-face` declaration-site false positive.
+
 - [ ] **Step 6: Perform representative manual browser checks**
 
 Load the Chrome production build's options page and inspect at wide desktop and 320px viewport:
@@ -771,7 +773,7 @@ git commit -m "fix: polish dashboard remediation"
 
 If no source changes remain, do not create an empty commit.
 
-No freshly verified source defect was found, so no empty source commit was created.
+The first final review found a stale-account response race and duplicate repository projection; these were fixed in `6b9aee5`. Re-review then found a foreground-action/poll ordering race; it was fixed in `779519b`. Post-fix verification passed with 104 dashboard tests and 431 complete-suite tests.
 
 - [x] **Step 9: Mark the plan complete and commit documentation**
 
@@ -782,6 +784,8 @@ git add docs/superpowers/plans/2026-08-19-dashboard-technical-remediation.md
 git commit -m "docs: complete dashboard remediation plan"
 ```
 
-- [ ] **Step 10: Request final code review before branch integration**
+- [x] **Step 10: Request final code review before branch integration**
 
 Use `@superpowers/requesting-code-review` with the approved spec, this plan, commit range, benchmark output, detector output, test/build evidence, and any manual-browser residual. Resolve all P0/P1 findings and re-run affected verification before using `@superpowers/finishing-a-development-branch`.
+
+Final re-review approved the complete branch with no P0, P1, or P2 findings and explicitly reported that integration is not blocked. Real-browser validation remains the only documented residual.
