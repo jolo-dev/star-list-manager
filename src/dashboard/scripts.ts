@@ -38,8 +38,12 @@ import {
   type StarFilter
 } from './library'
 import {
+  classifyWorkspace,
+  dashboardSliceFingerprints,
   indexLatestRepositoryJobs,
   projectRepositoryResults,
+  type DashboardSliceFingerprints,
+  type DashboardWorkspace,
   type DerivedRepositoryResults,
   type RepositoryQueryRunner
 } from './derivations'
@@ -92,6 +96,19 @@ const emptyState: AppState = {
   error: null
 }
 const appState = van.state<AppState>(emptyState)
+const publishedPhase = van.state<AppPhase>(emptyState.phase)
+const publishedIdentity = van.state<AppState['identity']>(emptyState.identity)
+const publishedAuthorization = van.state<AppState['authorization']>(emptyState.authorization)
+const publishedWriteAuthorization = van.state<AppState['writeAuthorization']>(emptyState.writeAuthorization)
+const publishedSync = van.state<AppState['sync']>(emptyState.sync)
+const publishedNativeListSync = van.state<AppState['nativeListSync']>(emptyState.nativeListSync)
+const publishedNativeListMembership = van.state<AppState['nativeListMembership']>(emptyState.nativeListMembership)
+const publishedNativeListRename = van.state<AppState['nativeListRename']>(emptyState.nativeListRename)
+const publishedTriageCounts = van.state<AppState['triageCounts']>(emptyState.triageCounts)
+const publishedLibrary = van.state<AppState['library']>(emptyState.library)
+const publishedMutations = van.state<AppState['mutations']>(emptyState.mutations)
+const publishedError = van.state<AppState['error']>(emptyState.error)
+let publishedFingerprints: DashboardSliceFingerprints = dashboardSliceFingerprints(emptyState)
 const activeView = van.state<LibraryView>({kind: 'unlist'})
 const searchText = van.state('')
 const sort = van.state<RepositorySort>('starred-at')
@@ -133,7 +150,8 @@ let activeMembershipPreviewRequestToken: number | null = null
 let pollTimer: number | null = null
 let autoSyncAccountId: string | null = null
 let dashboardAccountId: string | null = null
-let latestJobsByRepository: ReadonlyMap<string, MutationJobRecord> = new Map()
+const latestJobsByRepository = van.state<ReadonlyMap<string, MutationJobRecord>>(new Map())
+let latestJobsInputKey = ''
 
 export interface UnstarConfirmationTarget {
   readonly repositoryNodeId: string
@@ -154,26 +172,30 @@ interface NativeListRenameInvoker {
   readonly listNodeId: string
 }
 
+const workspaceKind = van.derive(() =>
+  classifyWorkspace(publishedPhase.val, activeView.val)
+)
+
 function Dashboard() {
+  const workspaces = {
+    library: ReadyLibraryState(),
+    operations: PersistentStatePage('operations-page', OperationsState),
+    settings: PersistentStatePage('settings-page', SettingsState),
+    phase: div({class: 'phase-workspace'}, () => renderState(currentPublishedState()))
+  }
   return div(
     {class: 'app-shell'},
-    () => Navigation(),
-    main({class: 'workspace'}, () => renderState(appState.val))
+    Navigation(),
+    main(
+      {class: 'workspace', 'data-workspace-kind': workspaceKind},
+      () => renderWorkspace(
+        classifyWorkspace(publishedPhase.val, activeView.val),
+        workspaces
+      )
+    )
   )
 }
-
 function Navigation() {
-  const state = appState.val
-  const repositories = state.library
-    ? buildLibraryRepositories(state.library)
-    : []
-  const counts = deriveViewCounts(
-    repositories,
-    hideArchived.val ? 'exclude' : 'all'
-  )
-  const lists = state.library?.nativeLists.toSorted((left, right) =>
-    left.name.localeCompare(right.name)
-  ) ?? []
   return nav(
     {class: 'sidebar', 'aria-label': 'Library'},
     div(
@@ -181,6 +203,22 @@ function Navigation() {
       span({class: 'brand-mark', 'aria-hidden': 'true'}, 'S'),
       div(span({class: 'brand-name'}, 'Star List'), span('Manager'))
     ),
+    () => div({class: 'nav-groups'}, ...NavigationGroups())
+  )
+}
+
+function NavigationGroups() {
+  const repositories = publishedLibrary.val
+    ? buildLibraryRepositories(publishedLibrary.val)
+    : []
+  const counts = deriveViewCounts(
+    repositories,
+    hideArchived.val ? 'exclude' : 'all'
+  )
+  const lists = publishedLibrary.val?.nativeLists.toSorted((left, right) =>
+    left.name.localeCompare(right.name)
+  ) ?? []
+  return [
     details(
       {class: 'nav-group', open: true},
       summary('GitHub Lists'),
@@ -205,16 +243,17 @@ function Navigation() {
         NavItem('Settings', {kind: 'settings'}, null)
       )
     )
-  )
+  ]
 }
 
 function NavItem(title: string, view: LibraryView, count: number | null) {
   return li(
     button(
       {
-        class: isActiveView(view) ? 'nav-item is-active' : 'nav-item',
+        class: () => isActiveView(view) ? 'nav-item is-active' : 'nav-item',
         type: 'button',
-        ...(isActiveView(view) ? {'aria-current': 'page'} : {}),
+        'aria-current': () => isActiveView(view) ? 'page' : null,
+        'data-view-key': JSON.stringify(view),
         onclick: () => {
           if (enqueueingUnstars.val || confirmingMembership.val) return
           setActiveView(view)
@@ -229,6 +268,57 @@ function NavItem(title: string, view: LibraryView, count: number | null) {
       span({class: 'nav-label'}, title),
       count === null ? null : span(String(count))
     )
+  )
+}
+
+function currentPublishedState(): AppState {
+  return {
+    phase: publishedPhase.val,
+    identity: publishedIdentity.val,
+    authorization: publishedAuthorization.val,
+    writeAuthorization: publishedWriteAuthorization.val,
+    ...(publishedNativeListMembership.val === undefined
+      ? {}
+      : {nativeListMembership: publishedNativeListMembership.val}),
+    ...(publishedNativeListRename.val === undefined
+      ? {}
+      : {nativeListRename: publishedNativeListRename.val}),
+    sync: publishedSync.val,
+    nativeListSync: publishedNativeListSync.val,
+    triageCounts: publishedTriageCounts.val,
+    library: publishedLibrary.val,
+    ...(publishedMutations.val === undefined
+      ? {}
+      : {mutations: publishedMutations.val}),
+    error: publishedError.val
+  }
+}
+
+function renderWorkspace(
+  kind: DashboardWorkspace,
+  workspaces: {
+    readonly library: HTMLElement
+    readonly operations: HTMLElement
+    readonly settings: HTMLElement
+    readonly phase: HTMLElement
+  }
+) {
+  if (kind === 'library') return workspaces.library
+  if (kind === 'operations') return workspaces.operations
+  if (kind === 'settings') return workspaces.settings
+  return workspaces.phase
+}
+
+function PersistentStatePage(
+  className: string,
+  render: (state: AppState) => HTMLElement
+) {
+  return div(
+    {class: className},
+    () => {
+      const rendered = render(currentPublishedState())
+      return div({class: 'state-page-content'}, ...rendered.childNodes)
+    }
   )
 }
 
@@ -255,54 +345,49 @@ function renderState(state: AppState) {
     case 'first-run':
       return FirstRunState(false, state.error?.message ?? null)
     case 'ready':
-      return ReadyState(state)
+      return ReadyLibraryState()
   }
-}
-
-function ReadyState(
-  state: AppState,
-  runQuery: RepositoryQueryRunner = queryRepositories
-) {
-  if (activeView.val.kind === 'settings') return SettingsState(state)
-  if (activeView.val.kind === 'operations') return OperationsState(state)
-  return ReadyLibraryState(state, runQuery)
 }
 
 function ReadyLibraryState(
-  state: AppState,
   runQuery: RepositoryQueryRunner = queryRepositories
 ) {
-  const snapshot = state.library
-  if (!snapshot || (!state.sync && snapshot.repositories.length === 0)) {
-    return LoadingState('Synchronizing the first public-star observation.')
-  }
-  if (snapshot.repositories.length === 0 && state.sync?.phase === 'complete') {
-    return EmptyLibraryState()
-  }
-
-  const repositories = buildLibraryRepositories(snapshot)
-  const repositoryMatches = van.derive(() =>
-    runQuery(repositories, currentQuery(), Date.now())
+  const repositories = van.derive(() =>
+    publishedLibrary.val ? buildLibraryRepositories(publishedLibrary.val) : []
   )
-  const repositoryResults = van.derive(() =>
-    projectRepositoryResults(
-      repositoryMatches.val,
-      inspectedRepositoryNodeId.val,
-      200
-    )
-  )
-
-  return div(
+  let page: HTMLElement | null = null
+  let wasConnected = false
+  let lastMatches: readonly LibraryRepository[] = []
+  const repositoryMatches = van.derive(() => {
+    if (page?.isConnected) wasConnected = true
+    if (wasConnected && !page?.isConnected) return lastMatches
+    const snapshot = publishedLibrary.val
+    const queryRepositoriesInput = snapshot
+      ? buildLibraryRepositories(snapshot)
+      : []
+    lastMatches = runQuery(queryRepositoriesInput, currentQuery(), Date.now())
+    return lastMatches
+  })
+  page = div(
     {class: 'library-page'},
-    LibraryHeader(state, repositories, repositoryResults),
-    () => SelectionActions(appState.val, repositories),
+    LibraryHeader(repositories, repositoryMatches),
+    () => SelectionActions(currentPublishedState(), repositories.val),
     () => AdvancedFilters(),
-    () => StatusBanners(appState.val),
-    () => LibraryResults(repositoryResults.val),
+    () => StatusBanners(currentPublishedState()),
+    () => {
+      publishedLibrary.val
+      return LibraryResults(
+        projectRepositoryResults(
+          repositoryMatches.val,
+          inspectedRepositoryNodeId.val,
+          200
+        )
+      )
+    },
     () =>
       pendingUnstarTargets.val.length > 0
         ? UnstarConfirmation(
-            appState.val,
+            currentPublishedState(),
             pendingUnstarTargets.val,
             () => void confirmPendingUnstars(),
             () => cancelUnstarConfirmation(true)
@@ -317,6 +402,10 @@ function ReadyLibraryState(
           )
         : ''
   )
+  window.setTimeout(() => {
+    if (page?.isConnected) wasConnected = true
+  }, 0)
+  return page
 }
 
 function LibraryResults(results: DerivedRepositoryResults) {
@@ -362,19 +451,17 @@ function LibraryResults(results: DerivedRepositoryResults) {
 }
 
 function LibraryHeader(
-  state: AppState,
-  repositories: readonly LibraryRepository[],
-  repositoryResults: {readonly val: DerivedRepositoryResults}
+  repositories: {readonly val: readonly LibraryRepository[]},
+  repositoryMatches: {readonly val: readonly LibraryRepository[]}
 ) {
-  const languages = availableLanguages(repositories)
   return header(
     {class: 'library-header'},
     div(
-      () => LibraryViewContext(state),
+      () => LibraryViewContext(),
       h1(() => populationTitle(starState.val)),
       p(
         {class: 'result-count', 'aria-live': 'polite'},
-        () => `${repositoryResults.val.count} repositories`
+        () => `${repositoryMatches.val.length} repositories`
       )
     ),
     div(
@@ -409,7 +496,7 @@ function LibraryHeader(
           {class: 'view-options-controls'},
           label(
             span('Language'),
-            select(
+            () => select(
               {
                 value: () => language.val ?? '',
                 onchange: (event: Event) => {
@@ -417,7 +504,9 @@ function LibraryHeader(
                 }
               },
               option({value: ''}, 'All'),
-              ...languages.map((value) => option({value}, value))
+              ...availableLanguages(repositories.val).map((value) =>
+                option({value}, value)
+              )
             )
           ),
           label(
@@ -460,50 +549,75 @@ function LibraryHeader(
           )
         )
       ),
-      state.identity
-        ? span(
-            {
-              class: 'header-avatar',
-              title: `Connected as ${state.identity.login}`,
-              'aria-label': `Connected as ${state.identity.login}`
-            },
-            state.identity.login.slice(0, 1).toLocaleUpperCase()
-          )
-        : null
+      () => {
+        const identity = publishedIdentity.val
+        return identity
+          ? span(
+              {
+                class: 'header-avatar',
+                title: `Connected as ${identity.login}`,
+                'aria-label': `Connected as ${identity.login}`
+              },
+              identity.login.slice(0, 1).toLocaleUpperCase()
+            )
+          : null
+      }
     )
   )
 }
 
-function LibraryViewContext(state: AppState) {
-  const view = activeView.val
-  if (view.kind === 'unlist') return p({class: 'eyebrow'}, 'Unlist')
-  if (view.kind !== 'list') return p({class: 'eyebrow'}, 'GitHub library')
-  const nativeList = state.library?.nativeLists.find((list) => list.listNodeId === view.listNodeId)
-  if (!nativeList) return p({class: 'eyebrow'}, 'GitHub List')
-  if (state.nativeListRename?.readiness !== 'ready') {
-    return p({class: 'eyebrow'}, nativeList.name)
+function LibraryViewContext() {
+  const currentNativeList = () => {
+    const view = activeView.val
+    return view.kind === 'list'
+      ? publishedLibrary.val?.nativeLists.find(
+          (list) => list.listNodeId === view.listNodeId
+        ) ?? null
+      : null
   }
-  const editing = () => editingNativeListId.val === nativeList.listNodeId
+  const hasEditor = () =>
+    currentNativeList() !== null &&
+    publishedNativeListRename.val?.readiness === 'ready'
   return div(
-    {class: 'native-list-header-editor'},
-    div(
-      {class: 'native-list-header-title', hidden: editing},
-      p({class: 'eyebrow'}, nativeList.name),
-      div(
-        {class: 'native-list-header-actions'},
-        button(
-          {
-            class: 'secondary-action',
-            type: 'button',
-            'data-native-list-rename-invoker': nativeList.listNodeId,
-            onclick: (event: MouseEvent) =>
-              beginNativeListRename(nativeList.listNodeId, nativeList.name, event.currentTarget as HTMLElement)
-          },
-          'Edit'
-        )
-      )
+    {class: 'library-view-context'},
+    p(
+      {class: 'eyebrow', hidden: hasEditor},
+      () => {
+        const view = activeView.val
+        if (view.kind === 'unlist') return 'Unlist'
+        return currentNativeList()?.name ?? 'GitHub List'
+      }
     ),
-    NativeListRenameEditor(nativeList.listNodeId, editing)
+    () => {
+      const nativeList = currentNativeList()
+      if (!nativeList || !hasEditor()) return null
+      const editing = () => editingNativeListId.val === nativeList.listNodeId
+      return div(
+        {class: 'native-list-header-editor'},
+        div(
+          {class: 'native-list-header-title', hidden: editing},
+          p({class: 'eyebrow'}, nativeList.name),
+          div(
+            {class: 'native-list-header-actions'},
+            button(
+              {
+                class: 'secondary-action',
+                type: 'button',
+                'data-native-list-rename-invoker': nativeList.listNodeId,
+                onclick: (event: MouseEvent) =>
+                  beginNativeListRename(
+                    nativeList.listNodeId,
+                    nativeList.name,
+                    event.currentTarget as HTMLElement
+                  )
+              },
+              'Edit'
+            )
+          )
+        ),
+        NativeListRenameEditor(nativeList.listNodeId, editing)
+      )
+    }
   )
 }
 
@@ -1367,8 +1481,8 @@ function OperationHistoryRow(record: OperationHistoryRecord) {
 }
 
 function RepositoryOperationDetails(repositoryNodeId: string) {
-  const githubUserId = appState.val.identity?.githubUserId
-  const jobs = (appState.val.mutations?.jobs ?? [])
+  const githubUserId = publishedIdentity.val?.githubUserId
+  const jobs = (publishedMutations.val?.jobs ?? [])
     .filter(
       (job) =>
         job.githubUserId === githubUserId &&
@@ -1376,7 +1490,7 @@ function RepositoryOperationDetails(repositoryNodeId: string) {
     )
     .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))
   const history = operationHistoryForRepository(
-    (appState.val.mutations?.history ?? []).filter(
+    (publishedMutations.val?.history ?? []).filter(
       (record) => record.githubUserId === githubUserId
     ),
     repositoryNodeId
@@ -1414,9 +1528,10 @@ function MutationStatus(job: MutationJobRecord) {
 
 function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | null) {
   const repository = item.repository
-  const active = selected?.repository.repositoryNodeId === repository.repositoryNodeId
-  const selectedForMutation = selectedForUnstar.val.has(repository.repositoryNodeId)
-  const latestJob = latestRepositoryJob(repository.repositoryNodeId)
+  const active = () =>
+    selectedRepositoryNodeId.val === repository.repositoryNodeId ||
+    (selectedRepositoryNodeId.val === null &&
+      selected?.repository.repositoryNodeId === repository.repositoryNodeId)
   return li(
     {class: 'repository-row-shell'},
     repository.isStarred
@@ -1424,8 +1539,8 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
           {class: 'selection-control'},
           input({
             type: 'checkbox',
-            checked: selectedForMutation,
-            disabled: hasActiveRepositoryJob(repository.repositoryNodeId),
+            checked: () => selectedForUnstar.val.has(repository.repositoryNodeId),
+            disabled: () => hasActiveRepositoryJob(repository.repositoryNodeId),
             'aria-label': `Select ${repository.fullName} for unstar`,
             onchange: (event: Event) =>
               toggleUnstarSelection(
@@ -1438,7 +1553,7 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
       : null,
     button(
       {
-        class: active ? 'repository-row is-selected' : 'repository-row',
+        class: () => active() ? 'repository-row is-selected' : 'repository-row',
         type: 'button',
         'data-repository-node-id': repository.repositoryNodeId,
         'data-dialog-invoker': `repository-${repository.repositoryNodeId}`,
@@ -1459,8 +1574,11 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
           {class: 'repository-meta'},
           repository.primaryLanguage ? span(repository.primaryLanguage) : null,
           span(`Starred ${formatDate(repository.starredAt)}`),
-           item.annotation?.favorite ? span({title: 'Local favorite'}, 'Favorite') : null,
-           latestJob ? MutationStatus(latestJob) : null
+          item.annotation?.favorite ? span({title: 'Local favorite'}, 'Favorite') : null,
+          () => {
+            const latestJob = latestRepositoryJob(repository.repositoryNodeId)
+            return latestJob ? MutationStatus(latestJob) : null
+          }
         )
       ),
       span({class: `triage-pill triage-${item.annotation?.triageState ?? 'unclassified'}`},
@@ -1610,7 +1728,7 @@ function RepositoryInspector(item: LibraryRepository) {
         'List membership and starring controls below change your connected GitHub account. Local organization stays in this browser.'
       ),
       repository.isStarred
-        ? NativeListMembershipControls(appState.val, [repository], 'single')
+        ? () => NativeListMembershipControls(currentPublishedState(), [repository], 'single')
         : null,
       repository.isStarred
         ? div(
@@ -1622,8 +1740,8 @@ function RepositoryInspector(item: LibraryRepository) {
                 class: 'danger-action',
                 type: 'button',
                 'data-dialog-invoker': `unstar-${repository.repositoryNodeId}`,
-                disabled:
-                  appState.val.writeAuthorization.readiness !== 'ready' ||
+                disabled: () =>
+                  publishedWriteAuthorization.val.readiness !== 'ready' ||
                   hasActiveRepositoryJob(repository.repositoryNodeId),
                 onclick: (event: MouseEvent) =>
                   openUnstarConfirmation([repository], event.currentTarget as HTMLElement)
@@ -1632,8 +1750,8 @@ function RepositoryInspector(item: LibraryRepository) {
                 ? 'Unstar already queued'
                 : 'Review unstar'
             ),
-            appState.val.writeAuthorization.readiness !== 'ready'
-              ? WriteReadinessNotice(appState.val)
+            () => publishedWriteAuthorization.val.readiness !== 'ready'
+              ? WriteReadinessNotice(currentPublishedState())
               : null
           )
         : null,
@@ -2392,7 +2510,7 @@ function membershipReadinessMessage(state: AppState): string {
 function formatListIds(listNodeIds: readonly string[]): string {
   if (listNodeIds.length === 0) return 'None'
   const lists = new Map(
-    (appState.val.library?.nativeLists ?? []).map((list) => [list.listNodeId, list.name])
+    (publishedLibrary.val?.nativeLists ?? []).map((list) => [list.listNodeId, list.name])
   )
   return listNodeIds.map((listNodeId) => lists.get(listNodeId) ?? listNodeId).join(', ')
 }
@@ -2478,7 +2596,7 @@ function WriteReadinessNotice(state: AppState) {
 }
 
 function latestRepositoryJob(repositoryNodeId: string): MutationJobRecord | null {
-  return latestJobsByRepository.get(repositoryNodeId) ?? null
+  return latestJobsByRepository.val.get(repositoryNodeId) ?? null
 }
 
 function hasActiveRepositoryJob(repositoryNodeId: string): boolean {
@@ -2492,7 +2610,7 @@ async function loadAppState(): Promise<void> {
 
 async function sendAction(message: RuntimeMessage): Promise<boolean> {
   const authenticationAction = isAuthenticationAction(message.type)
-  if (authenticationAction) appState.val = emptyState
+  if (authenticationAction) applyState(emptyState)
   if (message.type === 'start-sync') syncing.val = true
   try {
     const response = (await sendRuntimeMessage(message)) as RuntimeResponse<AppState>
@@ -2509,6 +2627,10 @@ async function sendAction(message: RuntimeMessage): Promise<boolean> {
 
 function applyState(state: AppState): void {
   const nextAccountId = state.identity?.githubUserId ?? null
+  const nextFingerprints = dashboardSliceFingerprints(state)
+  const phaseChanged = nextFingerprints.phase !== publishedFingerprints.phase
+  const libraryChanged = nextFingerprints.library !== publishedFingerprints.library
+  const position = libraryChanged ? captureDashboardPosition() : null
   if (dashboardAccountId !== nextAccountId) {
     selectedForUnstar.val = new Set()
     resetUnstarConfirmation()
@@ -2523,10 +2645,9 @@ function applyState(state: AppState): void {
   }
   reconcileActiveNativeList(state)
   appState.val = state
-  latestJobsByRepository = indexLatestRepositoryJobs(
-    state.mutations?.jobs ?? [],
-    state.identity?.githubUserId ?? null
-  )
+  publishStateSlices(state, nextFingerprints)
+  if (phaseChanged) refreshWorkspacePhase(state.phase)
+  if (position) restoreDashboardPosition(position)
   if (state.library) {
     const selectable = new Set(
       state.library.repositories
@@ -2554,12 +2675,158 @@ function applyState(state: AppState): void {
     hasNonterminalMutationJobs(state)
       ? window.setTimeout(() => void loadAppState(), 1000)
       : null
-  if (
-    shouldStartAutoSync(state, autoSyncAccountId)
-  ) {
+  if (shouldStartAutoSync(state, autoSyncAccountId)) {
     autoSyncAccountId = state.identity?.githubUserId ?? null
     window.setTimeout(() => void sendAction({type: 'start-sync', force: false}), 0)
   }
+}
+
+function refreshWorkspacePhase(phase: AppPhase): void {
+  for (const workspace of document.querySelectorAll<HTMLElement>('.workspace')) {
+    if (phase !== 'ready') {
+      workspace.replaceChildren(renderState(currentPublishedState()))
+      continue
+    }
+    if (activeView.val.kind === 'operations') {
+      workspace.replaceChildren(PersistentStatePage('operations-page', OperationsState))
+    } else if (activeView.val.kind === 'settings') {
+      workspace.replaceChildren(PersistentStatePage('settings-page', SettingsState))
+    } else {
+      workspace.replaceChildren(ReadyLibraryState())
+    }
+  }
+}
+
+function publishStateSlices(
+  state: AppState,
+  next: DashboardSliceFingerprints
+): void {
+  if (publishedPhase.val !== state.phase) publishedPhase.val = state.phase
+  publishIfMateriallyChanged(
+    publishedIdentity,
+    publishedFingerprints.identity,
+    next.identity,
+    state.identity
+  )
+  publishIfMateriallyChanged(
+    publishedAuthorization,
+    publishedFingerprints.authorization,
+    next.authorization,
+    state.authorization
+  )
+  publishIfMateriallyChanged(
+    publishedWriteAuthorization,
+    publishedFingerprints.writeAuthorization,
+    next.writeAuthorization,
+    state.writeAuthorization
+  )
+  publishIfMateriallyChanged(
+    publishedSync,
+    publishedFingerprints.sync,
+    next.sync,
+    state.sync
+  )
+  publishIfMateriallyChanged(
+    publishedNativeListSync,
+    publishedFingerprints.nativeListSync,
+    next.nativeListSync,
+    state.nativeListSync
+  )
+  publishIfMateriallyChanged(
+    publishedNativeListMembership,
+    publishedFingerprints.nativeListMembership,
+    next.nativeListMembership,
+    state.nativeListMembership
+  )
+  publishIfMateriallyChanged(
+    publishedNativeListRename,
+    publishedFingerprints.nativeListRename,
+    next.nativeListRename,
+    state.nativeListRename
+  )
+  publishIfMateriallyChanged(
+    publishedTriageCounts,
+    publishedFingerprints.triageCounts,
+    next.triageCounts,
+    state.triageCounts
+  )
+  publishIfMateriallyChanged(
+    publishedLibrary,
+    publishedFingerprints.library,
+    next.library,
+    state.library
+  )
+  publishIfMateriallyChanged(
+    publishedMutations,
+    publishedFingerprints.mutations,
+    next.mutations,
+    state.mutations
+  )
+  publishIfMateriallyChanged(
+    publishedError,
+    publishedFingerprints.error,
+    next.error,
+    state.error
+  )
+  publishedFingerprints = next
+
+  const nextJobsInputKey = `${state.identity?.githubUserId ?? ''}:${next.mutations}`
+  if (nextJobsInputKey !== latestJobsInputKey) {
+    latestJobsInputKey = nextJobsInputKey
+    latestJobsByRepository.val = indexLatestRepositoryJobs(
+      state.mutations?.jobs ?? [],
+      state.identity?.githubUserId ?? null
+    )
+  }
+}
+
+function publishIfMateriallyChanged<T>(
+  signal: {val: T},
+  previousFingerprint: string,
+  nextFingerprint: string,
+  value: T
+): string {
+  if (previousFingerprint !== nextFingerprint) signal.val = value
+  return nextFingerprint
+}
+
+interface DashboardPosition {
+  readonly scrollTop: number
+  readonly repositoryNodeId: string | null
+  readonly search: {readonly start: number | null; readonly end: number | null} | null
+}
+
+function captureDashboardPosition(): DashboardPosition | null {
+  const list = document.querySelector<HTMLElement>('.repository-list')
+  const active = document.activeElement as HTMLElement | null
+  const focusedRow = active?.closest<HTMLElement>('.repository-row') ?? null
+  const searchInput = active?.id === 'library-search' ? active as HTMLInputElement : null
+  if (!list && !focusedRow && !searchInput) return null
+  return {
+    scrollTop: list?.scrollTop ?? 0,
+    repositoryNodeId: focusedRow?.dataset.repositoryNodeId ?? null,
+    search: searchInput
+      ? {start: searchInput.selectionStart, end: searchInput.selectionEnd}
+      : null
+  }
+}
+
+function restoreDashboardPosition(position: DashboardPosition): void {
+  window.setTimeout(() => window.setTimeout(() => {
+    const list = document.querySelector<HTMLElement>('.repository-list')
+    if (list) list.scrollTop = position.scrollTop
+    if (position.repositoryNodeId) {
+      [...document.querySelectorAll<HTMLElement>('.repository-row')]
+        .find((row) => row.dataset.repositoryNodeId === position.repositoryNodeId)
+        ?.focus()
+      return
+    }
+    if (position.search) {
+      const searchInput = document.getElementById('library-search') as HTMLInputElement | null
+      searchInput?.focus()
+      searchInput?.setSelectionRange(position.search.start, position.search.end)
+    }
+  }, 0), 0)
 }
 
 function reconcileActiveNativeList(state: AppState): void {
@@ -2688,6 +2955,19 @@ async function confirmCompleteRemoval(): Promise<void> {
 function setActiveView(view: LibraryView): void {
   if (JSON.stringify(activeView.val) !== JSON.stringify(view)) resetNativeListRenameEditor()
   activeView.val = view
+  refreshActiveViewDom(view)
+}
+
+function refreshActiveViewDom(view: LibraryView): void {
+  const viewKey = JSON.stringify(view)
+  for (const item of document.querySelectorAll<HTMLElement>('.nav-item')) {
+    const active = item.dataset.viewKey === viewKey
+    item.classList.toggle('is-active', active)
+    if (active) item.setAttribute('aria-current', 'page')
+    else item.removeAttribute('aria-current')
+  }
+  const context = document.querySelector<HTMLElement>('.library-view-context')
+  context?.replaceWith(LibraryViewContext())
 }
 
 function isActiveView(view: LibraryView): boolean {
@@ -2873,27 +3153,62 @@ export function renderLibraryState(
   runQuery: RepositoryQueryRunner = queryRepositories
 ): HTMLElement {
   resetNativeListRenameEditor()
-  appState.val = state
-  setActiveView({kind: 'unlist'})
-  selectedRepositoryNodeId.val = null
-  inspectedRepositoryNodeId.val = null
+  setStateImmediately(activeView, {kind: 'unlist'})
+  setStateImmediately(selectedRepositoryNodeId, null)
+  setStateImmediately(inspectedRepositoryNodeId, null)
   repositoryDialogInvoker = null
-  selectedForUnstar.val = new Set()
+  setStateImmediately(selectedForUnstar, new Set())
   resetUnstarConfirmation()
-  selectedNativeListIds.val = new Set()
-  membershipActivity.val = null
+  setStateImmediately(selectedNativeListIds, new Set())
+  setStateImmediately(membershipActivity, null)
   resetMembershipPreview()
-  appState.val = state
+  setStateImmediately(appState, state)
   dashboardAccountId = state.identity?.githubUserId ?? null
-  latestJobsByRepository = indexLatestRepositoryJobs(
-    state.mutations?.jobs ?? [],
-    dashboardAccountId
-  )
+  autoSyncAccountId = dashboardAccountId
+  publishTestStateImmediately(state)
   const host = div()
-  van.add(host, () => ReadyLibraryState(state, runQuery))
+  van.add(host, ReadyLibraryState(runQuery))
   const library = host.firstElementChild
   if (library === null) throw new Error('Ready dashboard did not render.')
   return library as HTMLElement
+}
+
+function setStateImmediately<T>(signal: {val: T}, value: T): void {
+  const internal = signal as unknown as {rawVal: T; _oldVal: T}
+  internal.rawVal = value
+  internal._oldVal = value
+}
+
+function publishTestStateImmediately(state: AppState): void {
+  setStateImmediately(publishedPhase, state.phase)
+  setStateImmediately(publishedIdentity, state.identity)
+  setStateImmediately(publishedAuthorization, state.authorization)
+  setStateImmediately(publishedWriteAuthorization, state.writeAuthorization)
+  setStateImmediately(publishedSync, state.sync)
+  setStateImmediately(publishedNativeListSync, state.nativeListSync)
+  setStateImmediately(publishedNativeListMembership, state.nativeListMembership)
+  setStateImmediately(publishedNativeListRename, state.nativeListRename)
+  setStateImmediately(publishedTriageCounts, state.triageCounts)
+  setStateImmediately(publishedLibrary, state.library)
+  setStateImmediately(publishedMutations, state.mutations)
+  setStateImmediately(publishedError, state.error)
+  publishedFingerprints = dashboardSliceFingerprints(state)
+  latestJobsInputKey = `${state.identity?.githubUserId ?? ''}:${publishedFingerprints.mutations}`
+  setStateImmediately(
+    latestJobsByRepository,
+    indexLatestRepositoryJobs(
+      state.mutations?.jobs ?? [],
+      state.identity?.githubUserId ?? null
+    )
+  )
+}
+
+export function renderAppState(state: AppState): void {
+  applyState(state)
+}
+
+export async function sendDashboardAction(message: RuntimeMessage): Promise<boolean> {
+  return sendAction(message)
 }
 
 export function renderOperationsState(state: AppState): HTMLElement {

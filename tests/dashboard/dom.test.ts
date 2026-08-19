@@ -774,6 +774,230 @@ test('stops repository queries after a rendered library is disconnected', async 
   expect(queryCalls).toBe(0)
 })
 
+test('keeps one library page while switching between Unlist and a native List', async () => {
+  const root = await mountReadyDashboard(renameReadyDashboardState())
+  const page = root.querySelector('.library-page')
+  const currentList = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
+    (button) => button.textContent?.includes('Current List')
+  )!
+  currentList.click()
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.library-page')).toBe(page)
+  expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Current List')
+  expect(root.querySelector('.native-list-header-editor')).not.toBeNull()
+  expect(currentList.getAttribute('aria-current')).toBe('page')
+
+  const unlist = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
+    (button) => button.textContent?.includes('Unlist')
+  )!
+  unlist.click()
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.library-page')).toBe(page)
+  expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Unlist')
+  expect(unlist.getAttribute('aria-current')).toBe('page')
+})
+
+test('publishes the complete empty authentication state before awaiting the runtime', async () => {
+  const browserWindow = createDashboardWindow()
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  let resolveResponse: (value: unknown) => void = () => undefined
+  Object.assign(globalThis, {
+    chrome: {
+      runtime: {
+        sendMessage: () => new Promise((resolve) => {
+          resolveResponse = resolve
+        })
+      }
+    }
+  })
+  const {mountDashboard, renderLibraryState, sendDashboardAction} = await import(
+    '../../src/dashboard/scripts'
+  )
+  const state = renameReadyDashboardState()
+  renderLibraryState(state)
+  const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+  browserWindow.document.body.append(
+    root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  mountDashboard(root)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.library-page')).not.toBeNull()
+
+  try {
+    const pending = sendDashboardAction({type: 'start-device-auth'})
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(root.querySelector('.library-page')).toBeNull()
+    expect(root.textContent).not.toContain('Current List')
+    expect(root.textContent).not.toContain('Connected as')
+
+    resolveResponse({
+      ok: true,
+      data: {
+        ...signedOutDashboardState(),
+        phase: 'reauthentication'
+      }
+    })
+    await pending
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(root.textContent).toContain('Preparing a new GitHub authorization')
+    expect(root.querySelector('.library-page')).toBeNull()
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('keeps dashboard nodes, focus, scroll, and query work stable across equivalent and mutation-only polls', async () => {
+  const base = readyDashboardState()
+  const failedJob = {
+    ...mutationJob('42', 'failed', 1),
+    repositoryNodeId: 'R_one'
+  }
+  const state: AppState = {
+    ...base,
+    mutations: {jobs: [failedJob], batches: [], history: []}
+  }
+  const root = await mountReadyDashboard(state)
+  const {renderAppState, renderLibraryState} = await import('../../src/dashboard/scripts')
+  let queryCalls = 0
+  const queryProbe = renderLibraryState(state, (...args) => {
+    queryCalls += 1
+    return queryRepositories(...args)
+  })
+  document.body.append(queryProbe)
+  queryCalls = 0
+  const sidebar = root.querySelector('.sidebar')
+  const page = root.querySelector('.library-page')
+  const list = root.querySelector<HTMLElement>('.repository-list')!
+  const rows = [...root.querySelectorAll('.repository-row-shell')]
+  const row = root.querySelector<HTMLElement>('.repository-row')!
+  list.scrollTop = 96
+  row.focus()
+
+  renderAppState(structuredClone(state))
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.sidebar')).toBe(sidebar)
+  expect(root.querySelector('.library-page')).toBe(page)
+  expect(root.querySelector('.repository-list')).toBe(list)
+  rows.forEach((item, index) => expect(root.querySelectorAll('.repository-row-shell')[index]).toBe(item))
+  expect(document.activeElement).toBe(row)
+  expect(list.scrollTop).toBe(96)
+  expect(queryCalls).toBe(0)
+
+  const succeeded: AppState = {
+    ...state,
+    mutations: {
+      jobs: [{...failedJob, status: 'succeeded', completedAt: '2026-08-04T10:01:00Z'}],
+      batches: [],
+      history: []
+    }
+  }
+  renderAppState(succeeded)
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.library-page')).toBe(page)
+  expect(root.querySelector('.repository-list')).toBe(list)
+  expect(root.querySelector('.repository-row')).toBe(row)
+  expect(document.activeElement).toBe(row)
+  expect(root.querySelector('.mutation-status')?.getAttribute('data-status')).toBe('succeeded')
+  expect(queryCalls).toBe(0)
+
+  const navButton = root.querySelector<HTMLElement>('[aria-current="page"]')!
+  navButton.focus()
+  renderAppState(structuredClone(succeeded))
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.sidebar')).toBe(sidebar)
+  expect(root.querySelector('[aria-current="page"]')).toBe(navButton)
+  expect(document.activeElement).toBe(navButton)
+  expect(queryCalls).toBe(0)
+  queryProbe.remove()
+})
+
+test('updates material library metadata while restoring row and Search focus', async () => {
+  const state = readyDashboardState()
+  const root = await mountReadyDashboard(state)
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const page = root.querySelector('.library-page')
+  const list = root.querySelector<HTMLElement>('.repository-list')!
+  const row = root.querySelector<HTMLElement>('.repository-row')!
+  list.scrollTop = 96
+  row.focus()
+  const renamed: AppState = {
+    ...state,
+    library: {
+      ...state.library!,
+      repositories: state.library!.repositories.map((repository) => ({
+        ...repository,
+        name: 'renamed',
+        fullName: 'octocat/renamed',
+        description: 'Updated description'
+      }))
+    }
+  }
+  renderAppState(renamed)
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.library-page')).toBe(page)
+  expect(root.querySelector('.repository-row h2')?.textContent).toBe('renamed')
+  expect((document.activeElement as HTMLElement | null)?.dataset.repositoryNodeId).toBe('R_one')
+  expect(root.querySelector<HTMLElement>('.repository-list')?.scrollTop).toBe(96)
+
+  const search = root.querySelector<HTMLInputElement>('#library-search')!
+  search.focus()
+  search.value = 'rename'
+  search.setSelectionRange(2, 5)
+  const described: AppState = {
+    ...renamed,
+    library: {
+      ...renamed.library!,
+      repositories: renamed.library!.repositories.map((repository) => ({
+        ...repository,
+        description: 'Changed again'
+      }))
+    }
+  }
+  renderAppState(described)
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(document.activeElement).toBe(search)
+  expect(search.value).toBe('rename')
+  expect(search.selectionStart).toBe(2)
+  expect(search.selectionEnd).toBe(5)
+})
+
+test('reindexes repository jobs when only the active account changes', async () => {
+  const base = readyDashboardState()
+  const jobs = [
+    {...mutationJob('42', 'failed', 1), repositoryNodeId: 'R_one'},
+    {...mutationJob('7', 'succeeded', 2), repositoryNodeId: 'R_one'}
+  ]
+  const state42: AppState = {
+    ...base,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    mutations: {jobs, batches: [], history: []}
+  }
+  const root = await mountReadyDashboard(state42)
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  expect(root.querySelector('.mutation-status')?.getAttribute('data-status')).toBe('failed')
+
+  renderAppState({
+    ...state42,
+    identity: {...state42.identity!, githubUserId: '7', userNodeId: 'U_7', login: 'seven'},
+    sync: state42.sync ? {...state42.sync, githubUserId: '7'} : null,
+    nativeListSync: state42.nativeListSync
+      ? {...state42.nativeListSync, githubUserId: '7'}
+      : null
+  })
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.mutation-status')?.getAttribute('data-status')).toBe('succeeded')
+})
+
 test('starts automatic synchronization once per active account', async () => {
   const {shouldStartAutoSync} = await import('../../src/dashboard/scripts')
   const accountState = (githubUserId: string): AppState => ({

@@ -1,11 +1,62 @@
 import type {MutationJobRecord} from '../domain/types'
+import type {AppPhase, AppState} from '../shared/messages'
 import {
   queryRepositories,
   type LibraryRepository,
+  type LibraryView,
   type RepositoryQuery
 } from './library'
 
 export type RepositoryQueryRunner = typeof queryRepositories
+
+export type DashboardWorkspace = AppPhase | 'library' | 'operations' | 'settings'
+
+export interface DashboardSliceFingerprints {
+  readonly phase: AppPhase
+  readonly identity: string
+  readonly authorization: string
+  readonly writeAuthorization: string
+  readonly sync: string
+  readonly nativeListSync: string
+  readonly nativeListMembership: string
+  readonly nativeListRename: string
+  readonly triageCounts: string
+  readonly library: string
+  readonly mutations: string
+  readonly error: string
+}
+
+export function materialFingerprint(value: unknown): string {
+  return JSON.stringify(value) ?? 'undefined'
+}
+
+export function dashboardSliceFingerprints(
+  state: AppState
+): DashboardSliceFingerprints {
+  return {
+    phase: state.phase,
+    identity: materialFingerprint(state.identity),
+    authorization: materialFingerprint(state.authorization),
+    writeAuthorization: materialFingerprint(state.writeAuthorization),
+    sync: materialFingerprint(state.sync),
+    nativeListSync: materialFingerprint(state.nativeListSync),
+    nativeListMembership: materialFingerprint(state.nativeListMembership),
+    nativeListRename: materialFingerprint(state.nativeListRename),
+    triageCounts: materialFingerprint(state.triageCounts),
+    library: materialFingerprint(state.library),
+    mutations: materialFingerprint(state.mutations),
+    error: materialFingerprint(state.error)
+  }
+}
+
+export function classifyWorkspace(
+  phase: AppPhase,
+  view: LibraryView
+): DashboardWorkspace {
+  if (phase !== 'ready') return phase
+  if (view.kind === 'operations' || view.kind === 'settings') return view.kind
+  return 'library'
+}
 
 export interface DerivedRepositoryResults {
   readonly all: readonly LibraryRepository[]
