@@ -20,7 +20,7 @@ const repositories = Array.from({length: repositoryCount}, (_, index) =>
 )
 const jobs = Array.from({length: jobCount}, (_, index) => mutationJob(index))
 const query: RepositoryQuery = {
-  view: {kind: 'all'},
+  view: {kind: 'unlist'},
   search: 'repository',
   filters: defaultRepositoryFilters(),
   sort: 'name',

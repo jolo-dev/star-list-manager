@@ -58,25 +58,54 @@ test('renders Unlist before alphabetized imported native Lists regardless of inp
   const groups = [...(sidebar?.querySelectorAll('details.nav-group') ?? [])]
   const githubLists = navigationGroup(sidebar, 'GitHub Lists')
 
-  expect(groups).toHaveLength(1)
-  expect(navigationGroupSummary(githubLists)?.textContent).toBe('GitHub Lists')
+  const utilities = navigationGroup(sidebar, 'Utilities')
+  expect(groups).toHaveLength(2)
+  expect(groups.map((group) => navigationGroupSummary(group)?.textContent)).toEqual([
+    'GitHub Lists',
+    'Utilities'
+  ])
   expect(githubLists?.hasAttribute('open')).toBe(true)
+  expect(utilities?.hasAttribute('open')).toBe(true)
   expect(navigationLabels(directNavigationList(githubLists))).toEqual([
     'Unlist',
     'Alpha List',
     'Middle List',
     'Zulu List'
   ])
+  expect(navigationLabels(directNavigationList(utilities))).toEqual([
+    'Operations',
+    'Settings'
+  ])
 })
 
-test('selects Unlist as the active ready view with a derived local header', async () => {
+test('keeps Operations and Settings reachable through utility navigation', async () => {
+  const browserWindow = createDashboardWindow()
+  const root = await mountReadyDashboard()
+  const utilityButton = (label: string) =>
+    [...(directNavigationList(navigationGroup(sidebarNavigation(root), 'Utilities'))
+      ?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
+      (button) => button.querySelector('.nav-label')?.textContent === label
+    ) ?? null
+
+  utilityButton('Operations')?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.operations-page h1')?.textContent).toBe('Operations')
+  expect(utilityButton('Operations')?.getAttribute('aria-current')).toBe('page')
+
+  utilityButton('Settings')?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.settings-page h1')?.textContent).toBe('Settings')
+  expect(utilityButton('Settings')?.getAttribute('aria-current')).toBe('page')
+})
+
+test('selects Unlist as the active ready view with a population heading', async () => {
   const root = await mountReadyDashboard()
   const sidebar = sidebarNavigation(root)
   const active = sidebar?.querySelector('[aria-current="page"]')
 
   expect(active?.textContent).toContain('Unlist')
-  expect(root.querySelector('.library-header h1')?.textContent).toBe('Unlist')
-  expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Derived local view')
+  expect(root.querySelector('.library-header h1')?.textContent).toBe('Starred repositories')
+  expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Unlist')
 })
 
 test('hides completed unstars from default Unlist and retains explicit unstarred history', async () => {
@@ -200,11 +229,13 @@ test('resets a rendered ready dashboard to Unlist after another native List beca
 
   currentList.dispatchEvent(new window.MouseEvent('click', {bubbles: true}) as unknown as Event)
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
-  expect(root.querySelector('.library-header h1')?.textContent).toBe('Current List')
+  expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Current List')
+  expect(root.querySelector('.library-header h1')?.textContent).toBe('Starred repositories')
 
   const {renderLibraryState} = await import('../../src/dashboard/scripts')
   const library = renderLibraryState(readyDashboardState())
-  expect(library.querySelector('.library-header h1')?.textContent).toBe('Unlist')
+  expect(library.querySelector('.library-header .eyebrow')?.textContent).toBe('Unlist')
+  expect(library.querySelector('.library-header h1')?.textContent).toBe('Starred repositories')
 })
 
 test('returns sidebar selection to Unlist after disconnect and complete-data removal', async () => {
@@ -233,7 +264,7 @@ test('returns sidebar selection to Unlist after disconnect and complete-data rem
       new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
     )
     await browserWindow.happyDOM.whenAsyncComplete()
-    expect(root.querySelector('.library-header h1')?.textContent).toBe('Current List')
+    expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Current List')
 
     const messages: string[] = []
     const previousChrome = (globalThis as {chrome?: unknown}).chrome
@@ -283,19 +314,191 @@ test('returns sidebar selection to Unlist after disconnect and complete-data rem
   }
 })
 
-test('removes triage, local tag, and utility destinations from the sidebar', async () => {
+test('keeps removed triage, local tag, and history destinations out of the sidebar', async () => {
   const root = await mountReadyDashboard()
   const sidebar = sidebarNavigation(root)
 
-  for (const label of [
-    'Triage',
-    'Local tags',
-    'Utilities',
-    'Operations',
-    'Settings',
-    'Unstarred history'
-  ]) {
+  expect(sidebar?.textContent).toContain('Utilities')
+  expect(sidebar?.textContent).toContain('Operations')
+  expect(sidebar?.textContent).toContain('Settings')
+  for (const label of ['Triage', 'Local tags', 'Unstarred history']) {
     expect(sidebar?.textContent).not.toContain(label)
+  }
+})
+
+test('keeps Star state within the selected population and renders exact headings', async () => {
+  const browserWindow = createDashboardWindow()
+  const root = await mountReadyDashboard()
+  const currentList = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
+    (button) => button.querySelector('.nav-label')?.textContent === 'Current List'
+  )
+  currentList?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  const starStateControl = () =>
+    [...root.querySelectorAll('label')].find(
+      (label) => label.firstElementChild?.textContent === 'Star state'
+    )?.querySelector<HTMLSelectElement>('select') ?? null
+  const currentListControl = () =>
+    [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
+      (button) => button.querySelector('.nav-label')?.textContent === 'Current List'
+    ) ?? null
+  const setStarState = async (value: string) => {
+    const control = starStateControl()
+    if (control === null) throw new Error('Star state control is required.')
+    control.value = value
+    control.dispatchEvent(
+      new browserWindow.Event('change', {bubbles: true}) as unknown as Event
+    )
+    await browserWindow.happyDOM.whenAsyncComplete()
+  }
+  expect(starStateControl()).not.toBeNull()
+
+  try {
+    expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Current List')
+    expect(root.querySelector('.library-header h1')?.textContent).toBe('Starred repositories')
+    expect(currentListControl()?.getAttribute('aria-current')).toBe('page')
+
+    for (const [value, title] of [
+      ['unstarred', 'Unstarred history'],
+      ['all', 'All repositories'],
+      ['starred', 'Starred repositories']
+    ] as const) {
+      await setStarState(value)
+      expect(root.querySelector('.library-header h1')?.textContent).toBe(title)
+      expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Current List')
+      expect(currentListControl()?.getAttribute('aria-current')).toBe('page')
+    }
+  } finally {
+    await setStarState('starred')
+  }
+})
+
+test('counts only advanced controls and clears them without changing view options', async () => {
+  const browserWindow = createDashboardWindow()
+  const ready = readyDashboardState()
+  const root = await mountReadyDashboard({
+    ...ready,
+    library: {
+      ...ready.library!,
+      repositories: ready.library!.repositories.map((repository) => ({
+        ...repository,
+        primaryLanguage: 'TypeScript'
+      }))
+    }
+  })
+  const controlByLabel = (text: string) =>
+    [...root.querySelectorAll('label')].find(
+      (label) => label.firstElementChild?.textContent === text
+    )?.querySelector<HTMLInputElement | HTMLSelectElement>('input, select') ?? null
+  const archiveControl = () =>
+    [...root.querySelectorAll<HTMLButtonElement>('.filter-toggle')].find(
+      (button) => button.textContent?.startsWith('Archived')
+    ) ?? null
+  const dispatchValue = async (control: HTMLInputElement | HTMLSelectElement, value: string) => {
+    control.value = value
+    control.dispatchEvent(
+      new browserWindow.Event(
+        control.tagName === 'INPUT' ? 'input' : 'change',
+        {bubbles: true}
+      ) as unknown as Event
+    )
+    await browserWindow.happyDOM.whenAsyncComplete()
+  }
+
+  expect(root.querySelector('.advanced-filters .filter-count')).toBeNull()
+  expect(archiveControl()?.textContent).toBe('Archived hidden')
+
+  try {
+    const search = controlByLabel('Search')
+    if (search === null) throw new Error('Search control is required.')
+    await dispatchValue(search, 'one')
+    const language = controlByLabel('Language')
+    if (language === null) throw new Error('Language control is required.')
+    await dispatchValue(language, 'TypeScript')
+    archiveControl()?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(root.querySelector('.advanced-filters .filter-count')).toBeNull()
+
+    const starState = controlByLabel('Star state')
+    if (starState === null) throw new Error('Star state control is required.')
+    await dispatchValue(starState, 'unstarred')
+    expect(root.querySelector('.advanced-filters .filter-count')?.textContent).toBe('1')
+
+    root.querySelector<HTMLButtonElement>('.clear-filters')?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(root.querySelector('.advanced-filters .filter-count')).toBeNull()
+    expect(controlByLabel('Search')?.value).toBe('one')
+    expect(controlByLabel('Language')?.value).toBe('TypeScript')
+    expect(archiveControl()?.textContent).toBe('Archived shown')
+  } finally {
+    const search = controlByLabel('Search')
+    if (search) await dispatchValue(search, '')
+    const language = controlByLabel('Language')
+    if (language) await dispatchValue(language, '')
+    if (archiveControl()?.textContent === 'Archived shown') archiveControl()?.click()
+    const starState = controlByLabel('Star state')
+    if (starState) await dispatchValue(starState, 'starred')
+    await browserWindow.happyDOM.whenAsyncComplete()
+  }
+})
+
+test('aligns Unlist and native List counts with the current archive scope', async () => {
+  const browserWindow = createDashboardWindow()
+  const ready = readyDashboardState()
+  const activeUnlisted = repositoryRecord('42', 'R_active-unlisted', 'octocat/active-unlisted')
+  const archivedUnlisted = {
+    ...repositoryRecord('42', 'R_archived-unlisted', 'octocat/archived-unlisted'),
+    archived: true
+  }
+  const activeListed = repositoryRecord('42', 'R_active-listed', 'octocat/active-listed')
+  const archivedListed = {
+    ...repositoryRecord('42', 'R_archived-listed', 'octocat/archived-listed'),
+    archived: true
+  }
+  const state: AppState = {
+    ...ready,
+    library: {
+      ...ready.library!,
+      repositories: [activeUnlisted, archivedUnlisted, activeListed, archivedListed],
+      nativeLists: [nativeList('L_current', 'Current List')],
+      nativeMemberships: [activeListed, archivedListed].map((repository) => ({
+        githubUserId: '42',
+        repositoryNodeId: repository.repositoryNodeId,
+        listNodeId: 'L_current',
+        lastObservedAt: '2026-08-04T10:00:00Z'
+      })),
+      annotations: []
+    }
+  }
+  const root = await mountReadyDashboard(state)
+  const navigationCount = (label: string) =>
+    [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
+      (button) => button.querySelector('.nav-label')?.textContent === label
+    )?.lastElementChild?.textContent
+  const archiveControl = () =>
+    [...root.querySelectorAll<HTMLButtonElement>('.filter-toggle')].find(
+      (button) => button.textContent?.startsWith('Archived')
+    ) ?? null
+
+  expect(visibleRepositoryIds(root)).toEqual(['R_active-unlisted'])
+  expect(root.querySelector('.result-count')?.textContent).toContain('1 repositories')
+  expect(navigationCount('Unlist')).toBe('1')
+  expect(navigationCount('Current List')).toBe('1')
+  if (archiveControl() === null) return
+
+  try {
+    archiveControl()?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(visibleRepositoryIds(root)).toEqual(
+      expect.arrayContaining(['R_active-unlisted', 'R_archived-unlisted'])
+    )
+    expect(root.querySelector('.result-count')?.textContent).toContain('2 repositories')
+    expect(navigationCount('Unlist')).toBe('2')
+    expect(navigationCount('Current List')).toBe('2')
+  } finally {
+    if (archiveControl()?.textContent === 'Archived shown') archiveControl()?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
   }
 })
 
@@ -1228,7 +1431,7 @@ test('mounts existing native List controls separately from local tags', async ()
 test('shows a native List header Edit control only when rename readiness is ready', async () => {
   const {root, cleanup} = await mountNativeListRenameDashboard(renameReadyDashboardState())
   try {
-    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Current List')
+    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Current List')
     expect(renameEditButton(root)).not.toBeNull()
 
     const {root: unavailable, cleanup: unavailableCleanup} = await mountNativeListRenameDashboard(
@@ -1271,7 +1474,7 @@ test('opens a focused, labelled native List header editor and Cancel or Escape s
 
     editor?.querySelector<HTMLButtonElement>('.secondary-action')?.click()
     await nextTurn(browserWindow)
-    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Current List')
+    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Current List')
     expect((browserWindow.document.activeElement as unknown) === renameEditButton(root)).toBe(true)
     expect(messages).toBe(0)
 
@@ -1284,7 +1487,7 @@ test('opens a focused, labelled native List header editor and Cancel or Escape s
       new browserWindow.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}) as unknown as Event
     )
     await nextTurn(browserWindow)
-    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Current List')
+    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Current List')
     expect((browserWindow.document.activeElement as unknown) === renameEditButton(root)).toBe(true)
     expect(messages).toBe(0)
   } finally {
@@ -1393,13 +1596,13 @@ test('does not apply a stale native List rename response after the active accoun
     submitNativeListRename(browserWindow, root)
     nativeListHeader(root)?.querySelector<HTMLButtonElement>('.refresh-button')?.click()
     await nextTurn(browserWindow)
-    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Account B List')
+    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Account B List')
 
     renameResponse.resolve()
     await nextTurn(browserWindow)
     expect(staleResponseDelivered).toBe(true)
     await nextTurn(browserWindow)
-    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Account B List')
+    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Account B List')
   } finally {
     renameResponse.resolve()
     cleanup()
@@ -1476,7 +1679,7 @@ test('sends one valid native List header rename and renders only verified return
     expect(nativeListHeader(root)?.textContent).toContain('Current List')
     pending.resolve()
     await nextTurn(browserWindow)
-    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Verified Name')
+    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Verified Name')
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
       'Other List',
@@ -1588,7 +1791,7 @@ test('applies divergent native List state while retaining the sanitized rename r
     submitNativeListRename(browserWindow, root)
     await nextTurn(browserWindow)
 
-    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Observed List')
+    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Observed List')
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
       'Observed List',
@@ -1632,7 +1835,7 @@ test('removes a missing native List editor and shows its sanitized rename result
     submitNativeListRename(browserWindow, root)
     await nextTurn(browserWindow)
 
-    expect(nativeListHeader(root)?.querySelector('h1')?.textContent).toBe('Inbox')
+    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Unlist')
     expect(nativeListHeader(root)?.querySelector('form.native-list-rename-editor')).toBeNull()
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',

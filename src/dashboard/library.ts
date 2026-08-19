@@ -8,18 +8,9 @@ import type {
   TriageState
 } from '../domain/types'
 
-export type BuiltInView =
-  | 'inbox'
-  | 'backlog'
-  | 'due'
-  | 'organized'
-  | 'all'
-  | 'unlist'
-  | 'history'
 export type LibraryView =
-  | {readonly kind: BuiltInView}
+  | {readonly kind: 'unlist'}
   | {readonly kind: 'list'; readonly listNodeId: string}
-  | {readonly kind: 'tag'; readonly tag: string}
   | {readonly kind: 'operations'}
   | {readonly kind: 'settings'}
 
@@ -55,15 +46,8 @@ export interface LibraryRepository {
 }
 
 export interface ViewCounts {
-  readonly inbox: number
-  readonly backlog: number
-  readonly due: number
-  readonly organized: number
-  readonly all: number
   readonly unlist: number
-  readonly history: number
   readonly lists: Readonly<Record<string, number>>
-  readonly tags: Readonly<Record<string, number>>
 }
 
 export function defaultRepositoryFilters(): RepositoryFilters {
@@ -111,11 +95,11 @@ export function buildLibraryRepositories(
 export function queryRepositories(
   repositories: readonly LibraryRepository[],
   query: RepositoryQuery,
-  now: number
+  _now: number
 ): readonly LibraryRepository[] {
   const searchTerms = normalizeSearch(query.search).split(' ').filter(Boolean)
   return repositories
-    .filter((item) => matchesView(item, query.view, now))
+    .filter((item) => matchesView(item, query.view))
     .filter((item) => matchesFilters(item, query.filters))
     .filter((item) => matchesSearch(item, searchTerms))
     .toSorted((left, right) => compareRepositories(left, right, query))
@@ -123,37 +107,24 @@ export function queryRepositories(
 
 export function deriveViewCounts(
   repositories: readonly LibraryRepository[],
-  now: number
+  archived: InclusionFilter
 ): ViewCounts {
   const lists: Record<string, number> = {}
-  const tags: Record<string, number> = {}
-  let inbox = 0
-  let backlog = 0
-  let due = 0
-  let organized = 0
-  let all = 0
   let unlist = 0
-  let history = 0
 
   for (const item of repositories) {
-    if (!item.repository.isStarred) {
-      history += 1
+    if (
+      !item.repository.isStarred ||
+      !matchesInclusion(item.repository.archived, archived)
+    ) {
       continue
     }
     if (item.nativeLists.length === 0) unlist += 1
-    all += 1
-    if (item.annotation?.triageState === 'inbox') inbox += 1
-    if (item.annotation?.triageState === 'backlog') backlog += 1
-    if (item.annotation?.triageState === 'reviewed') organized += 1
-    if (isRepositoryDue(item, now)) due += 1
     for (const list of item.nativeLists) {
       lists[list.listNodeId] = (lists[list.listNodeId] ?? 0) + 1
     }
-    for (const tag of item.annotation?.tags ?? []) {
-      tags[tag] = (tags[tag] ?? 0) + 1
-    }
   }
-  return {inbox, backlog, due, organized, all, unlist, history, lists, tags}
+  return {unlist, lists}
 }
 
 export function operationHistoryForRepository(
@@ -207,29 +178,12 @@ export function availableLanguages(
     .toSorted((left, right) => left.localeCompare(right))
 }
 
-function matchesView(item: LibraryRepository, view: LibraryView, now: number): boolean {
+function matchesView(item: LibraryRepository, view: LibraryView): boolean {
   if (view.kind === 'settings' || view.kind === 'operations') return false
   if (view.kind === 'list') {
-    return item.repository.isStarred &&
-      item.nativeLists.some((list) => list.listNodeId === view.listNodeId)
+    return item.nativeLists.some((list) => list.listNodeId === view.listNodeId)
   }
-  if (view.kind === 'tag') {
-    return item.repository.isStarred &&
-      Boolean(
-        item.annotation?.tags.some(
-          (tag) => tag.toLocaleLowerCase() === view.tag.toLocaleLowerCase()
-        )
-      )
-  }
-  if (view.kind === 'unlist') return item.nativeLists.length === 0
-  if (view.kind === 'all') return true
-  if (view.kind === 'history') return !item.repository.isStarred
-  if (!item.repository.isStarred) return false
-  if (view.kind === 'inbox') return item.annotation?.triageState === 'inbox'
-  if (view.kind === 'backlog') return item.annotation?.triageState === 'backlog'
-  if (view.kind === 'due') return isRepositoryDue(item, now)
-  if (view.kind === 'organized') return item.annotation?.triageState === 'reviewed'
-  return false
+  return item.nativeLists.length === 0
 }
 
 function matchesFilters(

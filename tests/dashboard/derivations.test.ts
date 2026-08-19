@@ -33,7 +33,7 @@ test('indexes one deterministic latest job per repository for the active account
 test('derives all repository result consumers from one query call', () => {
   const repositories = buildLibraryRepositories(snapshot())
   const query: RepositoryQuery = {
-    view: {kind: 'all'},
+    view: {kind: 'unlist'},
     search: '',
     filters: defaultRepositoryFilters(),
     sort: 'name',

@@ -167,7 +167,10 @@ function Navigation() {
   const repositories = state.library
     ? buildLibraryRepositories(state.library)
     : []
-  const counts = deriveViewCounts(repositories, Date.now())
+  const counts = deriveViewCounts(
+    repositories,
+    hideArchived.val ? 'exclude' : 'all'
+  )
   const lists = state.library?.nativeLists.toSorted((left, right) =>
     left.name.localeCompare(right.name)
   ) ?? []
@@ -191,6 +194,15 @@ function Navigation() {
             counts.lists[nativeList.listNodeId] ?? 0
           )
         )
+      )
+    ),
+    details(
+      {class: 'nav-group nav-group-utilities', open: true},
+      summary('Utilities'),
+      ul(
+        {class: 'nav-list nav-list-secondary'},
+        NavItem('Operations', {kind: 'operations'}, null),
+        NavItem('Settings', {kind: 'settings'}, null)
       )
     )
   )
@@ -358,8 +370,8 @@ function LibraryHeader(
   return header(
     {class: 'library-header'},
     div(
-      p({class: 'eyebrow'}, () => viewEyebrow(activeView.val)),
-      () => NativeListHeaderTitle(state),
+      () => LibraryViewContext(state),
+      h1(() => populationTitle(starState.val)),
       p(
         {class: 'result-count', 'aria-live': 'polite'},
         () => `${repositoryResults.val.count} repositories`
@@ -462,19 +474,21 @@ function LibraryHeader(
   )
 }
 
-function NativeListHeaderTitle(state: AppState) {
+function LibraryViewContext(state: AppState) {
   const view = activeView.val
-  if (view.kind !== 'list' || state.nativeListRename?.readiness !== 'ready') {
-    return h1(viewTitle(view))
-  }
+  if (view.kind === 'unlist') return p({class: 'eyebrow'}, 'Unlist')
+  if (view.kind !== 'list') return p({class: 'eyebrow'}, 'GitHub library')
   const nativeList = state.library?.nativeLists.find((list) => list.listNodeId === view.listNodeId)
-  if (!nativeList) return h1(viewTitle(view))
+  if (!nativeList) return p({class: 'eyebrow'}, 'GitHub List')
+  if (state.nativeListRename?.readiness !== 'ready') {
+    return p({class: 'eyebrow'}, nativeList.name)
+  }
   const editing = () => editingNativeListId.val === nativeList.listNodeId
   return div(
     {class: 'native-list-header-editor'},
     div(
       {class: 'native-list-header-title', hidden: editing},
-      h1(nativeList.name),
+      p({class: 'eyebrow'}, nativeList.name),
       div(
         {class: 'native-list-header-actions'},
         button(
@@ -631,7 +645,7 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
           activeView.val.kind === 'list' &&
           activeView.val.listNodeId === listNodeId
         ) {
-          setActiveView({kind: 'inbox'})
+          setActiveView({kind: 'unlist'})
         }
         applyState({...response.data, error: response.error})
         if (targetExists && isCurrentNativeListRenameEditor(request, listNodeId)) {
@@ -1663,7 +1677,7 @@ function DetailGroup(title: string, ...values: Array<string | null>) {
 function SettingsState(state: AppState) {
   return div(
     {class: 'settings-page'},
-    header(p({class: 'eyebrow'}, 'Settings'), h1('Local account controls')),
+    header(p({class: 'eyebrow'}, 'Local account controls'), h1('Settings')),
     section(
       {class: 'settings-card'},
       h2(state.identity ? `Connected as ${state.identity.login}` : 'GitHub disconnected'),
@@ -1852,7 +1866,7 @@ function nativeListMembershipWriteReadinessCopy(state: AppState): string {
 }
 
 function AdvancedFilters() {
-  const constraints = activeFilterLabels()
+  const constraints = activeAdvancedFilterLabels()
   return details(
     {class: 'advanced-filters'},
     summary(
@@ -1873,7 +1887,6 @@ function AdvancedFilters() {
         ],
         (value) => {
           starState.val = value as StarFilter
-          if (value !== 'starred') setActiveView({kind: 'all'})
         }
       ),
       FilterSelect(
@@ -1906,7 +1919,10 @@ function AdvancedFilters() {
       DateFilter('Starred before', starredBefore),
       DateFilter('Pushed after', pushedAfter),
       DateFilter('Pushed before', pushedBefore),
-      button({class: 'clear-filters', type: 'button', onclick: clearFilters}, 'Clear filters')
+      button(
+        {class: 'clear-filters', type: 'button', onclick: clearAdvancedFilters},
+        'Clear filters'
+      )
     ),
     constraints.length > 0
       ? div(
@@ -2051,7 +2067,7 @@ function currentQuery(): RepositoryQuery {
     filters: {
       ...filters,
       triageStates: triageState.val ? [triageState.val] : [],
-      starState: activeView.val.kind === 'history' ? 'unstarred' : starState.val,
+      starState: starState.val,
       language: language.val,
       archived: hideArchived.val ? 'exclude' : 'all',
       disabled: disabled.val,
@@ -2705,30 +2721,12 @@ function nativeListSummary(state: AppState): string {
   return 'Native List synchronization has not completed.'
 }
 
-function viewTitle(view: LibraryView): string {
-  if (view.kind === 'settings') return 'Settings'
-  if (view.kind === 'operations') return 'Operations'
-  if (view.kind === 'list') {
-    return appState.val.library?.nativeLists.find((list) => list.listNodeId === view.listNodeId)?.name ?? 'GitHub List'
-  }
-  if (view.kind === 'tag') return `#${view.tag}`
+function populationTitle(value: StarFilter): string {
   return {
-    inbox: 'Inbox',
-    backlog: 'Backlog',
-    due: 'Due for review',
-    organized: 'Organized',
-    all: 'All stars',
-    unlist: 'Unlist',
-    history: 'Unstarred history'
-  }[view.kind]
-}
-
-function viewEyebrow(view: LibraryView): string {
-  if (view.kind === 'operations') return 'Mutation history'
-  if (view.kind === 'unlist') return 'Derived local view'
-  if (view.kind === 'list') return 'Native GitHub List'
-  if (view.kind === 'tag') return 'Local tag'
-  return 'Your GitHub library'
+    starred: 'Starred repositories',
+    unstarred: 'Unstarred history',
+    all: 'All repositories'
+  }[value]
 }
 
 function hasNonterminalMutationJobs(state: AppState): boolean {
@@ -2825,11 +2823,8 @@ function formatImpact(impact: ImportImpact): string {
   ].join(', ')
 }
 
-function activeFilterLabels(): readonly string[] {
+function activeAdvancedFilterLabels(): readonly string[] {
   return [
-    searchText.val ? `Search: ${searchText.val}` : null,
-    language.val ? `Language: ${language.val}` : null,
-    hideArchived.val ? 'Archived hidden' : null,
     starState.val !== 'starred' ? `Star state: ${starState.val}` : null,
     disabled.val !== 'all' ? `Disabled: ${disabled.val}` : null,
     triageState.val ? `Triage: ${triageState.val}` : null,
@@ -2840,10 +2835,7 @@ function activeFilterLabels(): readonly string[] {
   ].flatMap((value) => (value ? [value] : []))
 }
 
-function clearFilters(): void {
-  searchText.val = ''
-  language.val = null
-  hideArchived.val = true
+function clearAdvancedFilters(): void {
   starState.val = 'starred'
   disabled.val = 'all'
   triageState.val = null

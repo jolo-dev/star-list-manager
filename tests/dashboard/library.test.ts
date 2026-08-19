@@ -33,7 +33,7 @@ describe('repository discovery queries', () => {
     const results = queryRepositories(
       repositories,
       {
-        view: {kind: 'all'},
+        view: {kind: 'list', listNodeId: 'UL_tools'},
         search: '',
         filters,
         sort: 'name',
@@ -44,18 +44,45 @@ describe('repository discovery queries', () => {
     expect(results.map((item) => item.repository.repositoryNodeId)).toEqual(['R_alpha'])
   })
 
-  test('derives fixed view, List, tag, and due counts', () => {
-    const counts = deriveViewCounts(buildLibraryRepositories(snapshot()), now)
-    expect(counts).toEqual({
-      inbox: 1,
-      backlog: 1,
-      due: 1,
-      organized: 0,
-      all: 2,
+  test('derives Unlist and native List counts within the archive scope', () => {
+    const fixture = snapshot()
+    const archivedUnlisted = {
+      ...fixture.repositories[1]!,
+      repositoryNodeId: 'R_archived-unlisted',
+      name: 'archived-unlisted',
+      fullName: 'octocat/archived-unlisted',
+      htmlUrl: 'https://github.com/octocat/archived-unlisted',
+      archived: true
+    }
+    const archivedListed = {
+      ...fixture.repositories[0]!,
+      repositoryNodeId: 'R_archived-listed',
+      name: 'archived-listed',
+      fullName: 'jolo-dev/archived-listed',
+      htmlUrl: 'https://github.com/jolo-dev/archived-listed',
+      archived: true
+    }
+    const repositories = buildLibraryRepositories({
+      ...fixture,
+      repositories: [...fixture.repositories, archivedUnlisted, archivedListed],
+      nativeMemberships: [
+        ...fixture.nativeMemberships,
+        {
+          githubUserId: '42',
+          repositoryNodeId: archivedListed.repositoryNodeId,
+          listNodeId: 'UL_tools',
+          lastObservedAt: '2026-08-05T12:00:00Z'
+        }
+      ]
+    })
+
+    expect(deriveViewCounts(repositories, 'exclude')).toEqual({
       unlist: 1,
-      history: 1,
-      lists: {UL_tools: 1},
-      tags: {Research: 1, Queue: 1}
+      lists: {UL_tools: 1}
+    })
+    expect(deriveViewCounts(repositories, 'all')).toEqual({
+      unlist: 2,
+      lists: {UL_tools: 2}
     })
   })
 
@@ -81,9 +108,9 @@ describe('repository discovery queries', () => {
   test('sorts deterministically and keeps null dates last', () => {
     const repositories = buildLibraryRepositories(snapshot())
     const query: RepositoryQuery = {
-      view: {kind: 'all'},
+      view: {kind: 'unlist'},
       search: '',
-      filters: defaultRepositoryFilters(),
+      filters: {...defaultRepositoryFilters(), starState: 'all'},
       sort: 'pushed-at',
       ascending: false
     }
@@ -91,7 +118,7 @@ describe('repository discovery queries', () => {
       queryRepositories(repositories, query, now).map(
         (item) => item.repository.repositoryNodeId
       )
-    ).toEqual(['R_alpha', 'R_beta'])
+    ).toEqual(['R_history', 'R_beta'])
   })
 
   test('restricts GitHub links and keyboard selection boundaries', () => {
@@ -105,12 +132,12 @@ describe('repository discovery queries', () => {
     expect(nextSelectionIndex(2, 3, 'ArrowDown')).toBe(2)
   })
 
-  test('shows unstarred repositories with retained annotations in history', () => {
+  test('shows unstarred repositories with retained annotations in Unlist', () => {
     const repositories = buildLibraryRepositories(snapshot())
     const results = queryRepositories(
       repositories,
       {
-        view: {kind: 'history'},
+        view: {kind: 'unlist'},
         search: '',
         filters: {...defaultRepositoryFilters(), starState: 'unstarred'},
         sort: 'name',
@@ -144,7 +171,9 @@ function search(
   return queryRepositories(
     repositories,
     {
-      view: {kind: 'all'},
+      view: value.includes('queue') || value.includes('missing')
+        ? {kind: 'unlist'}
+        : {kind: 'list', listNodeId: 'UL_tools'},
       search: value,
       filters: defaultRepositoryFilters(),
       sort: 'name',
