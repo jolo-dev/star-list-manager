@@ -12,6 +12,10 @@ const criticalRoles = [
   '--surface-strong',
   '--text-primary',
   '--text-secondary',
+  '--text-placeholder',
+  '--text-disabled',
+  '--surface-disabled',
+  '--border-disabled',
   '--surface-noop',
   '--text-noop',
   '--surface-nav-active',
@@ -35,8 +39,13 @@ const contrastPairs = [
     ['--text-primary', surface, 4.5] as const,
     ['--text-secondary', surface, 4.5] as const,
     ['--border-control', surface, 3] as const,
+    ['--border-disabled', surface, 3] as const,
     ['--focus-ring', surface, 3] as const
   ]),
+  ['--text-placeholder', '--surface', 4.5] as const,
+  ['--text-placeholder', '--surface-strong', 4.5] as const,
+  ['--text-disabled', '--surface-disabled', 4.5] as const,
+  ['--border-disabled', '--surface-disabled', 3] as const,
   ['--text-noop', '--surface-noop', 4.5] as const,
   ['--text-nav-count-active', '--surface-nav-active', 4.5] as const,
   ['--text-success', '--surface-success', 4.5] as const,
@@ -115,6 +124,54 @@ test('resolves complete contrast-safe light and dark semantic palettes', () => {
       '--first'
     )
   ).toThrow('Token cycle at --first')
+})
+
+test('uses semantic placeholder and disabled control treatments without readable opacity', () => {
+  const placeholders = ruleFor(styles, '.library-actions input::placeholder,')
+  const disabled = ruleFor(styles, 'button:disabled,')
+
+  expect(placeholders).toMatch(/color:\s*var\(--text-placeholder\)/)
+  expect(placeholders).not.toMatch(/color:\s*#[\da-f]{3,8}/i)
+  expect(disabled).toMatch(/color:\s*var\(--text-disabled\)/)
+  expect(disabled).toMatch(/background:\s*var\(--surface-disabled\)/)
+  expect(disabled).toMatch(/border-color:\s*var\(--border-disabled\)/)
+  expect(disabled).not.toMatch(/opacity:/)
+
+  const componentRules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(
+    ([, selectors]) => selectors?.trim() !== ':root'
+  )
+  const readableOpacity = componentRules.filter(([, selectors, declarations]) => {
+    if (selectors?.trim() === '.file-action input') return false
+    return /opacity:/.test(declarations ?? '')
+  })
+  expect(readableOpacity.map(([, selectors]) => selectors?.trim())).toEqual([])
+
+  const allowedColorValues = new Set([
+    '0',
+    'none',
+    'inherit',
+    'transparent',
+    'Highlight',
+    'HighlightText',
+    'ButtonFace',
+    'ButtonText',
+    'Canvas',
+    'CanvasText',
+    'LinkText',
+    '1px solid Highlight',
+    '3px solid Highlight'
+  ])
+  const unexpectedColorValues = componentRules.flatMap(([, selectors, declarations]) =>
+    [...(declarations ?? '').matchAll(
+      /(?:^|;)\s*(?:color|background(?:-color)?|border(?:-(?:left|right|top|bottom))?(?:-color)?|outline|box-shadow|text-decoration-color|accent-color)\s*:\s*([^;]+)/gm
+    )].flatMap(([, value]) => {
+      const normalized = value?.trim() ?? ''
+      return normalized.includes('var(') || allowedColorValues.has(normalized)
+        ? []
+        : [`${selectors?.trim()}: ${normalized}`]
+    })
+  )
+  expect(unexpectedColorValues).toEqual([])
 })
 
 test('maps forced-colors selectors to explicit system colors', () => {
