@@ -502,6 +502,48 @@ test('uses transform-only bounded skeleton shimmer with reduced-motion suppressi
   expect(extractMedia(styles, '(prefers-reduced-motion: reduce)')).toMatch(/animation-duration:\s*0\.01ms/)
 })
 
+test('styles Archive.Stars Cards mode as a responsive, accessible repository grid', () => {
+  const cardGrid = ruleFor(styles, '.repository-card-grid')
+  const cardShell = ruleFor(styles, '.repository-card-shell')
+  const card = ruleFor(styles, '.repository-card')
+  const selectedCard = ruleFor(styles, '.repository-card.is-selected')
+  const cardFocus = exactRuleFor(styles, ['.repository-card:focus-visible'])
+  const modeControls = ruleFor(styles, '.result-mode-controls')
+  const activeMode = ruleFor(styles, '.result-mode-controls button.is-active')
+  const sentinel = ruleFor(styles, '.local-results-sentinel')
+  const loadMore = ruleFor(styles, '.load-more-results')
+
+  expect(cardGrid).toMatch(/display:\s*grid/)
+  expect(cardGrid).toMatch(/grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(min\(100%,\s*18rem\),\s*1fr\)\)/)
+  expect(cardShell).toMatch(/position:\s*relative/)
+  expect(cardShell).toMatch(/border:\s*1px solid var\(--archive-line\)/)
+  expect(card).toMatch(/grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\)\s+auto\s+auto/)
+  expect(card).toMatch(/min-width:\s*0/)
+  expect(selectedCard).toMatch(/outline:\s*3px solid var\(--border-selected\)/)
+  expect(cardFocus).toMatch(/outline:\s*3px solid var\(--focus-ring\)/)
+  expect(ruleFor(styles, '.repository-card-shell .selection-control')).toMatch(/min-inline-size:\s*44px/)
+
+  expect(modeControls).toMatch(/display:\s*grid/)
+  expect(modeControls).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
+  expect(activeMode).toMatch(/background:\s*var\(--surface-inverse\)/)
+  expect(activeMode).toMatch(/color:\s*var\(--text-inverse\)/)
+  expect(sentinel).toMatch(/min-height:\s*1px/)
+  expect(loadMore).toMatch(/min-height:\s*38px/)
+
+  const mobile = extractMedia(styles, '(max-width: 700px)')
+  expect(ruleFor(mobile, '.repository-card-grid')).toMatch(/grid-template-columns:\s*1fr/)
+  expect(ruleFor(mobile, '.repository-card')).toMatch(/min-height:\s*44px/)
+  expect(ruleFor(mobile, '.load-more-results')).toMatch(/min-height:\s*44px/)
+
+  const dark = extractMedia(styles, '(prefers-color-scheme: dark)')
+  const forced = extractMedia(styles, '(forced-colors: active)')
+  const reduced = extractMedia(styles, '(prefers-reduced-motion: reduce)')
+  expect(ruleFor(dark, '.repository-card-shell')).toMatch(/border-color:\s*var\(--archive-line\)/)
+  expect(exactRuleFor(forced, ['.repository-card.is-selected'])).toMatch(/background:\s*Highlight\s*!important/)
+  expect(exactRuleFor(forced, ['.repository-card:focus-visible'])).toMatch(/outline:\s*3px solid Highlight\s*!important/)
+  expect(reduced).toMatch(/transition-duration:\s*0\.01ms\s*!important/)
+})
+
 test('keeps the modal, focus, and mobile primary controls accessible', () => {
   expect(ruleFor(styles, '.library-grid')).not.toMatch(/grid-template-columns:/)
   expect(ruleFor(styles, '.repository-inspection-dialog')).toMatch(/max-height:\s*calc\(100dvh - 48px\)/)

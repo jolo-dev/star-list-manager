@@ -346,6 +346,27 @@ h1 { max-width: 25ch; margin-bottom: 0; font-size: clamp(32px, 3.45vw, 48px); fo
 
 .library-grid { display: block; margin-top: 28px; }
 .results-panel { overflow-y: auto; background: var(--surface); border-top: 1px solid var(--archive-line); border-bottom: 1px solid var(--archive-line); }
+.result-mode-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.result-mode-controls button {
+  min-height: 38px;
+  padding: 7px 10px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  font-family: var(--font-technical);
+  font-size: var(--type-label-size);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.result-mode-controls button:hover,
+.result-mode-controls button.is-active,
+.result-mode-controls button[aria-pressed="true"] {
+  color: var(--text-inverse);
+  background: var(--surface-inverse);
+  border-color: var(--surface-inverse);
+}
+.result-mode-controls button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .batch-jobs li, .operation-history-list li { border-top: 1px solid var(--line); }
 .repository-row-shell { display: flex; align-items: stretch; min-width: 0; }
 .repository-row-shell + .repository-row-shell { border-top: 1px solid var(--archive-line); }
@@ -384,6 +405,82 @@ h1 { max-width: 25ch; margin-bottom: 0; font-size: clamp(32px, 3.45vw, 48px); fo
 .status-retry-waiting, .status-queued, .triage-backlog { color: var(--warning); background: var(--warning-bg); border-color: var(--border-warning); }
 .status-succeeded, .status-succeeded-external, .triage-reviewed { color: var(--success); background: var(--success-bg); border-color: var(--border-success); }
 .result-limit { margin: 0; padding: 11px 0; color: var(--ink-muted); background: var(--surface-muted); border-top: 1px solid var(--line); font-family: var(--font-technical); font-size: var(--type-data-size); }
+
+/* Cards retain the real button and selection control while reflowing archive records. */
+.repository-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.repository-card-shell {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--archive-line);
+}
+.repository-card-shell .selection-control {
+  position: absolute;
+  z-index: 1;
+  top: 10px;
+  right: 10px;
+  min-inline-size: 44px;
+  min-block-size: 44px;
+  background: var(--surface);
+  border: 1px solid var(--archive-line);
+}
+.repository-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  width: 100%;
+  min-width: 0;
+  gap: 14px;
+  padding: 22px 22px 20px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 0;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+.repository-card-heading { min-width: 0; padding-right: 48px; }
+.repository-card-heading h2 { margin: 3px 0 0; font-size: 22px; font-weight: 500; letter-spacing: -0.04em; line-height: 1.1; }
+.repository-card p { min-width: 0; margin: 0; -webkit-line-clamp: 3; }
+.repository-card-facts {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  color: var(--type-color-reading);
+  font-family: var(--font-technical);
+  font-size: var(--type-data-size);
+  line-height: var(--type-leading-data);
+}
+.repository-card-facts .mutation-status { align-self: start; }
+.repository-card .triage-pill { align-self: start; }
+.repository-card:hover {
+  color: var(--text-inverse);
+  background: var(--surface-inverse);
+}
+.repository-card:hover .repository-owner,
+.repository-card:hover .repository-card-facts { color: var(--text-inverse); }
+.repository-card.is-selected { outline: 3px solid var(--border-selected); outline-offset: -3px; }
+.repository-card:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: -3px; }
+.local-results-sentinel { min-height: 1px; margin-top: 16px; }
+.load-more-results {
+  width: 100%;
+  min-height: 38px;
+  margin-top: 16px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  font-family: var(--font-technical);
+  font-size: var(--type-label-size);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.load-more-results:hover { color: var(--text-inverse); background: var(--surface-inverse); border-color: var(--surface-inverse); }
+.load-more-results:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 
 .state-panel, .results-panel, .inspector, .batch-card, .settings-card { min-width: 0; background: var(--surface); border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); }
 .state-panel { max-width: 960px; margin-top: 42px; padding: clamp(24px, 4vw, 46px) 0; }
@@ -547,6 +644,7 @@ button:disabled, input:disabled, select:disabled, textarea:disabled { color: var
     --surface-write-auth: #303030;
     --surface-dialog-backdrop: rgb(0 0 0 / 78%);
   }
+  .repository-card-shell { border-color: var(--archive-line); }
 }
 
 @media (max-width: 1180px) {
@@ -597,6 +695,10 @@ button:disabled, input:disabled, select:disabled, textarea:disabled { color: var
   .filter-panel, .native-list-choices, .move-fields { grid-template-columns: 1fr; }
   .repository-row { grid-template-columns: 1fr; gap: 12px; padding: 18px 0; }
   .repository-row-main { grid-template-columns: 1fr; gap: 12px; }
+  .repository-card-grid { grid-template-columns: 1fr; gap: 12px; }
+  .repository-card { min-height: 44px; padding: 20px 20px 18px; }
+  .repository-card-shell .selection-control { top: 8px; right: 8px; }
+  .load-more-results { min-height: 44px; }
   .archive-record-facts, .repository-meta { justify-items: start; text-align: left; }
   .selection-control { flex-basis: 44px; min-inline-size: 44px; min-block-size: 44px; }
   .inspector-heading, .membership-heading { align-items: stretch; flex-direction: column; }
@@ -644,6 +746,12 @@ button:disabled, input:disabled, select:disabled, textarea:disabled { color: var
     outline: 3px solid Highlight !important;
     outline-offset: 2px;
   }
+  .repository-card.is-selected {
+    color: HighlightText !important;
+    background: Highlight !important;
+    border-color: Highlight !important;
+  }
+  .repository-card:focus-visible { outline: 3px solid Highlight !important; outline-offset: 2px; }
   .status-banner,
   .status-banner.is-success,
   .status-banner.is-warning,
