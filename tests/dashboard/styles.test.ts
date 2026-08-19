@@ -28,6 +28,10 @@ const criticalRoles = [
   '--text-danger',
   '--action-primary',
   '--action-primary-text',
+  '--action-danger',
+  '--action-danger-text',
+  '--action-danger-hover',
+  '--action-danger-hover-text',
   '--border-control',
   '--focus-ring',
   '--border-selected',
@@ -52,6 +56,8 @@ const contrastPairs = [
   ['--text-warning', '--surface-warning', 4.5] as const,
   ['--text-danger', '--surface-danger', 4.5] as const,
   ['--action-primary-text', '--action-primary', 4.5] as const,
+  ['--action-danger-text', '--action-danger', 4.5] as const,
+  ['--action-danger-hover-text', '--action-danger-hover', 4.5] as const,
   ['--focus-ring', '--surface-nav-active', 3] as const,
   ['--border-selected', '--surface', 3] as const,
   ['--border-current', '--surface-nav-active', 3] as const
@@ -87,6 +93,24 @@ test('defines composed prose and technical typography roles', () => {
   ]) {
     expect(ruleFor(styles, selector), selector).toMatch(/font-family:\s*var\(--font-technical\)/)
   }
+
+  const longOperationalCopy = exactRuleFor(
+    styles,
+    ['.job-error', '.operation-history-list p', '.membership-job-detail']
+  )
+  expect(longOperationalCopy).toMatch(/font-family:\s*var\(--font-prose\)/)
+  expect(longOperationalCopy).toMatch(/font-size:\s*var\(--type-reading-size\)/)
+  expect(longOperationalCopy).toMatch(/line-height:\s*var\(--type-leading-reading\)/)
+  expect(longOperationalCopy).toMatch(/max-width:\s*var\(--measure-prose\)/)
+
+  const technicalOperationalData = exactRuleFor(styles, [
+    '.repository-owner',
+    '.repository-meta',
+    '.batch-status',
+    '.operation-history-list span'
+  ])
+  expect(technicalOperationalData).toMatch(/font-family:\s*var\(--font-technical\)/)
+  expect(technicalOperationalData).toMatch(/font-size:\s*var\(--type-data-size\)/)
 })
 
 test('resolves complete contrast-safe light and dark semantic palettes', () => {
@@ -114,6 +138,13 @@ test('resolves complete contrast-safe light and dark semantic palettes', () => {
     }
   }
 
+  expect(resolveToken(light, '--action-danger-hover')).not.toBe(
+    resolveToken(light, '--text-danger')
+  )
+  expect(resolveToken(dark, '--action-danger-hover')).not.toBe(
+    resolveToken(dark, '--text-danger')
+  )
+
   expect(() => resolveToken(new Map(), '--missing')).toThrow('Missing token --missing')
   expect(() =>
     resolveToken(
@@ -124,6 +155,20 @@ test('resolves complete contrast-safe light and dark semantic palettes', () => {
       '--first'
     )
   ).toThrow('Token cycle at --first')
+})
+
+test('uses dedicated contrast-safe danger action roles for default and hover states', () => {
+  const defaultDanger = exactRuleFor(styles, ['.danger-action', '.clear-filters'])
+  const hoverDanger = exactRuleFor(styles, [
+    '.danger-action:hover:not(:disabled)',
+    '.clear-filters:hover:not(:disabled)'
+  ])
+
+  expect(defaultDanger).toMatch(/color:\s*var\(--action-danger-text\)/)
+  expect(defaultDanger).toMatch(/background:\s*var\(--action-danger\)/)
+  expect(hoverDanger).toMatch(/color:\s*var\(--action-danger-hover-text\)/)
+  expect(hoverDanger).toMatch(/background:\s*var\(--action-danger-hover\)/)
+  expect(hoverDanger).not.toMatch(/background:\s*var\(--(?:text-)?danger\)/)
 })
 
 test('uses semantic placeholder and disabled control treatments without readable opacity', () => {
@@ -166,7 +211,8 @@ test('uses semantic placeholder and disabled control treatments without readable
       /(?:^|;)\s*(?:color|background(?:-color)?|border(?:-(?:left|right|top|bottom))?(?:-color)?|outline|box-shadow|text-decoration-color|accent-color)\s*:\s*([^;]+)/gm
     )].flatMap(([, value]) => {
       const normalized = value?.trim() ?? ''
-      return normalized.includes('var(') || allowedColorValues.has(normalized)
+      const withoutImportance = normalized.replace(/\s*!important$/, '')
+      return normalized.includes('var(') || allowedColorValues.has(withoutImportance)
         ? []
         : [`${selectors?.trim()}: ${normalized}`]
     })
@@ -174,42 +220,76 @@ test('uses semantic placeholder and disabled control treatments without readable
   expect(unexpectedColorValues).toEqual([])
 })
 
-test('maps forced-colors selectors to explicit system colors', () => {
+test('maps forced colors with declarations that win the component cascade', () => {
   const forced = extractMedia(styles, '(forced-colors: active)')
   expect(forced).not.toBe('')
 
-  for (const selector of ['.nav-item[aria-current="page"]', '.repository-row.is-selected']) {
-    expect(ruleFor(forced, selector), selector).toMatch(/background:\s*Highlight;/)
-    expect(ruleFor(forced, selector), selector).toMatch(/color:\s*HighlightText;/)
-    expect(ruleFor(forced, selector), selector).toMatch(/border-color:\s*Highlight;/)
-    expect(ruleFor(forced, selector), selector).toMatch(/forced-color-adjust:\s*none;/)
-  }
-  for (const selector of ['button,', 'input,', 'select,', 'textarea,', '.file-action']) {
-    expect(ruleFor(forced, selector), selector).toMatch(/background:\s*ButtonFace;/)
-    expect(ruleFor(forced, selector), selector).toMatch(/color:\s*ButtonText;/)
-    expect(ruleFor(forced, selector), selector).toMatch(/border-color:\s*ButtonText;/)
-  }
-  for (const selector of [':focus-visible,', '.file-action:focus-within']) {
-    expect(ruleFor(forced, selector), selector).toMatch(/outline:\s*3px solid Highlight;/)
-  }
-  for (const selector of ['.status-banner,', '.status-banner.is-success', '.status-banner.is-warning', '.status-banner.is-error']) {
-    expect(ruleFor(forced, selector), selector).toMatch(/background:\s*Canvas;/)
-    expect(ruleFor(forced, selector), selector).toMatch(/color:\s*CanvasText;/)
-    expect(ruleFor(forced, selector), selector).toMatch(/border-color:\s*CanvasText;/)
-    expect(ruleFor(forced, selector), selector).toMatch(/forced-color-adjust:\s*none;/)
-  }
-  expect(ruleFor(forced, 'a')).toMatch(/color:\s*LinkText;/)
-
-  const adjustedSelectors = [
-    ...forced.matchAll(/([^{}]+)\{([^{}]*forced-color-adjust:\s*none[^{}]*)\}/g)
-  ].flatMap(([, selectors]) => (selectors ?? '').split(',').map((selector) => selector.trim()))
-  expect(adjustedSelectors).toEqual([
+  const selectedRule = exactRuleFor(forced, [
     '.nav-item[aria-current="page"]',
-    '.repository-row.is-selected',
+    '.repository-row.is-selected'
+  ])
+  expect(selectedRule).toMatch(/background:\s*Highlight\s*!important;/)
+  expect(selectedRule).toMatch(/color:\s*HighlightText\s*!important;/)
+  expect(selectedRule).toMatch(/border-color:\s*Highlight\s*!important;/)
+  expect(selectedRule).toMatch(/forced-color-adjust:\s*none;/)
+
+  const controlRule = exactRuleFor(forced, ['button', 'input', 'select', 'textarea', '.file-action'])
+  expect(controlRule).toMatch(/background:\s*ButtonFace\s*!important;/)
+  expect(controlRule).toMatch(/color:\s*ButtonText\s*!important;/)
+  expect(controlRule).toMatch(/border-color:\s*ButtonText\s*!important;/)
+
+  const focusSelectors = [
+    'button:focus-visible',
+    'input:focus-visible',
+    'select:focus-visible',
+    'textarea:focus-visible',
+    'summary:focus-visible',
+    '.repository-row:focus-visible',
+    '.selection-control:focus-within',
+    '.nav-item:focus-visible',
+    '.file-action:focus-within'
+  ]
+  const focusRule = exactRuleFor(forced, focusSelectors)
+  expect(focusRule).toMatch(/outline:\s*3px solid Highlight\s*!important;/)
+
+  const statusSelectors = [
     '.status-banner',
     '.status-banner.is-success',
     '.status-banner.is-warning',
     '.status-banner.is-error'
+  ]
+  const statusRule = exactRuleFor(forced, statusSelectors)
+  expect(statusRule).toMatch(/background:\s*Canvas\s*!important;/)
+  expect(statusRule).toMatch(/color:\s*CanvasText\s*!important;/)
+  expect(statusRule).toMatch(/border-color:\s*CanvasText\s*!important;/)
+  expect(statusRule).toMatch(/forced-color-adjust:\s*none;/)
+  expect(exactRuleFor(forced, ['a'])).toMatch(/color:\s*LinkText\s*!important;/)
+
+  const cascadeCases = [
+    ['.primary-action', 'button', 'background'],
+    ['.library-actions input', 'input', 'background'],
+    ['.github-link', 'a', 'color'],
+    ['.nav-item:focus-visible', '.nav-item:focus-visible', 'outline'],
+    ['.file-action:focus-within', '.file-action:focus-within', 'outline'],
+    ['.repository-row.is-selected', '.repository-row.is-selected', 'background'],
+    ['.nav-item[aria-current="page"]', '.nav-item[aria-current="page"]', 'background'],
+    ['.status-banner.is-error', '.status-banner.is-error', 'background']
+  ] as const
+  const base = styles.slice(0, styles.indexOf('@media (forced-colors: active)'))
+  for (const [baseSelector, forcedSelector, property] of cascadeCases) {
+    expect(
+      cascadeWinner(base, forced, baseSelector, forcedSelector, property),
+      `${forcedSelector} ${property}`
+    ).toBe('forced')
+  }
+
+  const adjustedSelectors = parseRules(forced)
+    .filter((rule) => /forced-color-adjust:\s*none/.test(rule.declarations))
+    .flatMap((rule) => rule.selectors)
+  expect(adjustedSelectors).toEqual([
+    '.nav-item[aria-current="page"]',
+    '.repository-row.is-selected',
+    ...statusSelectors
   ])
 })
 
@@ -236,8 +316,9 @@ test('wraps user content and preserves readable responsive reflow', () => {
   expect(ruleFor(styles, '.repository-row-main')).toMatch(/min-width:\s*0/)
 })
 
-test('removes dead legacy dashboard selectors', () => {
+test('removes dead legacy dashboard selectors and palette tokens', () => {
   expect(styles).not.toMatch(/\.(?:nav-list-primary|topbar|privacy-chip|state-index|feature-grid)\b/)
+  expect(styles).not.toMatch(/--navy(?:-deep)?\s*:/)
 })
 
 test('uses transform-only bounded skeleton shimmer with reduced-motion suppression', () => {
@@ -267,6 +348,82 @@ test('keeps the modal, focus, and mobile primary controls accessible', () => {
   }
   expect(ruleFor(mobile, '.library-actions input,')).toMatch(/font-size:\s*16px/)
 })
+
+type ParsedRule = {
+  readonly selectors: readonly string[]
+  readonly declarations: string
+  readonly index: number
+}
+
+function parseRules(css: string): readonly ParsedRule[] {
+  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
+    selectors: (match[1] ?? '').split(',').map((selector) => selector.trim()),
+    declarations: match[2] ?? '',
+    index: match.index ?? 0
+  }))
+}
+
+function exactRuleFor(css: string, expectedSelectors: readonly string[]): string {
+  const expected = [...expectedSelectors].sort()
+  return parseRules(css).find((rule) =>
+    [...rule.selectors].sort().every((selector, index) => selector === expected[index]) &&
+    rule.selectors.length === expected.length
+  )?.declarations ?? ''
+}
+
+function cascadeWinner(
+  baseCss: string,
+  forcedCss: string,
+  baseSelector: string,
+  forcedSelector: string,
+  property: string
+): 'base' | 'forced' {
+  const base = lastDeclaration(baseCss, baseSelector, property)
+  const forced = lastDeclaration(forcedCss, forcedSelector, property)
+  if (!base || !forced) return 'base'
+  if (base.important !== forced.important) return forced.important ? 'forced' : 'base'
+
+  const specificityDifference = compareSpecificity(
+    specificity(forcedSelector),
+    specificity(baseSelector)
+  )
+  if (specificityDifference !== 0) return specificityDifference > 0 ? 'forced' : 'base'
+  return 'forced'
+}
+
+function lastDeclaration(css: string, selector: string, property: string): {
+  readonly important: boolean
+} | null {
+  const propertyPattern = new RegExp(
+    `(?:^|;)\\s*${escapeRegex(property)}\\s*:\\s*([^;]+)`,
+    'm'
+  )
+  return parseRules(css).flatMap((rule) => {
+    if (!rule.selectors.includes(selector)) return []
+    const value = rule.declarations.match(propertyPattern)?.[1]
+    return value ? [{important: /!important\s*$/.test(value), index: rule.index}] : []
+  }).at(-1) ?? null
+}
+
+function specificity(selector: string): readonly [number, number, number] {
+  const ids = selector.match(/#[\w-]+/g)?.length ?? 0
+  const classes = selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+(?:\([^)]*\))?/g)?.length ?? 0
+  const withoutModifiers = selector
+    .replace(/#[\w-]+|\.[\w-]+|\[[^\]]+\]|::?[\w-]+(?:\([^)]*\))?/g, ' ')
+  const elements = withoutModifiers.match(/(?:^|[\s>+~])(?:[a-z][\w-]*|\*)/gi)
+    ?.filter((element) => !element.trim().startsWith('*')).length ?? 0
+  return [ids, classes, elements]
+}
+
+function compareSpecificity(
+  first: readonly [number, number, number],
+  second: readonly [number, number, number]
+): number {
+  for (let index = 0; index < first.length; index += 1) {
+    if (first[index] !== second[index]) return (first[index] ?? 0) - (second[index] ?? 0)
+  }
+  return 0
+}
 
 function declarationsFor(css: string, selector: string): string {
   return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(

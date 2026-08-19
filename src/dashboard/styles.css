@@ -9,8 +9,6 @@
 :root {
   --font-prose: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-technical: "Geist Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  --navy: #0f2c3d;
-  --navy-deep: #091f2c;
   --sage: #a6b7a1;
   --sand: #d4c8b5;
   --copper: #c4936a;
@@ -40,6 +38,10 @@
   --text-danger: #7a3632;
   --action-primary: var(--copper);
   --action-primary-text: #0f2c3d;
+  --action-danger: #f8f3ed;
+  --action-danger-text: #7a3632;
+  --action-danger-hover: #71302d;
+  --action-danger-hover-text: #ffffff;
   --surface-inverse: #0f2c3d;
   --text-inverse: #fbfaf6;
   --text-nav: #d8ddd6;
@@ -606,16 +608,16 @@ h1 {
 
 .danger-action,
 .clear-filters {
-  color: var(--danger);
-  background: var(--surface);
+  color: var(--action-danger-text);
+  background: var(--action-danger);
   border: 1px solid var(--danger-control-border);
 }
 
 .danger-action:hover:not(:disabled),
 .clear-filters:hover:not(:disabled) {
-  color: var(--text-inverse);
-  background: var(--danger);
-  border-color: var(--danger);
+  color: var(--action-danger-hover-text);
+  background: var(--action-danger-hover);
+  border-color: var(--action-danger-hover);
 }
 
 .auth-code {
@@ -1076,14 +1078,21 @@ h1 {
 .repository-owner,
 .repository-meta,
 .batch-status,
-.job-error,
-.operation-history-list span,
-.operation-history-list p,
-.membership-job-detail {
+.operation-history-list span {
   color: var(--type-color-reading);
   font-family: var(--font-technical);
   font-size: var(--type-data-size);
   line-height: var(--type-leading-data);
+}
+
+.job-error,
+.operation-history-list p,
+.membership-job-detail {
+  max-width: var(--measure-prose);
+  color: var(--type-color-reading);
+  font-family: var(--font-prose);
+  font-size: var(--type-reading-size);
+  line-height: var(--type-leading-reading);
 }
 
 .repository-row p {
@@ -1730,6 +1739,10 @@ textarea:disabled {
     --text-danger: #f4c3bb;
     --action-primary: #d1a477;
     --action-primary-text: #10242e;
+    --action-danger: #2b2427;
+    --action-danger-text: #f4c3bb;
+    --action-danger-hover: #9d4942;
+    --action-danger-hover-text: #f4eee3;
     --border-control: #8b9a96;
     --border-selected: #a8c3a4;
     --border-current: #f4eee3;
@@ -1748,7 +1761,6 @@ textarea:disabled {
     --surface-inverse: #09171e;
     --text-inverse: #f4eee3;
     --text-nav: #d8e0da;
-    --navy-deep: #071219;
     --sage: #9db49b;
     --sand: #655f56;
     --copper: var(--action-primary);
@@ -2059,11 +2071,11 @@ textarea:disabled {
 @media (forced-colors: active) {
   .nav-item[aria-current="page"],
   .repository-row.is-selected {
-    color: HighlightText;
-    background: Highlight;
-    border: 1px solid Highlight;
-    border-color: Highlight;
-    box-shadow: none;
+    color: HighlightText !important;
+    background: Highlight !important;
+    border: 1px solid Highlight !important;
+    border-color: Highlight !important;
+    box-shadow: none !important;
     forced-color-adjust: none;
   }
 
@@ -2072,14 +2084,21 @@ textarea:disabled {
   select,
   textarea,
   .file-action {
-    color: ButtonText;
-    background: ButtonFace;
-    border-color: ButtonText;
+    color: ButtonText !important;
+    background: ButtonFace !important;
+    border-color: ButtonText !important;
   }
 
-  :focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  summary:focus-visible,
+  .repository-row:focus-visible,
+  .selection-control:focus-within,
+  .nav-item:focus-visible,
   .file-action:focus-within {
-    outline: 3px solid Highlight;
+    outline: 3px solid Highlight !important;
     outline-offset: 2px;
   }
 
@@ -2087,14 +2106,14 @@ textarea:disabled {
   .status-banner.is-success,
   .status-banner.is-warning,
   .status-banner.is-error {
-    color: CanvasText;
-    background: Canvas;
-    border-color: CanvasText;
+    color: CanvasText !important;
+    background: Canvas !important;
+    border-color: CanvasText !important;
     forced-color-adjust: none;
   }
 
   a {
-    color: LinkText;
+    color: LinkText !important;
   }
 }
 
