@@ -37,6 +37,12 @@ import {
   type RepositoryQuery,
   type StarFilter
 } from './library'
+import {
+  deriveRepositoryResults,
+  indexLatestRepositoryJobs,
+  type DerivedRepositoryResults,
+  type RepositoryQueryRunner
+} from './derivations'
 import './styles.css'
 
 const {
@@ -127,6 +133,7 @@ let activeMembershipPreviewRequestToken: number | null = null
 let pollTimer: number | null = null
 let autoSyncAccountId: string | null = null
 let dashboardAccountId: string | null = null
+let latestJobsByRepository: ReadonlyMap<string, MutationJobRecord> = new Map()
 
 export interface UnstarConfirmationTarget {
   readonly repositoryNodeId: string
@@ -240,7 +247,10 @@ function renderState(state: AppState) {
   }
 }
 
-function ReadyState(state: AppState) {
+function ReadyState(
+  state: AppState,
+  runQuery: RepositoryQueryRunner = queryRepositories
+) {
   if (activeView.val.kind === 'settings') return SettingsState(state)
   if (activeView.val.kind === 'operations') return OperationsState(state)
   const snapshot = state.library
@@ -252,14 +262,24 @@ function ReadyState(state: AppState) {
   }
 
   const repositories = buildLibraryRepositories(snapshot)
+  const repositoryResults = van.derive(() =>
+    deriveRepositoryResults(
+      repositories,
+      currentQuery(),
+      Date.now(),
+      inspectedRepositoryNodeId.val,
+      200,
+      runQuery
+    )
+  )
 
   return div(
     {class: 'library-page'},
-    LibraryHeader(state, repositories),
+    LibraryHeader(state, repositories, repositoryResults),
     () => SelectionActions(appState.val, repositories),
     () => AdvancedFilters(),
     () => StatusBanners(appState.val),
-    () => LibraryResults(repositories),
+    () => LibraryResults(repositoryResults.val),
     () =>
       pendingUnstarTargets.val.length > 0
         ? UnstarConfirmation(
@@ -280,17 +300,16 @@ function ReadyState(state: AppState) {
   )
 }
 
-function LibraryResults(repositories: readonly LibraryRepository[]) {
+function LibraryResults(results: DerivedRepositoryResults) {
   const query = currentQuery()
-  const results = queryRepositories(repositories, query, Date.now())
-  const visibleResults = results.slice(0, 200)
+  const visibleResults = results.visible
   const selected = selectCurrentRepository(visibleResults)
   const inspected = inspectedRepositoryNodeId.val
-    ? visibleResults.find(
+    ? results.all.find(
         (item) => item.repository.repositoryNodeId === inspectedRepositoryNodeId.val
       ) ?? null
     : null
-  if (inspectedRepositoryNodeId.val && !inspected) {
+  if (inspectedRepositoryNodeId.val && !results.inspectedRemainsVisible) {
     dismissStaleRepositoryInspection()
   }
 
@@ -300,7 +319,7 @@ function LibraryResults(repositories: readonly LibraryRepository[]) {
       {class: 'library-grid'},
       section(
         {class: 'results-panel'},
-        results.length === 0
+        results.count === 0
           ? NoResultsState(query.search.length > 0)
           : ul(
               {
@@ -311,10 +330,10 @@ function LibraryResults(repositories: readonly LibraryRepository[]) {
               },
               ...visibleResults.map((item) => RepositoryRow(item, selected))
             ),
-        results.length > visibleResults.length
+        results.count > visibleResults.length
           ? p(
               {class: 'result-limit'},
-              `Showing the first ${visibleResults.length} of ${results.length} matches. Refine the local search to narrow the list.`
+              `Showing the first ${visibleResults.length} of ${results.count} matches. Refine the local search to narrow the list.`
             )
           : null
       )
@@ -325,7 +344,8 @@ function LibraryResults(repositories: readonly LibraryRepository[]) {
 
 function LibraryHeader(
   state: AppState,
-  repositories: readonly LibraryRepository[]
+  repositories: readonly LibraryRepository[],
+  repositoryResults: {readonly val: DerivedRepositoryResults}
 ) {
   const languages = availableLanguages(repositories)
   return header(
@@ -335,8 +355,7 @@ function LibraryHeader(
       NativeListHeaderTitle(state),
       p(
         {class: 'result-count', 'aria-live': 'polite'},
-        () =>
-          `${queryRepositories(repositories, currentQuery(), Date.now()).length} repositories`
+        () => `${repositoryResults.val.count} repositories`
       )
     ),
     div(
@@ -352,15 +371,6 @@ function LibraryHeader(
           oninput: (event: Event) => {
             searchText.val = (event.currentTarget as HTMLInputElement).value
             selectedRepositoryNodeId.val = null
-            const inspectedRepository = inspectedRepositoryNodeId.val
-            const inspectedRemainsVisible = inspectedRepository
-              ? queryRepositories(repositories, currentQuery(), Date.now()).some(
-                  (item) => item.repository.repositoryNodeId === inspectedRepository
-                )
-              : false
-            if (inspectedRepository && !inspectedRemainsVisible) {
-              dismissStaleRepositoryInspection()
-            }
           }
         })
       ),
@@ -2452,20 +2462,7 @@ function WriteReadinessNotice(state: AppState) {
 }
 
 function latestRepositoryJob(repositoryNodeId: string): MutationJobRecord | null {
-  const githubUserId = appState.val.identity?.githubUserId
-  return (
-    (appState.val.mutations?.jobs ?? [])
-      .filter(
-        (job) =>
-          job.githubUserId === githubUserId &&
-          job.repositoryNodeId === repositoryNodeId
-      )
-      .toSorted(
-        (left, right) =>
-          right.createdAt.localeCompare(left.createdAt) ||
-          right.jobId.localeCompare(left.jobId)
-      )[0] ?? null
-  )
+  return latestJobsByRepository.get(repositoryNodeId) ?? null
 }
 
 function hasActiveRepositoryJob(repositoryNodeId: string): boolean {
@@ -2509,6 +2506,10 @@ function applyState(state: AppState): void {
     dashboardAccountId = nextAccountId
   }
   appState.val = state
+  latestJobsByRepository = indexLatestRepositoryJobs(
+    state.mutations?.jobs ?? [],
+    state.identity?.githubUserId ?? null
+  )
   if (state.library) {
     const selectable = new Set(
       state.library.repositories
@@ -2861,7 +2862,10 @@ export function renderSettingsState(state: AppState): HTMLElement {
   return SettingsState(state) as HTMLElement
 }
 
-export function renderLibraryState(state: AppState): HTMLElement {
+export function renderLibraryState(
+  state: AppState,
+  runQuery: RepositoryQueryRunner = queryRepositories
+): HTMLElement {
   resetNativeListRenameEditor()
   appState.val = state
   setActiveView({kind: 'unlist'})
@@ -2875,7 +2879,11 @@ export function renderLibraryState(state: AppState): HTMLElement {
   resetMembershipPreview()
   appState.val = state
   dashboardAccountId = state.identity?.githubUserId ?? null
-  return ReadyState(state) as HTMLElement
+  latestJobsByRepository = indexLatestRepositoryJobs(
+    state.mutations?.jobs ?? [],
+    dashboardAccountId
+  )
+  return ReadyState(state, runQuery) as HTMLElement
 }
 
 export function renderOperationsState(state: AppState): HTMLElement {

@@ -14,6 +14,7 @@ import type {
   MembershipListPreviewItem,
   StableMembershipPreviewResponse
 } from '../../src/shared/messages'
+import {queryRepositories} from '../../src/dashboard/library'
 
 test('mounts accessible dashboard navigation and loading state', async () => {
   const browserWindow = new Window({url: 'chrome-extension://fixture/dashboard/index.html'})
@@ -357,6 +358,83 @@ test('places language, sort, direction, and archive controls under View options'
       viewOptionControls.includes(name)
     )
   ).toEqual([])
+})
+
+test('runs one shared repository query per flushed filter change', async () => {
+  const browserWindow = createDashboardWindow()
+  let queryCalls = 0
+  const {renderLibraryState} = await import('../../src/dashboard/scripts')
+  const readyState = readyDashboardState()
+  const state: AppState = {
+    ...readyState,
+    library: {
+      ...readyState.library!,
+      repositories: readyState.library!.repositories.map((repository, index) =>
+        index === 0 ? {...repository, primaryLanguage: 'TypeScript'} : repository
+      )
+    }
+  }
+  const library = renderLibraryState(state, (...args) => {
+    queryCalls += 1
+    return queryRepositories(...args)
+  })
+  browserWindow.document.body.append(
+    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  const change = async (
+    control: HTMLInputElement | HTMLSelectElement,
+    value: string,
+    eventName: 'input' | 'change'
+  ) => {
+    queryCalls = 0
+    control.value = value
+    control.dispatchEvent(
+      new browserWindow.Event(eventName, {bubbles: true}) as unknown as Event
+    )
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+    expect(queryCalls).toBe(1)
+    expect(library.querySelector('.result-count')?.textContent).toContain('repositories')
+    visibleRepositoryIds(library)
+    library.querySelector('.repository-inspection-dialog')
+    expect(queryCalls).toBe(1)
+  }
+
+  const search = library.querySelector<HTMLInputElement>('input[type="search"]')!
+  const languageSelect = [...library.querySelectorAll<HTMLLabelElement>('label')]
+    .find((label) => label.textContent?.includes('Language'))!
+    .querySelector<HTMLSelectElement>('select')!
+  const starStateSelect = [...library.querySelectorAll<HTMLLabelElement>('label')]
+    .find((label) => label.textContent?.includes('Star state'))!
+    .querySelector<HTMLSelectElement>('select')!
+  const sortSelect = [...library.querySelectorAll<HTMLLabelElement>('label')]
+    .find((label) => label.textContent?.includes('Sort'))!
+    .querySelector<HTMLSelectElement>('select')!
+
+  await change(search, `${search.value}-one-query`, 'input')
+  await change(languageSelect, 'TypeScript', 'change')
+  await change(
+    starStateSelect,
+    starStateSelect.value === 'all' ? 'starred' : 'all',
+    'change'
+  )
+  await change(sortSelect, sortSelect.value === 'name' ? 'starred-at' : 'name', 'change')
+
+  for (const [control, value, eventName] of [
+    [search, '', 'input'],
+    [languageSelect, '', 'change'],
+    [starStateSelect, 'starred', 'change'],
+    [sortSelect, 'starred-at', 'change']
+  ] as const) {
+    control.value = value
+    control.dispatchEvent(
+      new browserWindow.Event(eventName, {bubbles: true}) as unknown as Event
+    )
+    await browserWindow.happyDOM.whenAsyncComplete()
+  }
+  library.remove()
 })
 
 test('starts automatic synchronization once per active account', async () => {
