@@ -141,6 +141,133 @@ test('renders the Archive.Stars frame without changing repository activation con
   expect(results?.querySelector('.settings-page h1')?.textContent).toBe('Settings')
 })
 
+test('keeps Archive.Stars state pages and dialogs inside the archive results landmark', async () => {
+  const browserWindow = createDashboardWindow()
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {
+    chrome: {
+      runtime: {
+        sendMessage: async (message: {readonly type: string}) => {
+          if (message.type === 'start-sync') return {ok: true, data: membershipReadyDashboardState()}
+          throw new Error(`Unexpected runtime message: ${message.type}`)
+        }
+      }
+    }
+  })
+  const root = browserWindow.document.createElement('div') as unknown as HTMLElement
+  try {
+    const {mountDashboard, renderAppState} = await import('../../src/dashboard/scripts')
+    const signedOut: AppState = {
+    ...signedOutDashboardState(),
+    error: {
+      category: 'network',
+      message: 'GitHub is unavailable. No local data was changed.',
+      retryable: true
+    }
+  }
+  browserWindow.document.body.append(
+    root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  mountDashboard(root, signedOut)
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  const results = root.querySelector<HTMLElement>('main.archive-results')
+  const statePanel = root.querySelector<HTMLElement>('.phase-workspace .state-panel')
+  expect(root.querySelector('.archive-app-header')).not.toBeNull()
+  expect(results).not.toBeNull()
+  expect(statePanel?.closest('main.archive-results')).toBe(results)
+  expect(statePanel?.querySelector('h2')?.textContent).toBe('Reconnect your GitHub library')
+  expect(statePanel?.textContent).toContain(
+    'Notes, tags, favorites, and revisit dates remain local.'
+  )
+  expect(statePanel?.querySelector('[role="alert"]')?.textContent).toBe(
+    'GitHub is unavailable. No local data was changed.'
+  )
+  expect(
+    [...(statePanel?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
+      (button) => button.textContent?.trim() === 'Connect GitHubDevice flow'
+    )?.getAttribute('type')
+  ).toBe('button')
+  expect(root.querySelectorAll('[aria-live]')).toHaveLength(0)
+  expect(root.querySelectorAll('[role="status"]')).toHaveLength(0)
+
+  renderAppState({...signedOut, phase: 'loading', error: null})
+  await browserWindow.happyDOM.whenAsyncComplete()
+  const loading = root.querySelector<HTMLElement>('.phase-workspace .state-panel[aria-busy="true"]')
+  expect(loading?.closest('main.archive-results')).toBe(results)
+  expect(loading?.querySelector('h2')?.textContent).toBe('Preparing your dashboard')
+  expect(loading?.textContent).toContain('Loading the local account state and extension configuration.')
+  expect(root.querySelectorAll('[aria-live]')).toHaveLength(0)
+  expect(root.querySelectorAll('[role="status"]')).toHaveLength(0)
+
+  const ready = membershipReadyDashboardState()
+  renderAppState(ready)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.status-stack[role="status"]')?.closest('main.archive-results')).toBe(
+    results
+  )
+  expect(root.querySelectorAll('[aria-live]')).toHaveLength(0)
+
+  const utility = (label: string) =>
+    [...root.querySelectorAll<HTMLButtonElement>('.archive-utility-link')].find(
+      (button) => button.textContent === label
+    ) ?? null
+  utility('Operations')?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.operations-page h1')?.textContent).toBe('Operations')
+  expect(root.querySelector('.operations-page')?.closest('main.archive-results')).toBe(results)
+  expect(utility('Operations')?.getAttribute('aria-current')).toBe('page')
+
+  utility('Settings')?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.settings-page h1')?.textContent).toBe('Settings')
+  expect(root.querySelector('.settings-page')?.closest('main.archive-results')).toBe(results)
+  expect(utility('Settings')?.getAttribute('aria-current')).toBe('page')
+
+  renderAppState(ready)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  const unlist = [...root.querySelectorAll<HTMLButtonElement>('.archive-directory .nav-item')].find(
+    (button) => button.querySelector('.nav-label')?.textContent === 'Unlist'
+  )
+  if (unlist === undefined) throw new Error('The Unlist navigation action is required.')
+  unlist.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  const row = root.querySelector<HTMLButtonElement>('.repository-row')
+  if (row === null) throw new Error('The repository inspection invoker is required.')
+  row.click()
+  await nextTurn(browserWindow)
+  const inspection = root.querySelector<HTMLElement>('.repository-inspection-dialog')
+  expect(inspection?.closest('main.archive-results')).toBe(results)
+  expect(inspection?.getAttribute('role')).toBe('dialog')
+  expect(inspection?.getAttribute('aria-modal')).toBe('true')
+  expect(
+    [...(inspection?.querySelectorAll<HTMLButtonElement>('button') ?? [])].some(
+      (button) => button.textContent === 'Close details'
+    )
+  ).toBe(true)
+
+  const review = [...(inspection?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
+    (button) => button.textContent === 'Review unstar'
+  )
+  if (review === undefined) throw new Error('The unstar confirmation action is required.')
+  review.click()
+  await nextTurn(browserWindow)
+  const confirmation = root.querySelector<HTMLElement>('.unstar-confirmation[role="dialog"]')
+  expect(confirmation?.closest('main.archive-results')).toBe(results)
+  expect(accessibleDialogName(confirmation)).toBe('Remove 1 star from GitHub?')
+  expect(confirmation?.textContent).toContain('There is no Undo or re-star control')
+  expect(
+    [...(confirmation?.querySelectorAll<HTMLButtonElement>('button') ?? [])].some(
+      (button) => button.textContent === 'Cancel'
+    )
+  ).toBe(true)
+  } finally {
+    root.remove()
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
 test('groups real View options and Filters under one archive Status container', async () => {
   const root = await mountReadyDashboard()
   const browserWindow = window as unknown as Window
