@@ -83,14 +83,21 @@ test('renders the Archive.Stars frame without changing repository activation con
     }
   })
   const browserWindow = window as unknown as Window
+  const shell = root.querySelector<HTMLElement>('.archive-app-shell')
+  const frame = root.querySelector<HTMLElement>('.archive-workspace-frame')
   const header = root.querySelector<HTMLElement>('.archive-app-header')
   const directory = root.querySelector<HTMLElement>('.archive-directory')
-  const results = root.querySelector<HTMLElement>('.archive-results')
+  const results = root.querySelector<HTMLElement>('main.workspace.archive-results')
 
+  expect(shell).not.toBeNull()
+  expect(root.querySelector('.app-shell')).toBeNull()
+  expect(frame).not.toBeNull()
+  expect(root.querySelector('.archive-workspace')).toBeNull()
   expect(header).not.toBeNull()
   expect(header?.querySelector('.archive-wordmark')?.textContent).toContain('Archive.Stars')
   expect(directory?.querySelector('nav')?.getAttribute('aria-label')).toBe('Library')
-  expect(results?.querySelectorAll('main.workspace')).toHaveLength(1)
+  expect(results?.parentElement).toBe(frame)
+  expect(root.querySelector('div.archive-results')).toBeNull()
   expect(
     [...(header?.querySelectorAll<HTMLButtonElement>('.archive-utility-link') ?? [])].map(
       (element) => element.textContent
@@ -113,11 +120,12 @@ test('renders the Archive.Stars frame without changing repository activation con
   )
   await browserWindow.happyDOM.whenAsyncComplete()
   await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
-  const focusedNextRow = results?.querySelector<HTMLButtonElement>(
+  const focusedNextRow = browserWindow.document.querySelector(
     '[data-repository-node-id="R_two"]'
-  ) ?? null
-  expect(browserWindow.document.activeElement).toBe(focusedNextRow)
-  focusedNextRow?.click()
+  )
+  if (focusedNextRow === null) throw new Error('Focused repository row is required.')
+  expect(browserWindow.document.activeElement === focusedNextRow).toBe(true)
+  focusedNextRow.dispatchEvent(new browserWindow.MouseEvent('click', {bubbles: true}))
   await browserWindow.happyDOM.whenAsyncComplete()
   expect(results?.querySelector('.repository-inspection-dialog h2')?.textContent).toBe('two')
 
@@ -233,7 +241,7 @@ test('transitions a cold loading mount through ready utilities and recreates aft
   expect(root.querySelector('.settings-page h1')?.textContent).toBe('Settings')
 })
 
-test('renders Unlist before alphabetized imported native Lists regardless of input order', async () => {
+test('renders only GitHub Lists in the directory before alphabetized imported native Lists', async () => {
   const readyState = readyDashboardState()
   const state: AppState = {
     ...readyState,
@@ -251,32 +259,25 @@ test('renders Unlist before alphabetized imported native Lists regardless of inp
   const groups = [...(sidebar?.querySelectorAll('details.nav-group') ?? [])]
   const githubLists = navigationGroup(sidebar, 'GitHub Lists')
 
-  const utilities = navigationGroup(sidebar, 'Utilities')
-  expect(groups).toHaveLength(2)
-  expect(groups.map((group) => navigationGroupSummary(group)?.textContent)).toEqual([
-    'GitHub Lists',
-    'Utilities'
-  ])
+  expect(groups).toHaveLength(1)
+  expect(groups.map((group) => navigationGroupSummary(group)?.textContent)).toEqual(['GitHub Lists'])
   expect(githubLists?.hasAttribute('open')).toBe(true)
-  expect(utilities?.hasAttribute('open')).toBe(true)
+  expect(navigationGroup(sidebar, 'Utilities')).toBeNull()
   expect(navigationLabels(directNavigationList(githubLists))).toEqual([
     'Unlist',
     'Alpha List',
     'Middle List',
     'Zulu List'
   ])
-  expect(navigationLabels(directNavigationList(utilities))).toEqual([
-    'Operations',
-    'Settings'
-  ])
+  expect(root.querySelectorAll('[data-view-kind="operations"]')).toHaveLength(1)
+  expect(root.querySelectorAll('[data-view-kind="settings"]')).toHaveLength(1)
 })
 
 test('keeps Operations and Settings reachable through utility navigation', async () => {
   const browserWindow = createDashboardWindow()
   const root = await mountReadyDashboard()
   const utilityButton = (label: string) =>
-    [...(directNavigationList(navigationGroup(sidebarNavigation(root), 'Utilities'))
-      ?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
+    [...(root.querySelectorAll<HTMLButtonElement>('.archive-utility-link'))].find(
       (button) => button.querySelector('.nav-label')?.textContent === label
     ) ?? null
 
@@ -590,14 +591,11 @@ test('returns sidebar selection to Unlist after disconnect and complete-data rem
   }
 })
 
-test('keeps removed triage, local tag, and history destinations out of the sidebar', async () => {
+test('keeps removed triage, local tag, history, and fixed utility destinations out of the directory', async () => {
   const root = await mountReadyDashboard()
   const sidebar = sidebarNavigation(root)
 
-  expect(sidebar?.textContent).toContain('Utilities')
-  expect(sidebar?.textContent).toContain('Operations')
-  expect(sidebar?.textContent).toContain('Settings')
-  for (const label of ['Triage', 'Local tags', 'Unstarred history']) {
+  for (const label of ['Triage', 'Local tags', 'Unstarred history', 'Operations', 'Settings']) {
     expect(sidebar?.textContent).not.toContain(label)
   }
 })
@@ -1506,7 +1504,7 @@ test('updates material library metadata while restoring row and Search focus', a
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
   expect(root.querySelector('.library-page')).toBe(page)
   expect(root.querySelector('.repository-row h2')?.textContent).toBe('renamed')
-  expect(root.querySelector('.sidebar')?.textContent).toContain('Renamed List')
+  expect(root.querySelector('.archive-directory-nav')?.textContent).toContain('Renamed List')
   expect(queryCalls).toBe(1)
   expect((document.activeElement as HTMLElement | null)?.dataset.repositoryNodeId).toBe('R_one')
   expect(root.querySelector<HTMLElement>('.repository-list')?.scrollTop).toBe(96)
@@ -2552,8 +2550,6 @@ test('focuses Operations when a successful unstar leaves no surviving result', a
     mountDashboard(library, state)
     await browserWindow.happyDOM.whenAsyncComplete()
     await openRepositoryDetails(library, browserWindow)
-    const utilities = navigationGroup(sidebarNavigation(library), 'Utilities')
-    utilities?.removeAttribute('open')
     const review = [...library.querySelectorAll<HTMLButtonElement>('button')].find(
       (element) => element.textContent === 'Review unstar'
     )
@@ -2570,8 +2566,6 @@ test('focuses Operations when a successful unstar leaves no surviving result', a
       '[data-view-kind="operations"]'
     )
     expect(operations?.isConnected).toBe(true)
-    const activeUtilities = navigationGroup(sidebarNavigation(library), 'Utilities')
-    expect(activeUtilities?.hasAttribute('open')).toBe(true)
     expect((browserWindow.document.activeElement as unknown) === operations).toBe(true)
   } finally {
     if (previousChrome === undefined) {
@@ -4582,7 +4576,7 @@ function renameEditButton(root: Element): HTMLButtonElement | null {
 
 function nativeListNavigationButton(root: Element, name: string): HTMLButtonElement | null {
   return (
-    [...root.querySelectorAll<HTMLButtonElement>('nav.sidebar .nav-item')].find(
+    [...root.querySelectorAll<HTMLButtonElement>('nav.archive-directory-nav .nav-item')].find(
       (button) => button.textContent?.includes(name)
     ) ?? null
   )
@@ -4625,7 +4619,7 @@ function navigationLabels(group: Element | null): string[] {
 }
 
 function sidebarNavigation(root: Element): Element | null {
-  return root.querySelector('nav.sidebar[aria-label="Library"]')
+  return root.querySelector('nav.archive-directory-nav[aria-label="Library"]')
 }
 
 function navigationGroup(sidebar: Element | null, title: string): Element | null {

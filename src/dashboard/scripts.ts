@@ -308,29 +308,26 @@ function Dashboard(runQuery: RepositoryQueryRunner = queryRepositories) {
   let retainedKind: DashboardWorkspace | null = null
   let retainedWorkspace: HTMLElement | null = null
   return div(
-    {class: 'app-shell'},
+    {class: 'archive-app-shell'},
     ArchiveHeader(),
     div(
-      {class: 'archive-workspace'},
+      {class: 'archive-workspace-frame'},
       Navigation(),
-      div(
-        {class: 'archive-results'},
-        main(
-          {
-            class: 'workspace',
-            'data-workspace-kind': () =>
-              classifyWorkspace(publishedPhase.val, activeView.val)
-          },
-          () => {
-            const kind = classifyWorkspace(publishedPhase.val, activeView.val)
-            if (kind === retainedKind && retainedWorkspace !== null) {
-              return retainedWorkspace
-            }
-            retainedKind = kind
-            retainedWorkspace = createWorkspace(kind, runQuery)
+      main(
+        {
+          class: 'workspace archive-results',
+          'data-workspace-kind': () =>
+            classifyWorkspace(publishedPhase.val, activeView.val)
+        },
+        () => {
+          const kind = classifyWorkspace(publishedPhase.val, activeView.val)
+          if (kind === retainedKind && retainedWorkspace !== null) {
             return retainedWorkspace
           }
-        )
+          retainedKind = kind
+          retainedWorkspace = createWorkspace(kind, runQuery)
+          return retainedWorkspace
+        }
       )
     )
   )
@@ -359,7 +356,7 @@ function Navigation() {
   return div(
     {class: 'archive-directory'},
     nav(
-      {class: 'sidebar', 'aria-label': 'Library'},
+      {class: 'archive-directory-nav', 'aria-label': 'Library'},
       div(
         {class: 'brand'},
         span({class: 'brand-mark', 'aria-hidden': 'true'}, 'S'),
@@ -393,15 +390,6 @@ function NavigationGroups() {
             counts.lists[nativeList.listNodeId] ?? 0
           )
         )
-      )
-    ),
-    details(
-      {class: 'nav-group nav-group-utilities', open: true},
-      summary('Utilities'),
-      ul(
-        {class: 'nav-list nav-list-secondary'},
-        NavItem('Operations', {kind: 'operations'}, null),
-        NavItem('Settings', {kind: 'settings'}, null)
       )
     )
   ]
@@ -2610,7 +2598,7 @@ function tryFocusTarget(element: HTMLElement | null): boolean {
 
 function captureFocusLifecycle(element: HTMLElement | null): FocusLifecycle {
   const ownerDocument = element?.ownerDocument ?? document
-  const elementShell = element?.closest<HTMLElement>('.app-shell') ?? null
+  const elementShell = element?.closest<HTMLElement>('.archive-app-shell') ?? null
   const elementPage = element?.closest<HTMLElement>('.library-page') ?? null
   const dashboardRoot = mountedDashboardRoot !== null &&
     (element === null || mountedDashboardRoot.contains(element))
@@ -3366,7 +3354,7 @@ function updateRepositoryQuery(update: () => void): void {
 
 function captureDashboardPosition(): DashboardPosition | null {
   const active = document.activeElement as HTMLElement | null
-  const activeScope = active?.closest<HTMLElement>('.app-shell') ?? null
+  const activeScope = active?.closest<HTMLElement>('.archive-app-shell') ?? null
   const page = active?.closest<HTMLElement>('.library-page') ??
     activeScope?.querySelector<HTMLElement>('.library-page') ??
     mountedDashboardRoot?.querySelector<HTMLElement>('.library-page') ??
@@ -3376,7 +3364,7 @@ function captureDashboardPosition(): DashboardPosition | null {
   if (page === null) return null
   const lifecycle = libraryPageLifecycles.get(page)
   if (lifecycle === undefined) return null
-  const scope = page.closest<HTMLElement>('.app-shell') ?? page
+  const scope = page.closest<HTMLElement>('.archive-app-shell') ?? page
   const list = page.querySelector<HTMLElement>('.repository-list')
   const focusedRow = active?.closest<HTMLElement>('.repository-row') ?? null
   const rows = list
