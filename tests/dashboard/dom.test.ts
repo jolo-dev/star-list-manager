@@ -141,6 +141,63 @@ test('renders the Archive.Stars frame without changing repository activation con
   expect(results?.querySelector('.settings-page h1')?.textContent).toBe('Settings')
 })
 
+test('groups real View options and Filters under one archive Status container', async () => {
+  const root = await mountReadyDashboard()
+  const browserWindow = window as unknown as Window
+  const heading = root.querySelector<HTMLElement>('.archive-filter-heading')
+  const containers = [
+    ...root.querySelectorAll<HTMLElement>(
+      'section.archive-filter-container[aria-labelledby="archive-filter-heading"]'
+    )
+  ]
+
+  expect(containers).toHaveLength(1)
+  const container = containers[0] ?? null
+  expect(container?.tagName).toBe('SECTION')
+  expect(container?.contains(heading ?? document.createElement('h2'))).toBe(true)
+
+  const viewOptions = container?.querySelector<HTMLDetailsElement>('details.view-options') ?? null
+  const advancedFilters =
+    container?.querySelector<HTMLDetailsElement>('details.advanced-filters') ?? null
+  expect(viewOptions).not.toBeNull()
+  expect(advancedFilters).not.toBeNull()
+  expect(viewOptions?.parentElement).toBe(container)
+  expect(advancedFilters?.parentElement).toBe(container)
+  expect(viewOptions?.querySelector('summary')?.textContent).toBe('View options')
+  expect(advancedFilters?.querySelector('summary')?.textContent).toBe('Filters')
+
+  const archiveControl =
+    [...(viewOptions?.querySelectorAll<HTMLButtonElement>('.filter-toggle') ?? [])].find((button) =>
+      button.textContent?.startsWith('Archived')
+    ) ?? null
+  const starState = advancedFilters?.querySelector<HTMLSelectElement>('select') ?? null
+  const clearFilters = advancedFilters?.querySelector<HTMLButtonElement>('.clear-filters') ?? null
+  expect(archiveControl?.tagName).toBe('BUTTON')
+  expect(starState?.tagName).toBe('SELECT')
+  expect(clearFilters?.tagName).toBe('BUTTON')
+
+  try {
+    expect(archiveControl?.textContent).toBe('Archived hidden')
+    archiveControl?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(archiveControl?.textContent).toBe('Archived shown')
+
+    if (starState === null) throw new Error('Star state control is required.')
+    starState.value = 'unstarred'
+    starState.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(root.querySelector('.advanced-filters .filter-count')?.textContent).toBe('1')
+
+    clearFilters?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(root.querySelector('.advanced-filters .filter-count')).toBeNull()
+  } finally {
+    if (archiveControl?.textContent === 'Archived shown') archiveControl.click()
+    clearFilters?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+  }
+})
+
 test('renders archive directory and archive result archive markup for the ready library', async () => {
   const root = await mountReadyDashboard()
 
@@ -826,10 +883,13 @@ test('keeps a visible Search label beside the prominent Refresh control', async 
   if (headerControls === null) return
   const search = headerControls.querySelector<HTMLInputElement>('input[type="search"]')
   const refresh = directHeaderControl(headerControls, '.refresh-button')
-  const viewOptions = directHeaderControl(headerControls, 'details.view-options')
+  const filterContainer = headerControls.querySelector<HTMLElement>('.archive-filter-container')
+  const viewOptions = directHeaderControl(filterContainer, 'details.view-options')
   const searchLabel = search?.labels?.[0] ?? null
 
   expect(search).not.toBeNull()
+  expect(filterContainer).not.toBeNull()
+  expect(viewOptions).not.toBeNull()
   expect(refresh?.textContent).toBe('Refresh')
   expect(searchLabel?.parentElement).toBe(headerControls)
   expect(refresh?.parentElement).toBe(headerControls)
@@ -846,9 +906,11 @@ test('places language, sort, direction, and archive controls under View options'
   const {renderLibraryState} = await import('../../src/dashboard/scripts')
   const library = renderLibraryState(readyDashboardState())
   const headerControls = library.querySelector('.library-actions')
-  const viewOptions = directHeaderControl(headerControls, 'details.view-options')
+  const filterContainer = headerControls?.querySelector<HTMLElement>('.archive-filter-container') ?? null
+  const viewOptions = directHeaderControl(filterContainer, 'details.view-options')
   const viewOptionControls = ['Language', 'Sort', 'Descending', 'Archived hidden']
 
+  expect(filterContainer).not.toBeNull()
   expect(viewOptions).not.toBeNull()
   expect(viewOptions?.hasAttribute('open')).toBe(false)
   expect(viewOptions?.querySelector('summary')?.textContent).toBe('View options')

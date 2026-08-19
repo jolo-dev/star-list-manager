@@ -569,7 +569,6 @@ function ReadyLibraryState(
     {class: 'library-page'},
     LibraryHeader(repositories, repositoryMatches),
     () => SelectionActions(libraryActionPublishedState(), repositories.val),
-    () => AdvancedFilters(),
     () => StatusBanners(statusPublishedState()),
     () => {
       publishedRepositories.val
@@ -686,8 +685,10 @@ function LibraryHeader(
         },
         () => (syncing.val ? 'Syncing…' : 'Refresh')
       ),
-      h2({class: 'archive-filter-heading', id: 'archive-filter-heading'}, 'Status'),
-      details(
+      section(
+        {class: 'archive-filter-container', 'aria-labelledby': 'archive-filter-heading'},
+        h2({class: 'archive-filter-heading', id: 'archive-filter-heading'}, 'Status'),
+        details(
         {class: 'view-options archive-filter-group', 'aria-labelledby': 'archive-filter-heading'},
         summary('View options'),
         div(
@@ -755,7 +756,9 @@ function LibraryHeader(
             },
             () => (hideArchived.val ? 'Archived hidden' : 'Archived shown')
           )
-        )
+        ),
+        ),
+        () => AdvancedFilters()
       ),
       () => {
         const identity = publishedIdentity.val
