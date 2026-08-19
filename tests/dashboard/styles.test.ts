@@ -84,6 +84,17 @@ test('keeps keyboard focus visibly distinct from nav hover state', () => {
   ).toBe(true)
 })
 
+test('shows visible focus around the Import JSON action', () => {
+  const fileActionFocus = cssRulesFor(styles, /\.file-action:focus-within\b/)
+
+  expect(
+    fileActionFocus.some(({declarations}) =>
+      /outline:\s*3px solid var\(--focus-ring\)/.test(declarations) &&
+      /outline-offset:\s*2px/.test(declarations)
+    )
+  ).toBe(true)
+})
+
 test('keeps mobile dashboard inputs at a readable 16px', () => {
   const mobileStyles = mobileDashboardStyles()
 

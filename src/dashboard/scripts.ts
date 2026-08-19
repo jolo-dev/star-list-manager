@@ -327,6 +327,7 @@ function NavItem(title: string, view: LibraryView, count: number | null) {
         class: () => isActiveView(view) ? 'nav-item is-active' : 'nav-item',
         type: 'button',
         'aria-current': () => isActiveView(view) ? 'page' : null,
+        'data-view-kind': view.kind,
         'data-view-key': JSON.stringify(view),
         onclick: () => {
           if (enqueueingUnstars.val || confirmingMembership.val) return
@@ -572,7 +573,7 @@ function LibraryHeader(
       () => LibraryViewContext(),
       h1(() => populationTitle(starState.val)),
       p(
-        {class: 'result-count', 'aria-live': 'polite'},
+        {class: 'result-count', role: 'status', 'aria-live': 'polite'},
         () => `${repositoryMatches.val.length} repositories`
       )
     ),
@@ -896,9 +897,11 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
     ) {
       return
     }
+    const invoker = nativeListRenameInvoker ?? {listNodeId}
     applyState(response.data)
     if (activeView.val.kind === 'list' && activeView.val.listNodeId === listNodeId) {
       resetNativeListRenameEditor()
+      restoreNativeListRenameInvoker(invoker)
     }
   } catch {
     if (isCurrentNativeListRenameEditor(request, listNodeId)) {
@@ -941,17 +944,25 @@ function resetNativeListRenameEditor(): void {
 
 function restoreNativeListRenameInvoker(invoker: NativeListRenameInvoker | null): void {
   if (invoker === null) return
+  const mountId = activeDashboardMountId
+  const accountId = dashboardAccountId
+  const current = [...document.querySelectorAll<HTMLButtonElement>(
+    '[data-native-list-rename-invoker]'
+  )].find((element) => element.dataset.nativeListRenameInvoker === invoker.listNodeId) ?? null
+  const scope = current?.closest<HTMLElement>('.app-shell, .library-page') ?? null
   window.setTimeout(() => {
-    const editButton = [...document.querySelectorAll<HTMLButtonElement>(
+    if (
+      mountId !== activeDashboardMountId ||
+      accountId !== dashboardAccountId ||
+      (scope !== null && !scope.isConnected)
+    ) {
+      return
+    }
+    const searchRoot: ParentNode = scope ?? document
+    const editButton = [...searchRoot.querySelectorAll<HTMLButtonElement>(
       '[data-native-list-rename-invoker]'
     )].find((element) => element.dataset.nativeListRenameInvoker === invoker.listNodeId) ?? null
-    if (
-      editButton !== null &&
-      editButton.isConnected &&
-      editButton.closest('[hidden]') === null
-    ) {
-      editButton.focus()
-    }
+    if (isVisibleFocusTarget(editButton)) editButton.focus()
   }, 0)
 }
 
@@ -969,7 +980,7 @@ function SelectionActions(
   if (selected.length === 0) return ''
 
   return section(
-    {class: 'selection-bar', 'aria-live': 'polite'},
+    {class: 'selection-bar', role: 'status', 'aria-live': 'polite'},
     div(
       span({class: 'selection-count'}, `${selected.length} selected`),
       span('Selection changes no stars, notes, tags, favorites, or triage state.')
@@ -2214,7 +2225,7 @@ function DateFilter(title: string, state: {val: string | null}) {
 
 function StatusBanners(state: AppState) {
   return div(
-    {class: 'status-stack', 'aria-live': 'polite'},
+    {class: 'status-stack', role: 'status', 'aria-live': 'polite'},
     state.sync?.phase === 'stale'
       ? p({class: 'status-banner is-warning'}, 'Star data is stale; the last complete library remains available.')
       : null,
@@ -2447,28 +2458,38 @@ function beginMembershipPreviewRequest(invoker: HTMLElement): number | null {
   return requestToken
 }
 
+function isVisibleFocusTarget(element: HTMLElement | null): element is HTMLElement {
+  return Boolean(
+    element?.isConnected &&
+    !element.matches(':disabled') &&
+    element.closest('[hidden]') === null
+  )
+}
+
+function resolveDialogInvoker(
+  invoker: DialogInvoker | null,
+  ownerDocument: Document
+): HTMLElement | null {
+  if (isVisibleFocusTarget(invoker?.element ?? null)) return invoker?.element ?? null
+  if (invoker?.id === null || invoker?.id === undefined) return null
+  return [...ownerDocument.querySelectorAll<HTMLElement>('[data-dialog-invoker]')].find(
+    (element) =>
+      element.dataset.dialogInvoker === invoker.id && isVisibleFocusTarget(element)
+  ) ?? null
+}
+
 function focusDialogInvoker(
   invoker: DialogInvoker | null,
   fallbackSelector?: string,
   preferFallback = false
 ): void {
   const ownerDocument = invoker?.element.ownerDocument ?? document
-  const current = invoker
-    ? invoker.element.isConnected
-      ? invoker.element
-      : [...ownerDocument.querySelectorAll<HTMLElement>('[data-dialog-invoker]')].find(
-          (element) => element.dataset.dialogInvoker === invoker.id
-        )
-    : null
+  const current = resolveDialogInvoker(invoker, ownerDocument)
   const fallback = fallbackSelector
     ? ownerDocument.querySelector<HTMLElement>(fallbackSelector)
     : null
-  const target = preferFallback
-    ? fallback
-    : current && !current.matches(':disabled')
-      ? current
-      : fallback
-  if (target && !target.matches(':disabled')) target.focus()
+  const target = preferFallback ? fallback : current ?? fallback
+  if (isVisibleFocusTarget(target)) target.focus()
 }
 
 function restoreDialogInvoker(
@@ -2478,7 +2499,41 @@ function restoreDialogInvoker(
 ): void {
   const ownerDocument = invoker?.element.ownerDocument ?? document
   const ownerWindow = ownerDocument.defaultView ?? window
-  ownerWindow.setTimeout(() => focusDialogInvoker(invoker, fallbackSelector, preferFallback), 0)
+  const mountId = activeDashboardMountId
+  const accountId = dashboardAccountId
+  const scope = invoker?.element.closest<HTMLElement>('.app-shell, .library-page') ?? null
+  ownerWindow.setTimeout(() => {
+    if (
+      mountId !== activeDashboardMountId ||
+      accountId !== dashboardAccountId ||
+      (scope !== null && !scope.isConnected)
+    ) {
+      return
+    }
+    focusDialogInvoker(invoker, fallbackSelector, preferFallback)
+  }, 0)
+}
+
+function restoreUnstarSuccessFocus(invoker: DialogInvoker | null): void {
+  const ownerDocument = invoker?.element.ownerDocument ?? document
+  const ownerWindow = ownerDocument.defaultView ?? window
+  const mountId = activeDashboardMountId
+  const accountId = dashboardAccountId
+  const scope = invoker?.element.closest<HTMLElement>('.app-shell, .library-page') ?? null
+  ownerWindow.setTimeout(() => {
+    if (
+      mountId !== activeDashboardMountId ||
+      accountId !== dashboardAccountId ||
+      (scope !== null && !scope.isConnected)
+    ) {
+      return
+    }
+    const searchRoot: ParentNode = scope ?? ownerDocument
+    const target = resolveDialogInvoker(invoker, ownerDocument) ??
+      searchRoot.querySelector<HTMLElement>('.repository-row') ??
+      ownerDocument.querySelector<HTMLElement>('[data-view-kind="operations"]')
+    if (isVisibleFocusTarget(target)) target.focus()
+  }, 0)
 }
 
 async function updateAnnotation(
@@ -2593,10 +2648,12 @@ async function confirmMembershipPreview(): Promise<void> {
       applyState({...appState.val, error: response.error})
       return
     }
+    const invoker = membershipDialogInvoker
     resetMembershipPreview()
     selectedNativeListIds.val = new Set()
     membershipActivity.val = 'Membership work queued for observation and remote verification.'
     applyState(response.data)
+    restoreDialogInvoker(invoker, '.repository-row')
   } finally {
     confirmingMembership.val = false
   }
@@ -2680,8 +2737,10 @@ async function confirmPendingUnstars(): Promise<void> {
       repositoryNodeIds
     })
     if (queued) {
+      const invoker = unstarDialogInvoker
       resetUnstarConfirmation()
       selectedForUnstar.val = new Set()
+      restoreUnstarSuccessFocus(invoker)
     }
   } finally {
     enqueueingUnstars.val = false

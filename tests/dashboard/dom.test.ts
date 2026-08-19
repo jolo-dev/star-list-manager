@@ -1,4 +1,5 @@
 import {expect, test} from 'bun:test'
+import {readFile} from 'node:fs/promises'
 import {Window} from 'happy-dom'
 import type {
   MembershipMutationDetails,
@@ -18,7 +19,16 @@ import type {
 } from '../../src/shared/messages'
 import {queryRepositories} from '../../src/dashboard/library'
 
-test('mounts accessible dashboard navigation and loading state', async () => {
+test('mounts one main landmark without a broad application live region', async () => {
+  const indexHtml = await readFile(
+    new URL('../../src/dashboard/index.html', import.meta.url),
+    'utf8'
+  )
+  expect(indexHtml).toContain('<meta name="color-scheme" content="light dark" />')
+  expect(indexHtml).toContain('<div id="app"></div>')
+  expect(indexHtml).not.toMatch(/<main id="app"/)
+  expect(indexHtml).not.toMatch(/id="app"[^>]*aria-live/)
+
   const browserWindow = new Window({url: 'chrome-extension://fixture/dashboard/index.html'})
   Object.assign(globalThis, {
     window: browserWindow,
@@ -29,10 +39,14 @@ test('mounts accessible dashboard navigation and loading state', async () => {
     KeyboardEvent: browserWindow.KeyboardEvent
   })
   const {mountDashboard} = await import('../../src/dashboard/scripts')
-  const root = browserWindow.document.createElement('main')
+  const root = browserWindow.document.createElement('div')
+  root.id = 'app'
   browserWindow.document.body.append(root)
   mountDashboard(root as unknown as HTMLElement)
 
+  expect(root.querySelectorAll('main')).toHaveLength(1)
+  expect(root.querySelector('main')?.classList.contains('workspace')).toBe(true)
+  expect(root.hasAttribute('aria-live')).toBe(false)
   expect(root.querySelector('nav')?.getAttribute('aria-label')).toBe('Library')
   expect(root.querySelector('[aria-busy="true"]')).not.toBeNull()
   expect(root.textContent).toContain('Star List')
@@ -40,6 +54,22 @@ test('mounts accessible dashboard navigation and loading state', async () => {
     (element) => element.textContent?.includes('Unlist')
   )
   expect(unlist?.getAttribute('aria-current')).toBe('page')
+})
+
+test('uses only targeted dashboard live regions', async () => {
+  const root = await mountReadyDashboard()
+  const selection = root.querySelector<HTMLInputElement>('.selection-control input')
+  selection?.click()
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  const liveRegions = [...root.querySelectorAll<HTMLElement>('[aria-live]')]
+
+  expect(liveRegions.map((region) => region.className).sort()).toEqual([
+    'result-count',
+    'selection-bar',
+    'status-stack'
+  ])
+  expect(liveRegions.every((region) => region.getAttribute('role') === 'status')).toBe(true)
+  expect(root.querySelector('nav [aria-live], [role="dialog"] [aria-live]')).toBeNull()
 })
 
 test('transitions a cold loading mount through ready utilities and recreates after phase exit', async () => {
@@ -1985,10 +2015,77 @@ test('traps and restores the unstar confirmation dialog without cancelling queue
     await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
     expect(queuedUnstarCompleted).toBe(true)
     expect(library.querySelector('.unstar-confirmation')).toBeNull()
+    const survivingRow = library.querySelector<HTMLButtonElement>('.repository-row')
+    expect(survivingRow?.isConnected).toBe(true)
+    expect((browserWindow.document.activeElement as unknown) === survivingRow).toBe(true)
   } finally {
     queuedUnstar.resolve()
     await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
     browserWindow.HTMLElement.prototype.focus = originalFocus
+    if (previousChrome === undefined) {
+      delete (globalThis as {chrome?: unknown}).chrome
+    } else {
+      Object.assign(globalThis, {chrome: previousChrome})
+    }
+  }
+})
+
+test('focuses Operations when a successful unstar leaves no surviving result', async () => {
+  const browserWindow = createDashboardWindow()
+  const state = membershipReadyDashboardState()
+  const completedState: AppState = {
+    ...state,
+    library: {
+      ...state.library!,
+      repositories: state.library!.repositories.map((repository) => ({
+        ...repository,
+        isStarred: false,
+        unstarredAt: '2026-08-19T10:00:00Z'
+      }))
+    }
+  }
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {
+    chrome: {
+      runtime: {
+        sendMessage: async (message: {readonly type: string}) => {
+          if (message.type === 'enqueue-confirmed-unstars') {
+            return {ok: true, data: completedState}
+          }
+          if (message.type === 'start-sync') return {ok: true, data: completedState}
+          throw new Error(`Unexpected runtime message: ${message.type}`)
+        }
+      }
+    }
+  })
+
+  try {
+    const {mountDashboard} = await import('../../src/dashboard/scripts')
+    const library = browserWindow.document.createElement('div') as unknown as HTMLElement
+    browserWindow.document.body.append(
+      library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(library, state)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await openRepositoryDetails(library, browserWindow)
+    const review = [...library.querySelectorAll<HTMLButtonElement>('button')].find(
+      (element) => element.textContent === 'Review unstar'
+    )
+    review?.click()
+    await nextTurn(browserWindow)
+    const confirm = [...library.querySelectorAll<HTMLButtonElement>('.unstar-confirmation button')]
+      .find((element) => element.textContent?.includes('Confirm unstar'))
+    confirm?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await nextTurn(browserWindow)
+
+    expect(library.querySelector('.repository-row')).toBeNull()
+    const operations = library.ownerDocument.querySelector<HTMLButtonElement>(
+      '[data-view-kind="operations"]'
+    )
+    expect(operations?.isConnected).toBe(true)
+    expect((browserWindow.document.activeElement as unknown) === operations).toBe(true)
+  } finally {
     if (previousChrome === undefined) {
       delete (globalThis as {chrome?: unknown}).chrome
     } else {
@@ -2406,6 +2503,9 @@ test('sends one valid native List header rename and renders only verified return
       'Other List',
       'Verified Name'
     ])
+    const restoredEdit = renameEditButton(root)
+    expect(restoredEdit?.isConnected).toBe(true)
+    expect((browserWindow.document.activeElement as unknown) === restoredEdit).toBe(true)
   } finally {
     pending.resolve()
     cleanup()
@@ -2955,6 +3055,11 @@ test('cancels the named membership confirmation with Escape', async () => {
     await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
     expect(queuedMembershipCompleted).toBe(true)
     expect(library.querySelector('.membership-confirmation')).toBeNull()
+    const restoredAfterSuccess = library.querySelector<HTMLButtonElement>(
+      '[data-dialog-invoker="repository-R_one"]'
+    )
+    expect(restoredAfterSuccess?.isConnected).toBe(true)
+    expect((browserWindow.document.activeElement as unknown) === restoredAfterSuccess).toBe(true)
   } finally {
     queuedMembership.resolve()
     await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))

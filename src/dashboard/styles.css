@@ -30,7 +30,8 @@
   --danger: #7a3632;
   --danger-bg: #f3dfda;
   --border-danger: #d5aaa3;
-  --focus: #0f6b86;
+  --focus-ring: #0f6b86;
+  --focus: var(--focus-ring);
   --shadow: 0 4px 8px rgb(15 44 61 / 12%);
   --radius: 10px;
   --radius-sm: 6px;
@@ -111,6 +112,11 @@ summary:focus-visible,
 .repository-row:focus-visible,
 .selection-control:focus-within {
   outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.file-action:focus-within {
+  outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
