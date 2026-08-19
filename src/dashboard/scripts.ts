@@ -355,6 +355,7 @@ function ArchiveHeader() {
 function Navigation() {
   return div(
     {class: 'archive-directory'},
+    h2({class: 'archive-directory-heading'}, 'Directory'),
     nav(
       {class: 'archive-directory-nav', 'aria-label': 'Library'},
       div(
@@ -651,7 +652,10 @@ function LibraryHeader(
       h1(() => populationTitle(starState.val)),
       p(
         {class: 'result-count', role: 'status'},
-        () => `${repositoryMatches.val.length} repositories`
+        span(
+          {class: 'archive-result-count'},
+          () => `${repositoryMatches.val.length} repositories`
+        )
       )
     ),
     div(
@@ -682,8 +686,9 @@ function LibraryHeader(
         },
         () => (syncing.val ? 'Syncing…' : 'Refresh')
       ),
+      h2({class: 'archive-filter-heading', id: 'archive-filter-heading'}, 'Status'),
       details(
-        {class: 'view-options'},
+        {class: 'view-options archive-filter-group', 'aria-labelledby': 'archive-filter-heading'},
         summary('View options'),
         div(
           {class: 'view-options-controls'},
@@ -1792,6 +1797,7 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
       div(
         {class: 'repository-row-main'},
         div(
+          {class: 'archive-repository-reference'},
           span({class: 'repository-owner'}, repository.ownerLogin),
           h2(repository.name)
         ),
@@ -2205,7 +2211,7 @@ function nativeListMembershipWriteReadinessCopy(state: AppState): string {
 function AdvancedFilters() {
   const constraints = activeAdvancedFilterLabels()
   return details(
-    {class: 'advanced-filters'},
+    {class: 'advanced-filters archive-filter-group', 'aria-labelledby': 'archive-filter-heading'},
     summary(
       'Filters',
       constraints.length > 0

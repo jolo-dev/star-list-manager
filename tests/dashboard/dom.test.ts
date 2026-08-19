@@ -141,6 +141,15 @@ test('renders the Archive.Stars frame without changing repository activation con
   expect(results?.querySelector('.settings-page h1')?.textContent).toBe('Settings')
 })
 
+test('renders archive directory and archive result archive markup for the ready library', async () => {
+  const root = await mountReadyDashboard()
+
+  expect(root.querySelector('.archive-directory-heading')?.textContent).toContain('Directory')
+  expect(root.querySelector('.archive-filter-heading')?.textContent).toContain('Status')
+  expect(root.querySelector('.archive-result-count')?.textContent).toMatch(/repositories/)
+  expect(root.querySelector('.repository-row .archive-repository-reference')).not.toBeNull()
+})
+
 test('uses only targeted dashboard live regions', async () => {
   const root = await mountReadyDashboard()
   const selection = root.querySelector<HTMLInputElement>('.selection-control input')
