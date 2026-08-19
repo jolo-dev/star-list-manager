@@ -309,25 +309,28 @@ function Dashboard(runQuery: RepositoryQueryRunner = queryRepositories) {
   let retainedWorkspace: HTMLElement | null = null
   return div(
     {class: 'archive-app-shell'},
-    ArchiveHeader(),
     div(
-      {class: 'archive-workspace-frame'},
-      Navigation(),
-      main(
-        {
-          class: 'workspace archive-results',
-          'data-workspace-kind': () =>
-            classifyWorkspace(publishedPhase.val, activeView.val)
-        },
-        () => {
-          const kind = classifyWorkspace(publishedPhase.val, activeView.val)
-          if (kind === retainedKind && retainedWorkspace !== null) {
+      {class: 'archive-frame'},
+      ArchiveHeader(),
+      div(
+        {class: 'archive-workspace-frame'},
+        Navigation(),
+        main(
+          {
+            class: 'workspace archive-main archive-results',
+            'data-workspace-kind': () =>
+              classifyWorkspace(publishedPhase.val, activeView.val)
+          },
+          () => {
+            const kind = classifyWorkspace(publishedPhase.val, activeView.val)
+            if (kind === retainedKind && retainedWorkspace !== null) {
+              return retainedWorkspace
+            }
+            retainedKind = kind
+            retainedWorkspace = createWorkspace(kind, runQuery)
             return retainedWorkspace
           }
-          retainedKind = kind
-          retainedWorkspace = createWorkspace(kind, runQuery)
-          return retainedWorkspace
-        }
+        )
       )
     )
   )
@@ -342,11 +345,12 @@ function ArchiveHeader() {
       span({class: 'archive-wordmark'}, 'Archive.Stars')
     ),
     nav(
-      {class: 'archive-utilities', 'aria-label': 'Utilities'},
+      {class: 'archive-primary-nav', 'aria-label': 'Primary navigation'},
       ul(
-        {class: 'archive-utility-list'},
-        NavItem('Operations', {kind: 'operations'}, null, 'archive-utility-link'),
-        NavItem('Settings', {kind: 'settings'}, null, 'archive-utility-link')
+        {class: 'archive-primary-list'},
+        NavItem('Library', {kind: 'unlist'}, null, 'archive-primary-link'),
+        NavItem('Operations', {kind: 'operations'}, null, 'archive-primary-link'),
+        NavItem('Settings', {kind: 'settings'}, null, 'archive-primary-link')
       )
     )
   )
@@ -3472,7 +3476,7 @@ function restoreDashboardPosition(
 
   if (position.focusedViewKey) {
     const navigationItems = [
-      ...position.scope.querySelectorAll<HTMLElement>('.nav-item')
+      ...position.scope.querySelectorAll<HTMLElement>('.archive-directory .nav-item')
     ]
     const navigationTarget =
       navigationItems.find(

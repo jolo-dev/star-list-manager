@@ -72,6 +72,43 @@ test('mounts one main landmark without a broad application live region', async (
   }
 })
 
+test('renders the reference archive frame with real primary navigation', async () => {
+  const root = await mountReadyDashboard()
+  const browserWindow = window as unknown as Window
+  const frame = root.querySelector<HTMLElement>('.archive-frame')
+  const header = root.querySelector<HTMLElement>('.archive-app-header')
+  const workspace = root.querySelector<HTMLElement>('main.workspace.archive-main')
+  const primaryLinks = [...(header?.querySelectorAll<HTMLButtonElement>('.archive-primary-link') ?? [])]
+  const primaryLink = (label: string) =>
+    primaryLinks.find((link) => link.textContent === label) ?? null
+
+  expect(frame).not.toBeNull()
+  expect(header?.querySelector('.archive-wordmark')?.textContent).toBe('Archive.Stars')
+  expect(primaryLinks).toHaveLength(3)
+  expect(primaryLinks.map((link) => link.textContent)).toEqual(['Library', 'Operations', 'Settings'])
+  expect(root.querySelectorAll('main')).toHaveLength(1)
+  expect(workspace).not.toBeNull()
+  expect(workspace?.closest('.archive-frame')).toBe(frame)
+  expect(primaryLink('Library')?.dataset.viewKind).toBe('unlist')
+  expect(primaryLink('Library')?.getAttribute('aria-current')).toBe('page')
+  expect(workspace?.querySelector('.library-page')).not.toBeNull()
+
+  primaryLink('Operations')?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(workspace?.querySelector('.operations-page h1')?.textContent).toBe('Operations')
+  expect(primaryLink('Operations')?.getAttribute('aria-current')).toBe('page')
+
+  primaryLink('Settings')?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(workspace?.querySelector('.settings-page h1')?.textContent).toBe('Settings')
+  expect(primaryLink('Settings')?.getAttribute('aria-current')).toBe('page')
+
+  primaryLink('Library')?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(workspace?.querySelector('.library-page')).not.toBeNull()
+  expect(primaryLink('Library')?.getAttribute('aria-current')).toBe('page')
+})
+
 test('renders the Archive.Stars frame without changing repository activation contracts', async () => {
   const ready = readyDashboardState()
   const secondRepository = repositoryRecord('42', 'R_two', 'octocat/two')
@@ -84,7 +121,8 @@ test('renders the Archive.Stars frame without changing repository activation con
   })
   const browserWindow = window as unknown as Window
   const shell = root.querySelector<HTMLElement>('.archive-app-shell')
-  const frame = root.querySelector<HTMLElement>('.archive-workspace-frame')
+  const frame = root.querySelector<HTMLElement>('.archive-frame')
+  const workspaceFrame = root.querySelector<HTMLElement>('.archive-workspace-frame')
   const header = root.querySelector<HTMLElement>('.archive-app-header')
   const directory = root.querySelector<HTMLElement>('.archive-directory')
   const results = root.querySelector<HTMLElement>('main.workspace.archive-results')
@@ -92,14 +130,16 @@ test('renders the Archive.Stars frame without changing repository activation con
   expect(shell).not.toBeNull()
   expect(root.querySelector('.app-shell')).toBeNull()
   expect(frame).not.toBeNull()
+  expect(workspaceFrame).not.toBeNull()
+  expect(workspaceFrame?.closest('.archive-frame')).toBe(frame)
   expect(root.querySelector('.archive-workspace')).toBeNull()
   expect(header).not.toBeNull()
   expect(header?.querySelector('.archive-wordmark')?.textContent).toContain('Archive.Stars')
   expect(directory?.querySelector('nav')?.getAttribute('aria-label')).toBe('Library')
-  expect(results?.parentElement).toBe(frame)
+  expect(results?.parentElement).toBe(workspaceFrame)
   expect(root.querySelector('div.archive-results')).toBeNull()
   expect(
-    [...(header?.querySelectorAll<HTMLButtonElement>('.archive-utility-link') ?? [])].map(
+    [...(header?.querySelectorAll<HTMLButtonElement>('.archive-primary-link') ?? [])].map(
       (element) => element.textContent
     )
   ).toEqual(expect.arrayContaining(['Operations', 'Settings']))
@@ -130,7 +170,7 @@ test('renders the Archive.Stars frame without changing repository activation con
   expect(results?.querySelector('.repository-inspection-dialog h2')?.textContent).toBe('two')
 
   const utilityButton = (label: string) =>
-    [...(header?.querySelectorAll<HTMLButtonElement>('.archive-utility-link') ?? [])].find(
+    [...(header?.querySelectorAll<HTMLButtonElement>('.archive-primary-link') ?? [])].find(
       (element) => element.textContent === label
     ) ?? null
   utilityButton('Operations')?.click()
@@ -215,7 +255,7 @@ test('keeps Archive.Stars state pages and dialogs inside the archive results lan
     expect(root.querySelectorAll('[aria-live]')).toHaveLength(0)
 
     const utility = (label: string) =>
-      [...root.querySelectorAll<HTMLButtonElement>('.archive-utility-link')].find(
+      [...root.querySelectorAll<HTMLButtonElement>('.archive-primary-link')].find(
         (button) => button.textContent === label
       ) ?? null
     utility('Operations')?.click()
@@ -522,7 +562,7 @@ test('keeps Operations and Settings reachable through utility navigation', async
   const browserWindow = createDashboardWindow()
   const root = await mountReadyDashboard()
   const utilityButton = (label: string) =>
-    [...(root.querySelectorAll<HTMLButtonElement>('.archive-utility-link'))].find(
+    [...(root.querySelectorAll<HTMLButtonElement>('.archive-primary-link'))].find(
       (button) => button.querySelector('.nav-label')?.textContent === label
     ) ?? null
 
@@ -747,7 +787,7 @@ test('returns to Unlist when a normal refresh removes the active native List', a
 
     expect(messages).toEqual(['start-sync'])
     const activeNavigation = root.querySelector<HTMLButtonElement>(
-      '.nav-item[aria-current="page"]'
+      '.archive-directory .nav-item[aria-current="page"]'
     )
     expect(activeNavigation?.querySelector('.nav-label')?.textContent).toBe('Unlist')
     expect((browserWindow.document.activeElement as unknown) === activeNavigation).toBe(true)
