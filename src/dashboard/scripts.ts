@@ -206,6 +206,8 @@ const resultBatchSize = 100
 let resultMode = van.state<ResultMode>('list')
 let visibleResultCount = van.state(resultBatchSize)
 let resultObserver: IntersectionObserver | null = null
+let resultObserverRegistrationTimer: number | null = null
+let resultObserverLifecycleGeneration = 0
 let language = van.state<string | null>(null)
 let hideArchived = van.state(true)
 let starState = van.state<StarFilter>('starred')
@@ -1955,15 +1957,40 @@ function ProgressiveResultControl(total: number, visible: number): HTMLElement |
     )
   }
   const sentinel = div({class: 'local-results-sentinel', 'aria-hidden': 'true'}) as HTMLElement
-  window.setTimeout(() => {
-    if (!sentinel.isConnected || typeof window.IntersectionObserver !== 'function') return
+  const lifecycleGeneration = resultObserverLifecycleGeneration
+  const registrationTimer = window.setTimeout(() => {
+    if (resultObserverRegistrationTimer === registrationTimer) {
+      resultObserverRegistrationTimer = null
+    }
+    if (
+      lifecycleGeneration !== resultObserverLifecycleGeneration ||
+      !sentinel.isConnected ||
+      typeof window.IntersectionObserver !== 'function'
+    ) {
+      return
+    }
     const observer = new window.IntersectionObserver((entries) => {
+      if (
+        lifecycleGeneration !== resultObserverLifecycleGeneration ||
+        resultObserver !== observer ||
+        !sentinel.isConnected
+      ) {
+        return
+      }
       if (!entries.some((entry) => entry.isIntersecting && entry.target === sentinel)) return
       showNextResultBatch(total)
     })
+    if (
+      lifecycleGeneration !== resultObserverLifecycleGeneration ||
+      !sentinel.isConnected
+    ) {
+      observer.disconnect()
+      return
+    }
     resultObserver = observer
     observer.observe(sentinel)
   }, 0)
+  resultObserverRegistrationTimer = registrationTimer
   return sentinel
 }
 
@@ -1977,6 +2004,11 @@ function resetRenderedResults(): void {
 }
 
 function disconnectResultObserver(): void {
+  resultObserverLifecycleGeneration += 1
+  if (resultObserverRegistrationTimer !== null) {
+    window.clearTimeout(resultObserverRegistrationTimer)
+    resultObserverRegistrationTimer = null
+  }
   resultObserver?.disconnect()
   resultObserver = null
 }

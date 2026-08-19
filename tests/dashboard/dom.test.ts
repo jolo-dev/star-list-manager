@@ -5037,6 +5037,73 @@ test('progressively renders local repository batches from an intersection sentin
   }
 })
 
+test('ignores stale intersection callbacks after a query reset, navigation, and remount', async () => {
+  const browserWindow = createDashboardWindow()
+  const observer = installIntersectionObserver(browserWindow)
+  const ready = readyDashboardState()
+  const repositories = Array.from({length: 205}, (_, index) =>
+    repositoryRecord('42', `R_${index + 1}`, `octocat/repository-${String(index + 1).padStart(3, '0')}`)
+  )
+  const state: AppState = {
+    ...ready,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    library: {...ready.library!, repositories}
+  }
+  const {mountDashboard} = await import('../../src/dashboard/scripts')
+  const firstRoot = browserWindow.document.createElement('main') as unknown as HTMLElement
+  const secondRoot = browserWindow.document.createElement('main') as unknown as HTMLElement
+  const visibleCount = (root: HTMLElement) => root.querySelectorAll('.repository-row').length
+  browserWindow.document.body.append(
+    firstRoot as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+
+  try {
+    mountDashboard(firstRoot, state)
+    await nextTurn(browserWindow)
+    expect(visibleCount(firstRoot)).toBe(100)
+
+    const sort = [...firstRoot.querySelectorAll<HTMLSelectElement>('.view-options select')]
+      .find((control) => control.parentElement?.textContent?.includes('Sort'))
+    if (sort === undefined) throw new Error('Sort control is required.')
+    sort.value = 'name'
+    sort.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+    await nextTurn(browserWindow)
+    observer.intersect(0, true)
+    await nextTurn(browserWindow)
+    expect(visibleCount(firstRoot)).toBe(100)
+
+    const currentList = [...firstRoot.querySelectorAll<HTMLButtonElement>('.nav-item')]
+      .find((button) => button.querySelector('.nav-label')?.textContent === 'Current List')
+    const unlist = [...firstRoot.querySelectorAll<HTMLButtonElement>('.nav-item')]
+      .find((button) => button.querySelector('.nav-label')?.textContent === 'Unlist')
+    if (currentList === undefined || unlist === undefined) {
+      throw new Error('Library navigation is required.')
+    }
+    currentList.click()
+    await nextTurn(browserWindow)
+    unlist.click()
+    await nextTurn(browserWindow)
+    observer.intersect(0, true)
+    await nextTurn(browserWindow)
+    expect(visibleCount(firstRoot)).toBe(100)
+
+    firstRoot.remove()
+    browserWindow.document.body.append(
+      secondRoot as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(secondRoot, state)
+    await nextTurn(browserWindow)
+    observer.intersect(0, true)
+    await nextTurn(browserWindow)
+    expect(visibleCount(secondRoot)).toBe(100)
+  } finally {
+    firstRoot.remove()
+    secondRoot.remove()
+    observer.restore()
+  }
+})
+
 test('offers a local Load more fallback without IntersectionObserver', async () => {
   const browserWindow = createDashboardWindow()
   const originalObserver = Object.getOwnPropertyDescriptor(globalThis, 'IntersectionObserver')
@@ -5079,7 +5146,7 @@ test('offers a local Load more fallback without IntersectionObserver', async () 
 })
 
 function installIntersectionObserver(browserWindow: Window): {
-  readonly intersect: () => void
+  readonly intersect: (observerIndex?: number, includeDisconnectedTargets?: boolean) => void
   readonly restore: () => void
 } {
   const globalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'IntersectionObserver')
@@ -5087,17 +5154,23 @@ function installIntersectionObserver(browserWindow: Window): {
   const observers: Array<{
     callback: IntersectionObserverCallback
     targets: Set<Element>
+    observedTargets: Set<Element>
   }> = []
   class TestIntersectionObserver {
-    readonly record: {callback: IntersectionObserverCallback; targets: Set<Element>}
+    readonly record: {
+      callback: IntersectionObserverCallback
+      targets: Set<Element>
+      observedTargets: Set<Element>
+    }
 
     constructor(callback: IntersectionObserverCallback) {
-      this.record = {callback, targets: new Set()}
+      this.record = {callback, targets: new Set(), observedTargets: new Set()}
       observers.push(this.record)
     }
 
     observe(target: Element): void {
       this.record.targets.add(target)
+      this.record.observedTargets.add(target)
     }
 
     unobserve(target: Element): void {
@@ -5118,11 +5191,14 @@ function installIntersectionObserver(browserWindow: Window): {
   })
 
   return {
-    intersect: () => {
-      const observer = observers.at(-1)
+    intersect: (observerIndex = -1, includeDisconnectedTargets = false) => {
+      const observer = observers.at(observerIndex)
       if (observer === undefined) return
+      const targets = includeDisconnectedTargets
+        ? observer.observedTargets
+        : observer.targets
       observer.callback(
-        [...observer.targets].map(
+        [...targets].map(
           (target) => ({target, isIntersecting: true}) as IntersectionObserverEntry
         ),
         {} as IntersectionObserver
