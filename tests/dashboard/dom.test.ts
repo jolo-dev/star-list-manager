@@ -1420,7 +1420,8 @@ test('keeps dashboard nodes, focus, scroll, and query work stable across equival
   })
   const {renderAppState} = await import('../../src/dashboard/scripts')
   queryCalls = 0
-  const sidebar = root.querySelector('.sidebar')
+  const directoryNavigation = root.querySelector('.archive-directory-nav')
+  expect(directoryNavigation).not.toBeNull()
   const page = root.querySelector('.library-page')
   const list = root.querySelector<HTMLElement>('.repository-list')!
   const rows = [...root.querySelectorAll('.repository-row-shell')]
@@ -1430,7 +1431,7 @@ test('keeps dashboard nodes, focus, scroll, and query work stable across equival
 
   renderAppState(structuredClone(state))
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
-  expect(root.querySelector('.sidebar')).toBe(sidebar)
+  expect(root.querySelector('.archive-directory-nav')).toBe(directoryNavigation)
   expect(root.querySelector('.library-page')).toBe(page)
   expect(root.querySelector('.repository-list')).toBe(list)
   rows.forEach((item, index) => expect(root.querySelectorAll('.repository-row-shell')[index]).toBe(item))
@@ -1448,7 +1449,7 @@ test('keeps dashboard nodes, focus, scroll, and query work stable across equival
   }
   renderAppState(succeeded)
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
-  expect(root.querySelector('.sidebar')).toBe(sidebar)
+  expect(root.querySelector('.archive-directory-nav')).toBe(directoryNavigation)
   expect(root.querySelector('.library-page')).toBe(page)
   expect(root.querySelector('.repository-list')).toBe(list)
   rows.forEach((item, index) => expect(root.querySelectorAll('.repository-row-shell')[index]).toBe(item))
@@ -1462,7 +1463,7 @@ test('keeps dashboard nodes, focus, scroll, and query work stable across equival
   navButton.focus()
   renderAppState(structuredClone(succeeded))
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
-  expect(root.querySelector('.sidebar')).toBe(sidebar)
+  expect(root.querySelector('.archive-directory-nav')).toBe(directoryNavigation)
   expect(root.querySelector('[aria-current="page"]')).toBe(navButton)
   expect(document.activeElement).toBe(navButton)
   expect(queryCalls).toBe(0)
