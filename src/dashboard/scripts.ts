@@ -640,13 +640,6 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
         const targetExists = response.data.library?.nativeLists.some(
           (list) => list.listNodeId === listNodeId
         ) ?? false
-        if (
-          !targetExists &&
-          activeView.val.kind === 'list' &&
-          activeView.val.listNodeId === listNodeId
-        ) {
-          setActiveView({kind: 'unlist'})
-        }
         applyState({...response.data, error: response.error})
         if (targetExists && isCurrentNativeListRenameEditor(request, listNodeId)) {
           nativeListRenameError.val = response.error.message
@@ -2528,6 +2521,7 @@ function applyState(state: AppState): void {
     resetNativeListRenameEditor()
     dashboardAccountId = nextAccountId
   }
+  reconcileActiveNativeList(state)
   appState.val = state
   latestJobsByRepository = indexLatestRepositoryJobs(
     state.mutations?.jobs ?? [],
@@ -2566,6 +2560,19 @@ function applyState(state: AppState): void {
     autoSyncAccountId = state.identity?.githubUserId ?? null
     window.setTimeout(() => void sendAction({type: 'start-sync', force: false}), 0)
   }
+}
+
+function reconcileActiveNativeList(state: AppState): void {
+  const view = activeView.val
+  if (
+    !state.library ||
+    view.kind !== 'list' ||
+    state.library.nativeLists.some((list) => list.listNodeId === view.listNodeId)
+  ) {
+    return
+  }
+  setActiveView({kind: 'unlist'})
+  resetNativeListRenameEditor()
 }
 
 export function shouldStartAutoSync(

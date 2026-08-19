@@ -7,7 +7,9 @@ import type {
   MutationJobStatus,
   MutationRecoveryStatus,
   OperationHistoryRecord,
-  RepositoryRecord
+  RepositoryRecord,
+  SyncKind,
+  SyncStateRecord
 } from '../../src/domain/types'
 import type {
   AppState,
@@ -236,6 +238,88 @@ test('resets a rendered ready dashboard to Unlist after another native List beca
   const library = renderLibraryState(readyDashboardState())
   expect(library.querySelector('.library-header .eyebrow')?.textContent).toBe('Unlist')
   expect(library.querySelector('.library-header h1')?.textContent).toBe('Starred repositories')
+})
+
+test('returns to Unlist when a normal refresh removes the active native List', async () => {
+  const browserWindow = createDashboardWindow()
+  const ready = readyDashboardState()
+  const unlisted = repositoryRecord('42', 'R_unlisted', 'octocat/unlisted')
+  const listed = repositoryRecord('42', 'R_listed', 'octocat/listed')
+  const state: AppState = {
+    ...ready,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    library: {
+      ...ready.library!,
+      repositories: [unlisted, listed],
+      nativeLists: [nativeList('L_current', 'Current List')],
+      nativeMemberships: [{
+        githubUserId: '42',
+        repositoryNodeId: listed.repositoryNodeId,
+        listNodeId: 'L_current',
+        lastObservedAt: '2026-08-04T10:00:00Z'
+      }],
+      annotations: []
+    }
+  }
+  const refreshed: AppState = {
+    ...state,
+    library: {
+      ...state.library!,
+      nativeLists: [],
+      nativeMemberships: []
+    }
+  }
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const messages: string[] = []
+  Object.assign(globalThis, {
+    chrome: {
+      runtime: {
+        sendMessage: async (message: {readonly type: string}) => {
+          messages.push(message.type)
+          return {ok: true, data: refreshed}
+        }
+      }
+    }
+  })
+
+  try {
+    const {mountDashboard, renderLibraryState} = await import('../../src/dashboard/scripts')
+    renderLibraryState(state)
+    const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(root)
+    await browserWindow.happyDOM.whenAsyncComplete()
+
+    const currentList = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
+      (button) => button.querySelector('.nav-label')?.textContent === 'Current List'
+    ) ?? null
+    expect(currentList).not.toBeNull()
+    if (currentList === null) throw new Error('Current List navigation is required.')
+    currentList.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(visibleRepositoryIds(root)).toEqual(['R_listed'])
+
+    const refresh = root.querySelector<HTMLButtonElement>('.refresh-button')
+    expect(refresh).not.toBeNull()
+    if (refresh === null) throw new Error('Refresh control is required.')
+    refresh.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+
+    expect(messages).toEqual(['start-sync'])
+    expect(
+      root.querySelector('.nav-item[aria-current="page"] .nav-label')?.textContent
+    ).toBe('Unlist')
+    expect(visibleRepositoryIds(root)).toEqual(['R_listed', 'R_unlisted'])
+  } finally {
+    if (previousChrome === undefined) {
+      delete (globalThis as {chrome?: unknown}).chrome
+    } else {
+      Object.assign(globalThis, {chrome: previousChrome})
+    }
+  }
 })
 
 test('returns sidebar selection to Unlist after disconnect and complete-data removal', async () => {
@@ -485,14 +569,28 @@ test('aligns Unlist and native List counts with the current archive scope', asyn
   expect(root.querySelector('.result-count')?.textContent).toContain('1 repositories')
   expect(navigationCount('Unlist')).toBe('1')
   expect(navigationCount('Current List')).toBe('1')
-  if (archiveControl() === null) return
+  const archiveToggle = archiveControl()
+  expect(archiveToggle).not.toBeNull()
+  if (archiveToggle === null) throw new Error('Archive visibility control is required.')
+
+  const currentList = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
+    (button) => button.querySelector('.nav-label')?.textContent === 'Current List'
+  ) ?? null
+  expect(currentList).not.toBeNull()
+  if (currentList === null) throw new Error('Current List navigation is required.')
+  currentList.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(visibleRepositoryIds(root)).toEqual(['R_active-listed'])
+  expect(root.querySelector('.result-count')?.textContent).toContain('1 repositories')
+  expect(navigationCount('Current List')).toBe('1')
 
   try {
     archiveControl()?.click()
     await browserWindow.happyDOM.whenAsyncComplete()
-    expect(visibleRepositoryIds(root)).toEqual(
-      expect.arrayContaining(['R_active-unlisted', 'R_archived-unlisted'])
-    )
+    expect(visibleRepositoryIds(root)).toEqual([
+      'R_active-listed',
+      'R_archived-listed'
+    ])
     expect(root.querySelector('.result-count')?.textContent).toContain('2 repositories')
     expect(navigationCount('Unlist')).toBe('2')
     expect(navigationCount('Current List')).toBe('2')
@@ -2890,6 +2988,25 @@ async function mountReadyDashboard(state: AppState = readyDashboardState()): Pro
   mountDashboard(root)
   await browserWindow.happyDOM.whenAsyncComplete()
   return root as unknown as HTMLElement
+}
+
+function completeSyncState(kind: SyncKind): SyncStateRecord {
+  return {
+    githubUserId: '42',
+    kind,
+    phase: 'complete',
+    attempt: 1,
+    pagesProcessed: 1,
+    itemsObserved: 2,
+    skippedItems: 0,
+    convergenceAttempt: 1,
+    baselineCompletedAt: '2026-08-04T10:00:00Z',
+    lastStartedAt: '2026-08-04T10:00:00Z',
+    lastCompletedAt: '2026-08-04T10:00:00Z',
+    lastSuccessfulAt: '2099-08-04T10:00:00Z',
+    rateLimit: {limit: null, remaining: null, resetAt: null},
+    lastError: null
+  }
 }
 
 function readyDashboardState(): AppState {
