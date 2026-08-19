@@ -339,6 +339,8 @@ test('returns to Unlist when a normal refresh removes the active native List', a
     currentList.click()
     await browserWindow.happyDOM.whenAsyncComplete()
     expect(visibleRepositoryIds(root)).toEqual(['R_listed'])
+    currentList.focus()
+    expect((browserWindow.document.activeElement as unknown) === currentList).toBe(true)
 
     const refresh = root.querySelector<HTMLButtonElement>('.refresh-button')
     expect(refresh).not.toBeNull()
@@ -347,9 +349,11 @@ test('returns to Unlist when a normal refresh removes the active native List', a
     await browserWindow.happyDOM.whenAsyncComplete()
 
     expect(messages).toEqual(['start-sync'])
-    expect(
-      root.querySelector('.nav-item[aria-current="page"] .nav-label')?.textContent
-    ).toBe('Unlist')
+    const activeNavigation = root.querySelector<HTMLButtonElement>(
+      '.nav-item[aria-current="page"]'
+    )
+    expect(activeNavigation?.querySelector('.nav-label')?.textContent).toBe('Unlist')
+    expect((browserWindow.document.activeElement as unknown) === activeNavigation).toBe(true)
     expect(visibleRepositoryIds(root)).toEqual(['R_listed', 'R_unlisted'])
   } finally {
     if (previousChrome === undefined) {
@@ -1303,6 +1307,36 @@ test('supersedes rapid query focus work and respects intentional focus movement'
   expect(queryCalls).toBe(1)
   expect(root.querySelector('[data-repository-node-id="R_two"]')).toBeNull()
   expect(document.activeElement).toBe(intentionalTarget)
+})
+
+test('does not restore dashboard focus after focus moves outside its scope', async () => {
+  const base = readyDashboardState()
+  const state: AppState = {
+    ...base,
+    library: {
+      ...base.library!,
+      repositories: [
+        {...base.library!.repositories[0]!, primaryLanguage: 'TypeScript'},
+        {...repositoryRecord('42', 'R_two', 'octocat/two'), primaryLanguage: 'Rust'}
+      ]
+    }
+  }
+  const root = await mountReadyDashboard(state)
+  const externalTarget = document.createElement('button')
+  externalTarget.textContent = 'Outside dashboard'
+  document.body.append(externalTarget)
+  root.querySelector<HTMLElement>('[data-repository-node-id="R_two"]')!.focus()
+  const language = [...root.querySelectorAll<HTMLLabelElement>('label')].find(
+    (candidate) => candidate.firstElementChild?.textContent === 'Language'
+  )!.querySelector<HTMLSelectElement>('select')!
+  language.value = 'TypeScript'
+  language.dispatchEvent(new Event('change', {bubbles: true}))
+  externalTarget.focus()
+
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('[data-repository-node-id="R_two"]')).toBeNull()
+  expect(document.activeElement).toBe(externalTarget)
+  externalTarget.remove()
 })
 
 test('cancels pending query reconciliation when its dashboard is unmounted', async () => {

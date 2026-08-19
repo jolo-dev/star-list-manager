@@ -3000,12 +3000,11 @@ function scheduleRepositoryQueryReconciliation(
     if (!isCurrent()) return
     const ownerDocument = position.page.ownerDocument
     const currentFocus = ownerDocument.activeElement as HTMLElement | null
-    const anchorRetained = position.focusAnchor?.isConnected === true
-    const focusWasIntentionallyMoved = anchorRetained
-      ? currentFocus !== position.focusAnchor
-      : currentFocus !== null &&
-        currentFocus !== ownerDocument.body &&
-        position.scope.contains(currentFocus)
+    const focusWasIntentionallyMoved =
+      currentFocus !== null &&
+      currentFocus !== ownerDocument.body &&
+      currentFocus.isConnected &&
+      currentFocus !== position.focusAnchor
     restoreDashboardPosition(position, !focusWasIntentionallyMoved)
   }
   queueMicrotask(() => {
@@ -3049,10 +3048,19 @@ function restoreDashboardPosition(
   }
 
   if (position.focusedViewKey) {
-    const retainedNavigation = [...position.scope.querySelectorAll<HTMLElement>('.nav-item')]
-      .find((item) => item.dataset.viewKey === position.focusedViewKey) ?? null
-    retainedNavigation?.focus()
-    if (retainedNavigation) return
+    const navigationItems = [
+      ...position.scope.querySelectorAll<HTMLElement>('.nav-item')
+    ]
+    const navigationTarget =
+      navigationItems.find(
+        (item) => item.dataset.viewKey === position.focusedViewKey
+      ) ??
+      navigationItems.find(
+        (item) => item.dataset.viewKey === JSON.stringify(activeView.val)
+      ) ??
+      null
+    navigationTarget?.focus()
+    if (navigationTarget) return
   }
 
   if (position.hadRepositoryFocus) {
