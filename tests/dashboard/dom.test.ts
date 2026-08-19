@@ -4879,6 +4879,264 @@ test('restores focus to an available result when filtering removes the inspected
   library.remove()
 })
 
+test('uses accessible local List and Cards modes while preserving real card selection and inspection', async () => {
+  const browserWindow = createDashboardWindow()
+  const ready = readyDashboardState()
+  const secondRepository = {
+    ...repositoryRecord('42', 'R_two', 'octocat/two'),
+    description: 'A real repository description.',
+    primaryLanguage: 'TypeScript'
+  }
+  const messages: string[] = []
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {
+    chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+      messages.push(message.type)
+      throw new Error(`Unexpected runtime message: ${message.type}`)
+    }}}
+  })
+  try {
+  const root = await mountReadyDashboard({
+    ...ready,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    library: {
+      ...ready.library!,
+      repositories: [ready.library!.repositories[0]!, secondRepository]
+    }
+  })
+  const mode = (name: 'list' | 'cards') =>
+    root.querySelector<HTMLButtonElement>(`[data-result-mode="${name}"]`)
+
+  expect(mode('list')?.getAttribute('aria-pressed')).toBe('true')
+  expect(mode('cards')?.getAttribute('aria-pressed')).toBe('false')
+  expect(root.querySelector('.repository-list')).not.toBeNull()
+
+  mode('cards')?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+
+  expect(mode('list')?.getAttribute('aria-pressed')).toBe('false')
+  expect(mode('cards')?.getAttribute('aria-pressed')).toBe('true')
+  const cards = root.querySelector<HTMLUListElement>('.repository-card-grid')
+  const card = cards?.querySelector<HTMLButtonElement>('[data-repository-node-id="R_two"]') ?? null
+  const selection = cards?.querySelector<HTMLInputElement>(
+    'input[aria-label="Select octocat/two for unstar"]'
+  ) ?? null
+  expect(cards?.getAttribute('aria-label')).toBe('Repositories')
+  expect(card?.classList.contains('repository-card')).toBe(true)
+  expect(card?.textContent).toContain('octocat')
+  expect(card?.textContent).toContain('two')
+  expect(card?.textContent).toContain('A real repository description.')
+  expect(card?.textContent).toContain('TypeScript')
+  expect(selection?.type).toBe('checkbox')
+  if (selection === null || card === null) throw new Error('Real repository card controls are required.')
+
+  selection.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.selection-announcement')?.textContent).toBe('1 selected')
+  card.click()
+  await nextTurn(browserWindow)
+  expect(root.querySelector('.repository-inspection-dialog h2')?.textContent).toBe('two')
+  expect(messages).toEqual([])
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('progressively renders local repository batches from an intersection sentinel and resets them', async () => {
+  const browserWindow = createDashboardWindow()
+  const observer = installIntersectionObserver(browserWindow)
+  const ready = readyDashboardState()
+  const repositories = Array.from({length: 205}, (_, index) =>
+    repositoryRecord('42', `R_${index + 1}`, `octocat/repository-${String(index + 1).padStart(3, '0')}`)
+  )
+  const state: AppState = {
+    ...ready,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    library: {...ready.library!, repositories}
+  }
+  const refreshed: AppState = {
+    ...state,
+    library: {...state.library!, repositories: repositories.slice(0, 204)}
+  }
+  const messages: string[] = []
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {
+    chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+      messages.push(message.type)
+      if (message.type === 'start-sync') return {ok: true, data: refreshed}
+      throw new Error(`Unexpected runtime message: ${message.type}`)
+    }}}
+  })
+  const {mountDashboard} = await import('../../src/dashboard/scripts')
+  const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+  browserWindow.document.body.append(
+    root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  mountDashboard(root, state)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  const visibleCount = () => root.querySelectorAll('.repository-row').length
+
+  try {
+    expect(visibleCount()).toBe(100)
+    expect(root.querySelector('.local-results-sentinel')).not.toBeNull()
+    await nextTurn(browserWindow)
+    observer.intersect()
+    await nextTurn(browserWindow)
+    expect(visibleCount()).toBe(200)
+
+    const sort = [...root.querySelectorAll<HTMLSelectElement>('.view-options select')]
+      .find((control) => control.parentElement?.textContent?.includes('Sort'))
+    if (sort === undefined) throw new Error('Sort control is required.')
+    sort.value = 'name'
+    sort.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+    await nextTurn(browserWindow)
+    expect(visibleCount()).toBe(100)
+
+    observer.intersect()
+    await nextTurn(browserWindow)
+    expect(visibleCount()).toBe(200)
+    const search = root.querySelector<HTMLInputElement>('#library-search')
+    if (search === null) throw new Error('Search control is required.')
+    search.value = 'repository-200'
+    search.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    await nextTurn(browserWindow)
+    expect(visibleRepositoryIds(root)).toEqual(['R_200'])
+    expect(root.querySelector('.local-results-sentinel')).toBeNull()
+
+    search.value = ''
+    search.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    await nextTurn(browserWindow)
+    expect(visibleCount()).toBe(100)
+
+    const currentList = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')]
+      .find((button) => button.querySelector('.nav-label')?.textContent === 'Current List')
+    const unlist = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')]
+      .find((button) => button.querySelector('.nav-label')?.textContent === 'Unlist')
+    if (currentList === undefined || unlist === undefined) throw new Error('Library navigation is required.')
+    currentList.click()
+    await nextTurn(browserWindow)
+    expect(visibleCount()).toBe(0)
+    unlist.click()
+    await nextTurn(browserWindow)
+    expect(visibleCount()).toBe(100)
+
+    observer.intersect()
+    await nextTurn(browserWindow)
+    expect(visibleCount()).toBe(200)
+    root.querySelector<HTMLButtonElement>('.refresh-button')?.click()
+    await nextTurn(browserWindow)
+    expect(messages).toEqual(['start-sync'])
+    expect(visibleCount()).toBe(100)
+  } finally {
+    observer.restore()
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('offers a local Load more fallback without IntersectionObserver', async () => {
+  const browserWindow = createDashboardWindow()
+  const originalObserver = Object.getOwnPropertyDescriptor(globalThis, 'IntersectionObserver')
+  const windowObserver = Object.getOwnPropertyDescriptor(browserWindow, 'IntersectionObserver')
+  const ready = readyDashboardState()
+  const repositories = Array.from({length: 101}, (_, index) =>
+    repositoryRecord('42', `R_${index + 1}`, `octocat/repository-${index + 1}`)
+  )
+  Object.defineProperty(globalThis, 'IntersectionObserver', {configurable: true, value: undefined})
+  Object.defineProperty(browserWindow, 'IntersectionObserver', {configurable: true, value: undefined})
+
+  try {
+    const {mountDashboard} = await import('../../src/dashboard/scripts')
+    const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(root, {
+      ...ready,
+      sync: completeSyncState('stars'),
+      nativeListSync: completeSyncState('native-lists'),
+      library: {...ready.library!, repositories}
+    })
+    await browserWindow.happyDOM.whenAsyncComplete()
+    const loadMore = root.querySelector<HTMLButtonElement>('.load-more-results')
+    expect(root.querySelectorAll('.repository-row')).toHaveLength(100)
+    expect(loadMore?.textContent).toBe('Load more')
+    expect(root.querySelector('.local-results-sentinel')).toBeNull()
+
+    loadMore?.click()
+    await nextTurn(browserWindow)
+    expect(root.querySelectorAll('.repository-row')).toHaveLength(101)
+    expect(root.querySelector('.load-more-results')).toBeNull()
+  } finally {
+    if (originalObserver) Object.defineProperty(globalThis, 'IntersectionObserver', originalObserver)
+    else delete (globalThis as {IntersectionObserver?: unknown}).IntersectionObserver
+    if (windowObserver) Object.defineProperty(browserWindow, 'IntersectionObserver', windowObserver)
+    else delete (browserWindow as unknown as {IntersectionObserver?: unknown}).IntersectionObserver
+  }
+})
+
+function installIntersectionObserver(browserWindow: Window): {
+  readonly intersect: () => void
+  readonly restore: () => void
+} {
+  const globalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'IntersectionObserver')
+  const windowDescriptor = Object.getOwnPropertyDescriptor(browserWindow, 'IntersectionObserver')
+  const observers: Array<{
+    callback: IntersectionObserverCallback
+    targets: Set<Element>
+  }> = []
+  class TestIntersectionObserver {
+    readonly record: {callback: IntersectionObserverCallback; targets: Set<Element>}
+
+    constructor(callback: IntersectionObserverCallback) {
+      this.record = {callback, targets: new Set()}
+      observers.push(this.record)
+    }
+
+    observe(target: Element): void {
+      this.record.targets.add(target)
+    }
+
+    unobserve(target: Element): void {
+      this.record.targets.delete(target)
+    }
+
+    disconnect(): void {
+      this.record.targets.clear()
+    }
+
+    takeRecords(): IntersectionObserverEntry[] {
+      return []
+    }
+  }
+  Object.assign(globalThis, {IntersectionObserver: TestIntersectionObserver})
+  Object.assign(browserWindow as unknown as {IntersectionObserver: unknown}, {
+    IntersectionObserver: TestIntersectionObserver
+  })
+
+  return {
+    intersect: () => {
+      const observer = observers.at(-1)
+      if (observer === undefined) return
+      observer.callback(
+        [...observer.targets].map(
+          (target) => ({target, isIntersecting: true}) as IntersectionObserverEntry
+        ),
+        {} as IntersectionObserver
+      )
+    },
+    restore: () => {
+      if (globalDescriptor) Object.defineProperty(globalThis, 'IntersectionObserver', globalDescriptor)
+      else delete (globalThis as {IntersectionObserver?: unknown}).IntersectionObserver
+      if (windowDescriptor) Object.defineProperty(browserWindow, 'IntersectionObserver', windowDescriptor)
+      else delete (browserWindow as unknown as {IntersectionObserver?: unknown}).IntersectionObserver
+    }
+  }
+}
+
 test('restores focus to an available result when search removes the inspected repository', async () => {
   const browserWindow = createDashboardWindow()
   // @ts-expect-error Bun query strings create a test-only module instance.

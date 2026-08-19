@@ -200,6 +200,12 @@ let activeView = van.state<LibraryView>({kind: 'unlist'})
 let searchText = van.state('')
 let sort = van.state<RepositorySort>('starred-at')
 let ascending = van.state(false)
+type ResultMode = 'list' | 'cards'
+
+const resultBatchSize = 100
+let resultMode = van.state<ResultMode>('list')
+let visibleResultCount = van.state(resultBatchSize)
+let resultObserver: IntersectionObserver | null = null
 let language = van.state<string | null>(null)
 let hideArchived = van.state(true)
 let starState = van.state<StarFilter>('starred')
@@ -587,7 +593,7 @@ function ReadyLibraryState(
         projectRepositoryResults(
           repositoryMatches.val,
           inspectedRepositoryNodeId.val,
-          200
+          visibleResultCount.val
         )
       )
     },
@@ -617,6 +623,7 @@ function LibraryResults(results: DerivedRepositoryResults) {
   const query = currentQuery()
   const visibleResults = results.visible
   const selected = selectCurrentRepository(visibleResults)
+  const mode = resultMode.val
   const inspected = inspectedRepositoryNodeId.val
     ? results.all.find(
         (item) => item.repository.repositoryNodeId === inspectedRepositoryNodeId.val
@@ -632,19 +639,18 @@ function LibraryResults(results: DerivedRepositoryResults) {
           ? NoResultsState(query.search.length > 0)
           : ul(
               {
-                class: 'repository-list',
+                class: mode === 'cards' ? 'repository-list repository-card-grid' : 'repository-list',
                 'aria-label': 'Repositories',
                 onkeydown: (event: KeyboardEvent) =>
                   handleResultKey(event, visibleResults)
               },
-              ...visibleResults.map((item) => RepositoryRow(item, selected))
+              ...visibleResults.map((item) =>
+                mode === 'cards'
+                  ? RepositoryCard(item, selected)
+                  : RepositoryRow(item, selected)
+              )
             ),
-        results.count > visibleResults.length
-          ? p(
-              {class: 'result-limit'},
-              `Showing the first ${visibleResults.length} of ${results.count} matches. Refine the local search to narrow the list.`
-            )
-          : null
+        ProgressiveResultControl(results.count, visibleResults.length)
       )
     ),
     inspected ? RepositoryInspectionDialog(inspected) : null
@@ -692,7 +698,10 @@ function LibraryHeader(
           class: 'refresh-button',
           type: 'button',
           disabled: syncing,
-          onclick: () => void sendAction({type: 'start-sync', force: true})
+          onclick: () => {
+            resetRenderedResults()
+            void sendAction({type: 'start-sync', force: true})
+          }
         },
         () => (syncing.val ? 'Syncing…' : 'Refresh')
       ),
@@ -704,6 +713,33 @@ function LibraryHeader(
         summary('View options'),
         div(
           {class: 'view-options-controls'},
+          div(
+            {class: 'result-mode-controls', role: 'group', 'aria-label': 'Result layout'},
+            button(
+              {
+                class: () => resultMode.val === 'list' ? 'is-active' : '',
+                type: 'button',
+                'data-result-mode': 'list',
+                'aria-pressed': () => String(resultMode.val === 'list'),
+                onclick: () => {
+                  resultMode.val = 'list'
+                }
+              },
+              'List'
+            ),
+            button(
+              {
+                class: () => resultMode.val === 'cards' ? 'is-active' : '',
+                type: 'button',
+                'data-result-mode': 'cards',
+                'aria-pressed': () => String(resultMode.val === 'cards'),
+                onclick: () => {
+                  resultMode.val = 'cards'
+                }
+              },
+              'Cards'
+            )
+          ),
           label(
             span('Language'),
             () => select(
@@ -1795,23 +1831,7 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
       selected?.repository.repositoryNodeId === repository.repositoryNodeId)
   return li(
     {class: 'repository-row-shell'},
-    repository.isStarred
-      ? label(
-          {class: 'selection-control'},
-          input({
-            type: 'checkbox',
-            checked: () => selectedForUnstar.val.has(repository.repositoryNodeId),
-            disabled: () => hasActiveRepositoryJob(repository.repositoryNodeId),
-            'aria-label': `Select ${repository.fullName} for unstar`,
-            onchange: (event: Event) =>
-              toggleUnstarSelection(
-                repository.repositoryNodeId,
-                (event.currentTarget as HTMLInputElement).checked
-              )
-          }),
-          span({class: 'sr-only'}, `Select ${repository.fullName}`)
-        )
-      : null,
+    RepositorySelectionControl(repository),
     button(
       {
         class: () => active() ? 'repository-row is-selected' : 'repository-row',
@@ -1854,6 +1874,111 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
       )
     )
   )
+}
+
+function RepositoryCard(item: LibraryRepository, selected: LibraryRepository | null) {
+  const repository = item.repository
+  const active = () =>
+    selectedRepositoryNodeId.val === repository.repositoryNodeId ||
+    (selectedRepositoryNodeId.val === null &&
+      selected?.repository.repositoryNodeId === repository.repositoryNodeId)
+  return li(
+    {class: 'repository-card-shell'},
+    RepositorySelectionControl(repository),
+    button(
+      {
+        class: () => active()
+          ? 'repository-row repository-card is-selected'
+          : 'repository-row repository-card',
+        type: 'button',
+        'data-repository-node-id': repository.repositoryNodeId,
+        'data-dialog-invoker': `repository-${repository.repositoryNodeId}`,
+        onclick: (event: MouseEvent) =>
+          openRepositoryInspection(
+            repository.repositoryNodeId,
+            event.currentTarget as HTMLElement
+          )
+      },
+      div(
+        {class: 'repository-card-heading'},
+        span({class: 'repository-owner'}, repository.ownerLogin),
+        h2(repository.name)
+      ),
+      p(repository.description ?? 'No description provided.'),
+      div(
+        {class: 'repository-card-facts'},
+        repository.primaryLanguage ? span(repository.primaryLanguage) : null,
+        span(`Starred ${formatDate(repository.starredAt)}`),
+        item.annotation?.favorite ? span({title: 'Local favorite'}, 'Favorite') : null,
+        () => {
+          const latestJob = latestRepositoryJob(repository.repositoryNodeId)
+          return latestJob ? MutationStatus(latestJob) : null
+        }
+      ),
+      span({class: `triage-pill triage-${item.annotation?.triageState ?? 'unclassified'}`},
+        item.annotation?.triageState ?? 'unclassified'
+      )
+    )
+  )
+}
+
+function RepositorySelectionControl(repository: RepositoryRecord) {
+  if (!repository.isStarred) return null
+  return label(
+    {class: 'selection-control'},
+    input({
+      type: 'checkbox',
+      checked: () => selectedForUnstar.val.has(repository.repositoryNodeId),
+      disabled: () => hasActiveRepositoryJob(repository.repositoryNodeId),
+      'aria-label': `Select ${repository.fullName} for unstar`,
+      onchange: (event: Event) =>
+        toggleUnstarSelection(
+          repository.repositoryNodeId,
+          (event.currentTarget as HTMLInputElement).checked
+        )
+    }),
+    span({class: 'sr-only'}, `Select ${repository.fullName}`)
+  )
+}
+
+function ProgressiveResultControl(total: number, visible: number): HTMLElement | null {
+  disconnectResultObserver()
+  if (visible >= total) return null
+  if (typeof window.IntersectionObserver !== 'function') {
+    return button(
+      {
+        class: 'load-more-results',
+        type: 'button',
+        onclick: () => showNextResultBatch(total)
+      },
+      'Load more'
+    )
+  }
+  const sentinel = div({class: 'local-results-sentinel', 'aria-hidden': 'true'}) as HTMLElement
+  window.setTimeout(() => {
+    if (!sentinel.isConnected || typeof window.IntersectionObserver !== 'function') return
+    const observer = new window.IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting && entry.target === sentinel)) return
+      showNextResultBatch(total)
+    })
+    resultObserver = observer
+    observer.observe(sentinel)
+  }, 0)
+  return sentinel
+}
+
+function showNextResultBatch(total: number): void {
+  visibleResultCount.val = Math.min(visibleResultCount.val + resultBatchSize, total)
+}
+
+function resetRenderedResults(): void {
+  disconnectResultObserver()
+  if (visibleResultCount.val !== resultBatchSize) visibleResultCount.val = resultBatchSize
+}
+
+function disconnectResultObserver(): void {
+  resultObserver?.disconnect()
+  resultObserver = null
 }
 
 function RepositoryInspectionDialog(item: LibraryRepository) {
@@ -3191,8 +3316,10 @@ function applyState(state: AppState): void {
   const nextAccountId = state.identity?.githubUserId ?? null
   const nextFingerprints = dashboardSliceFingerprints(state)
   const libraryChanged = nextFingerprints.library !== publishedFingerprints.library
+  const accountChanged = dashboardAccountId !== nextAccountId
   const position = libraryChanged ? captureDashboardPosition() : null
-  if (dashboardAccountId !== nextAccountId) {
+  if (libraryChanged || accountChanged) resetRenderedResults()
+  if (accountChanged) {
     selectedForUnstar.val = new Set()
     resetUnstarConfirmation()
     selectedRepositoryNodeId.val = null
@@ -3409,6 +3536,7 @@ function registerLibraryPage(page: HTMLElement): void {
 
 function updateRepositoryQuery(update: () => void): void {
   const position = captureDashboardPosition()
+  resetRenderedResults()
   update()
   scheduleRepositoryQueryReconciliation(position)
 }
@@ -3921,10 +4049,13 @@ export function renderLibraryState(
 }
 
 function resetDashboardUiState(): void {
+  disconnectResultObserver()
   activeView = van.state<LibraryView>({kind: 'unlist'})
   searchText = van.state('')
   sort = van.state<RepositorySort>('starred-at')
   ascending = van.state(false)
+  resultMode = van.state<ResultMode>('list')
+  visibleResultCount = van.state(resultBatchSize)
   language = van.state<string | null>(null)
   hideArchived = van.state(true)
   starState = van.state<StarFilter>('starred')
