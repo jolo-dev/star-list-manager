@@ -381,19 +381,22 @@ function NavigationGroups() {
   const lists = publishedLibrary.val?.nativeLists.toSorted((left, right) =>
     left.name.localeCompare(right.name)
   ) ?? []
+  const directoryEntries = [
+    {title: 'Unlist', view: {kind: 'unlist'} as LibraryView, count: counts.unlist},
+    ...lists.map((nativeList) => ({
+      title: nativeList.name,
+      view: {kind: 'list', listNodeId: nativeList.listNodeId} as LibraryView,
+      count: counts.lists[nativeList.listNodeId] ?? 0
+    }))
+  ]
   return [
     details(
       {class: 'nav-group', open: true},
       summary('GitHub Lists'),
       ul(
-        {class: 'nav-list nav-list-secondary'},
-        NavItem('Unlist', {kind: 'unlist'}, counts.unlist),
-        ...lists.map((nativeList) =>
-          NavItem(
-            nativeList.name,
-            {kind: 'list', listNodeId: nativeList.listNodeId},
-            counts.lists[nativeList.listNodeId] ?? 0
-          )
+        {class: 'nav-list nav-list-secondary archive-directory-index'},
+        ...directoryEntries.map((entry, index) =>
+          NavItem(entry.title, entry.view, entry.count, '', index)
         )
       )
     )
@@ -404,7 +407,8 @@ function NavItem(
   title: string,
   view: LibraryView,
   count: number | null,
-  additionalClassName = ''
+  additionalClassName = '',
+  index: number | null = null
 ) {
   return li(
     button(
@@ -428,8 +432,11 @@ function NavItem(
           resetMembershipPreview()
         }
       },
+      index === null
+        ? null
+        : span({class: 'archive-index-number', 'aria-hidden': 'true'}, `${String(index).padStart(2, '0')}.`),
       span({class: 'nav-label'}, title),
-      count === null ? null : span(String(count))
+      count === null ? null : span({class: 'archive-directory-count'}, String(count))
     )
   )
 }
@@ -662,7 +669,7 @@ function LibraryHeader(
       )
     ),
     div(
-      {class: 'library-actions'},
+      {class: 'library-actions archive-control-strip'},
       label(
         {class: 'search-field'},
         span('Search'),
@@ -795,6 +802,15 @@ function LibraryViewContext() {
     publishedNativeListRename.val?.readiness === 'ready'
   return div(
     {class: 'library-view-context'},
+    p(
+      {class: 'archive-collection-kicker'},
+      () => {
+        const view = activeView.val
+        return view.kind === 'unlist'
+          ? 'Collection · Unlist'
+          : `Collection · ${currentNativeList()?.name ?? 'GitHub List'}`
+      }
+    ),
     p(
       {class: 'eyebrow', hidden: hasEditor},
       () => {
@@ -1804,20 +1820,26 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
       div(
         {class: 'repository-row-main'},
         div(
-          {class: 'archive-repository-reference'},
-          span({class: 'repository-owner'}, repository.ownerLogin),
-          h2(repository.name)
+          {class: 'archive-record-summary'},
+          div(
+            {class: 'archive-repository-reference'},
+            span({class: 'repository-owner'}, repository.ownerLogin),
+            h2(repository.name)
+          ),
+          p(repository.description ?? 'No description provided.')
         ),
-        p(repository.description ?? 'No description provided.'),
         div(
-          {class: 'repository-meta'},
-          repository.primaryLanguage ? span(repository.primaryLanguage) : null,
-          span(`Starred ${formatDate(repository.starredAt)}`),
-          item.annotation?.favorite ? span({title: 'Local favorite'}, 'Favorite') : null,
-          () => {
-            const latestJob = latestRepositoryJob(repository.repositoryNodeId)
-            return latestJob ? MutationStatus(latestJob) : null
-          }
+          {class: 'archive-record-facts'},
+          div(
+            {class: 'repository-meta'},
+            repository.primaryLanguage ? span(repository.primaryLanguage) : null,
+            span(`Starred ${formatDate(repository.starredAt)}`),
+            item.annotation?.favorite ? span({title: 'Local favorite'}, 'Favorite') : null,
+            () => {
+              const latestJob = latestRepositoryJob(repository.repositoryNodeId)
+              return latestJob ? MutationStatus(latestJob) : null
+            }
+          )
         )
       ),
       span({class: `triage-pill triage-${item.annotation?.triageState ?? 'unclassified'}`},

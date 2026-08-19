@@ -426,6 +426,119 @@ test('renders archive directory and archive result archive markup for the ready 
   expect(root.querySelector('.repository-row .archive-repository-reference')).not.toBeNull()
 })
 
+test('renders a real archive index and archive records without changing Library controls', async () => {
+  const ready = readyDashboardState()
+  const secondRepository = repositoryRecord('42', 'R_two', 'octocat/two')
+  const state: AppState = {
+    ...ready,
+    library: {
+      ...ready.library!,
+      repositories: [...ready.library!.repositories, secondRepository]
+    }
+  }
+  const browserWindow = createDashboardWindow()
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const messages: string[] = []
+  Object.assign(globalThis, {
+    chrome: {
+      runtime: {
+        sendMessage: async (message: {readonly type: string}) => {
+          messages.push(message.type)
+          return {ok: true, data: state}
+        }
+      }
+    }
+  })
+
+  try {
+    const {mountDashboard} = await import('../../src/dashboard/scripts')
+    const root = browserWindow.document.createElement('main') as unknown as HTMLElement
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(root, state)
+    await browserWindow.happyDOM.whenAsyncComplete()
+
+    const index = root.querySelector<HTMLOListElement>('.archive-directory-index')
+    const indexItems = [...(index?.querySelectorAll<HTMLButtonElement>('.nav-item') ?? [])]
+    const currentList = indexItems.find(
+      (button) => button.querySelector('.nav-label')?.textContent === 'Current List'
+    ) ?? null
+    const firstRow = root.querySelector<HTMLButtonElement>('[data-repository-node-id="R_one"]')
+    const secondRow = root.querySelector<HTMLButtonElement>('[data-repository-node-id="R_two"]')
+    const selection = root.querySelector<HTMLInputElement>(
+      '.repository-row-shell:has([data-repository-node-id="R_one"]) .selection-control input'
+    )
+
+    expect(index).not.toBeNull()
+    expect(index?.querySelector('.archive-index-number')?.textContent).toMatch(/^00\./)
+    expect(currentList?.dataset.viewKind).toBe('list')
+    expect(root.querySelector('.archive-collection-kicker')?.textContent).toMatch(/collection|archive/i)
+    expect(firstRow?.tagName).toBe('BUTTON')
+    expect(firstRow?.dataset.repositoryNodeId).toBe('R_one')
+    expect(firstRow?.dataset.dialogInvoker).toBe('repository-R_one')
+    expect(firstRow?.querySelector('.archive-record-summary .repository-owner')?.textContent).toBe('octocat')
+    expect(firstRow?.querySelector('.archive-record-facts .repository-meta')).not.toBeNull()
+    expect(selection?.type).toBe('checkbox')
+
+    selection?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(root.querySelector('.selection-announcement')?.textContent).toBe('1 selected')
+    selection?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+
+    const focusedFirstRow = root.querySelector<HTMLButtonElement>('[data-repository-node-id="R_one"]')
+    const focusedSecondRow = root.querySelector<HTMLButtonElement>('[data-repository-node-id="R_two"]')
+    if (focusedFirstRow === null || focusedSecondRow === null) {
+      throw new Error('Real archive record buttons are required.')
+    }
+    focusedFirstRow.focus()
+    focusedFirstRow.dispatchEvent(
+      new browserWindow.KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}) as unknown as Event
+    )
+    await nextTurn(browserWindow)
+    const selectedSecondRow = root.querySelector<HTMLButtonElement>('[data-repository-node-id="R_two"]')
+    expect((browserWindow.document.activeElement as unknown) === selectedSecondRow).toBe(true)
+
+    selectedSecondRow?.click()
+    await nextTurn(browserWindow)
+    expect(root.querySelector('.repository-inspection-dialog h2')?.textContent).toBe('two')
+    const closeDetails = [...root.querySelectorAll<HTMLButtonElement>('.repository-inspection-dialog button')]
+      .find((button) => button.textContent === 'Close details')
+    closeDetails?.click()
+    await nextTurn(browserWindow)
+
+    const search = root.querySelector<HTMLInputElement>('#library-search')
+    if (search === null) throw new Error('Search control is required.')
+    search.value = 'octocat/two'
+    search.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    await nextTurn(browserWindow)
+    expect(visibleRepositoryIds(root)).toEqual(['R_two'])
+    search.value = ''
+    search.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    await nextTurn(browserWindow)
+
+    const archiveToggle = [...root.querySelectorAll<HTMLButtonElement>('.view-options .filter-toggle')]
+      .find((button) => button.textContent === 'Archived hidden')
+    archiveToggle?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(archiveToggle?.textContent).toBe('Archived shown')
+    archiveToggle?.click()
+
+    const refresh = root.querySelector<HTMLButtonElement>('.refresh-button')
+    refresh?.click()
+    await nextTurn(browserWindow)
+    expect(messages).toContain('start-sync')
+
+    currentList?.click()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    expect(root.querySelector('.archive-collection-kicker')?.textContent).toContain('Current List')
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
 test('uses only targeted dashboard live regions', async () => {
   const root = await mountReadyDashboard()
   const selection = root.querySelector<HTMLInputElement>('.selection-control input')
