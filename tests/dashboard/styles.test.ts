@@ -6,300 +6,267 @@ const styles = await readFile(
   'utf8'
 )
 
-test('defines the Geist Mono library workspace theme', () => {
-  expect(styles).toMatch(/@font-face\s*\{[\s\S]*font-family:\s*['"]Geist Mono['"]/)
-  expect(styles).toContain('--navy: #0f2c3d;')
-  expect(styles).toContain('--sage: #a6b7a1;')
-  expect(styles).toContain('--sand: #d4c8b5;')
-  expect(styles).toContain('--copper: #c4936a;')
-  expect(styles).toContain('font-family: "Geist Mono"')
-})
+const criticalRoles = [
+  '--canvas',
+  '--surface',
+  '--surface-strong',
+  '--text-primary',
+  '--text-secondary',
+  '--surface-noop',
+  '--text-noop',
+  '--surface-nav-active',
+  '--text-nav-count-active',
+  '--surface-success',
+  '--text-success',
+  '--surface-warning',
+  '--text-warning',
+  '--surface-danger',
+  '--text-danger',
+  '--action-primary',
+  '--action-primary-text',
+  '--border-control',
+  '--focus-ring',
+  '--border-selected',
+  '--border-current'
+] as const
 
-test('uses a scrollable repository modal instead of a persistent inspector column', () => {
-  const libraryGrid = cssRulesFor(styles, /^\s*\.library-grid\s*$/m)
-  const repositoryDialog = cssRulesFor(styles, /^\s*\.repository-inspection-dialog\s*$/m)
+const contrastPairs = [
+  ...(['--canvas', '--surface', '--surface-strong'] as const).flatMap((surface) => [
+    ['--text-primary', surface, 4.5] as const,
+    ['--text-secondary', surface, 4.5] as const,
+    ['--border-control', surface, 3] as const,
+    ['--focus-ring', surface, 3] as const
+  ]),
+  ['--text-noop', '--surface-noop', 4.5] as const,
+  ['--text-nav-count-active', '--surface-nav-active', 4.5] as const,
+  ['--text-success', '--surface-success', 4.5] as const,
+  ['--text-warning', '--surface-warning', 4.5] as const,
+  ['--text-danger', '--surface-danger', 4.5] as const,
+  ['--action-primary-text', '--action-primary', 4.5] as const,
+  ['--focus-ring', '--surface-nav-active', 3] as const,
+  ['--border-selected', '--surface', 3] as const,
+  ['--border-current', '--surface-nav-active', 3] as const
+]
 
-  expect(libraryGrid.some(({declarations}) => /grid-template-columns:/.test(declarations))).toBe(false)
-  expect(
-    repositoryDialog.some(({declarations}) =>
-      /max-height:\s*calc\(100dvh - 48px\)/.test(declarations) &&
-      /overflow-y:\s*auto/.test(declarations)
-    )
-  ).toBe(true)
-})
+test('defines composed prose and technical typography roles', () => {
+  const root = declarationsFor(styles, ':root')
 
-test('defines readable Geist Mono type roles for prose, labels, data, and warnings', () => {
-  const root = cssRulesFor(styles, /^\s*:root\s*$/m)[0]?.declarations ?? ''
-  const prose = cssRulesFor(
-    styles,
-    /\.state-copy,\s*\.state-panel > p:not\(\.eyebrow\),\s*\.operations-intro/
+  expect(root).toContain(
+    '--font-prose: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;'
   )
-  const labels = cssRulesFor(
-    styles,
-    /\.library-actions label,\s*\.annotation-editor label,\s*\.filter-panel label/
+  expect(root).toContain(
+    '--font-technical: "Geist Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;'
   )
-  const utilityData = cssRulesFor(
-    styles,
-    /\.repository-owner,\s*\.repository-meta,\s*\.batch-status,\s*\.job-error/
+  expect(root).toContain('--type-reading-size: 1rem;')
+  expect(root).toContain('--measure-prose: 66ch;')
+  expect(styles).toMatch(/@font-face[\s\S]*?font-family:\s*"Geist Mono"[\s\S]*?font-display:\s*swap/)
+
+  expect(ruleFor(styles, 'body')).toMatch(/font-family:\s*var\(--font-prose\)/)
+  expect(ruleFor(styles, 'button,\ninput,\nselect,\ntextarea')).toMatch(
+    /font-family:\s*var\(--font-prose\)/
   )
-  const warnings = cssRulesFor(
-    styles,
-    /\.status-banner,\s*\.membership-block,\s*\.membership-activity,\s*\.replace-all-warning/
-  )
+  expect(ruleFor(styles, '.confirmation-dialog')).toMatch(/font-family:\s*var\(--font-prose\)/)
+  expect(ruleFor(styles, '.state-copy,')).toMatch(/max-width:\s*var\(--measure-prose\)/)
+  expect(ruleFor(styles, '.state-copy,')).toMatch(/font-size:\s*var\(--type-reading-size\)/)
 
-  expect(root).toMatch(/--font-family:\s*"Geist Mono";/)
-  expect(root).toMatch(/--type-reading-size:\s*13px;/)
-  expect(root).toMatch(/--type-label-size:\s*12px;/)
-  expect(root).toMatch(/--type-data-size:\s*12px;/)
-  expect(root).toMatch(/--type-warning-size:\s*13px;/)
-  expect(root).toMatch(/--measure-prose:\s*66ch;/)
-  expect(root).toMatch(/font-family:\s*var\(--font-family\);/)
-  expect(root).not.toMatch(/font-family:[^;]*ui-monospace/)
-  expect(prose.some(({declarations}) => /max-width:\s*var\(--measure-prose\)/.test(declarations))).toBe(true)
-  expect(prose.some(({declarations}) => /font-size:\s*var\(--type-reading-size\)/.test(declarations))).toBe(true)
-  expect(labels.some(({declarations}) => /font-size:\s*var\(--type-label-size\)/.test(declarations))).toBe(true)
-  expect(utilityData.some(({declarations}) => /font-size:\s*var\(--type-data-size\)/.test(declarations))).toBe(true)
-  expect(warnings.some(({declarations}) => /font-size:\s*var\(--type-warning-size\)/.test(declarations))).toBe(true)
+  for (const selector of [
+    '.brand',
+    '.repository-meta',
+    '.result-count',
+    '.mutation-status,',
+    '.auth-code'
+  ]) {
+    expect(ruleFor(styles, selector), selector).toMatch(/font-family:\s*var\(--font-technical\)/)
+  }
 })
 
-test('defines shared semantic border tokens for repeated state treatments', () => {
-  const root = cssRulesFor(styles, /^\s*:root\s*$/m)[0]?.declarations ?? ''
+test('resolves complete contrast-safe light and dark semantic palettes', () => {
+  const light = tokenMap(declarationsFor(styles, ':root'))
+  const darkStyles = extractMedia(styles, '(prefers-color-scheme: dark)')
+  const darkOverrides = tokenMap(declarationsFor(darkStyles, ':root'))
+  const dark = new Map(light)
+  for (const [name, value] of darkOverrides) dark.set(name, value)
 
-  expect(root).toMatch(/--border-warning:\s*#d7bd83;/)
-  expect(root).toMatch(/--border-danger:\s*#d5aaa3;/)
-  expect(root).toMatch(/--border-success:\s*#aac7b2;/)
-  expect(styles).toContain('border: 1px solid var(--border-warning);')
-  expect(styles).toContain('border: 1px solid var(--border-danger);')
-  expect(styles).toContain('border: 1px solid var(--border-success);')
-})
+  expect(darkStyles).not.toBe('')
+  expect([...criticalRoles].filter((role) => !darkOverrides.has(role))).toEqual([])
 
-test('keeps keyboard focus visibly distinct from nav hover state', () => {
-  const navFocus = cssRulesFor(styles, /\.nav-item:focus-visible\b/)
-
-  expect(
-    navFocus.some(({declarations}) =>
-      /outline:\s*3px solid var\(--copper\)/.test(declarations) &&
-      /outline-offset:\s*2px/.test(declarations)
-    )
-  ).toBe(true)
-})
-
-test('shows visible focus around the Import JSON action', () => {
-  const fileActionFocus = cssRulesFor(styles, /\.file-action:focus-within\b/)
-
-  expect(
-    fileActionFocus.some(({declarations}) =>
-      /outline:\s*3px solid var\(--focus-ring\)/.test(declarations) &&
-      /outline-offset:\s*2px/.test(declarations)
-    )
-  ).toBe(true)
-})
-
-test('keeps mobile dashboard inputs at a readable 16px', () => {
-  const mobileStyles = mobileDashboardStyles()
-
-  expect(mobileStyles).not.toBeNull()
-  if (mobileStyles === null) return
-
-  const inputs = cssRulesFor(
-    mobileStyles,
-    /\.library-actions input,\s*\.library-actions select,\s*\.annotation-editor input/
-  )
-  expect(inputs.some(({declarations}) => /font-size:\s*16px/.test(declarations))).toBe(true)
-})
-
-test('lays out an accessible responsive native List rename header editor', () => {
-  const editor = cssRulesFor(styles, /^\s*\.native-list-rename-editor\s*$/m)
-  const actions = cssRulesFor(styles, /^\s*\.native-list-header-actions\s*$/m)
-  const mobileStyles = mobileDashboardStyles()
-  const mobileEditor = mobileStyles
-    ? cssRulesFor(mobileStyles, /\.native-list-rename-editor\b/)
-    : []
-
-  expect(actions.some(({declarations}) => /display:\s*flex/.test(declarations))).toBe(true)
-  expect(editor.some(({declarations}) => /display:\s*(?:grid|flex)/.test(declarations))).toBe(true)
-  expect(editor.some(({declarations}) => /min-width:\s*0/.test(declarations))).toBe(true)
-  expect(mobileEditor.some(({declarations}) => /grid-template-columns:\s*1fr/.test(declarations))).toBe(true)
-})
-
-test('keeps triage state visibly rendered on mobile', () => {
-  const mobileStyles = mobileDashboardStyles()
-
-  expect(mobileStyles).not.toBeNull()
-  if (mobileStyles === null) return
-
-  const triageRules = mobileRulesFor(
-    mobileStyles,
-    /\.(?:repository-row-shell|repository-row|triage-pill)\b/
-  )
-
-  expect(triageRules.length).toBeGreaterThan(0)
-  expect(triageRules.some(({declarations}) => hidesContent(declarations))).toBe(false)
-})
-
-test('keeps navigation groups and summaries reachable on mobile', () => {
-  const mobileStyles = mobileDashboardStyles()
-
-  expect(mobileStyles).not.toBeNull()
-  if (mobileStyles === null) return
-
-  const navigationRules = mobileRulesFor(
-    mobileStyles,
-    /(?:^|[\s,])(?:details)?\.nav-group\b(?!\s*[>+~])/
-  )
-  const summaryRules = mobileRulesFor(mobileStyles, /\.nav-group\s*>\s*summary\b/)
-  const navigationVisibilityRules = mobileRulesFor(
-    mobileStyles,
-    /\.(?:sidebar|nav-group)\b|\.nav-group\s*>\s*(?:summary|\.nav-list)\b/
-  )
-
-  expect(navigationRules.length).toBeGreaterThan(0)
-  expect(summaryRules.length).toBeGreaterThan(0)
-  expect(navigationVisibilityRules.some(({declarations}) => hidesContent(declarations))).toBe(false)
-})
-
-test('keeps horizontal nav scrolling exclusive to the primary triage list on mobile', () => {
-  const mobileStyles = mobileDashboardStyles()
-
-  expect(mobileStyles).not.toBeNull()
-  if (mobileStyles === null) return
-
-  const primaryNavigation = cssRulesFor(mobileStyles, /\.nav-list-primary\b/)
-  const groupedNavigation = cssRulesFor(
-    mobileStyles,
-    /\.nav-group\s*>\s*\.nav-list:not\(\.nav-list-primary\)/
-  )
-  const genericNavigation = cssRulesFor(mobileStyles, /^\s*\.nav-list\s*$/m)
-
-  expect(
-    primaryNavigation.some(({declarations}) =>
-      /display:\s*flex/.test(declarations) && /overflow-x:\s*auto/.test(declarations)
-    )
-  ).toBe(true)
-  expect(
-    groupedNavigation.some(({declarations}) =>
-      /grid-template-columns:\s*1fr/.test(declarations) && /overflow:\s*visible/.test(declarations)
-    )
-  ).toBe(true)
-  expect(genericNavigation.some(({declarations}) => /overflow-x:\s*auto/.test(declarations))).toBe(
-    false
-  )
-})
-
-test('keeps triage selection persistent in a grouped control', () => {
-  const triageLayout = cssRulesFor(styles, /^\s*\.triage-actions\s*$/m)
-  const selectedTriage = cssRulesFor(styles, /\.triage-actions\s+button\.is-active\b/)
-
-  expect(
-    triageLayout.some(({declarations}) =>
-      /display:\s*flex/.test(declarations) &&
-      /flex-wrap:\s*wrap/.test(declarations) &&
-      /gap:\s*\d+px/.test(declarations)
-    )
-  ).toBe(true)
-  expect(
-    selectedTriage.some(({declarations}) =>
-      /color:\s*var\(--surface\)/.test(declarations) &&
-      /background:\s*var\(--navy\)/.test(declarations) &&
-      /border-color:\s*var\(--navy\)/.test(declarations)
-    )
-  ).toBe(true)
-})
-
-test('gives named navigation summaries and primary controls 44px touch targets', () => {
-  const mobileStyles = mobileDashboardStyles()
-
-  expect(mobileStyles).not.toBeNull()
-  if (mobileStyles === null) return
-
-  const missingTouchTargets = [
-    ['navigation item', /\.nav-item\b/],
-    ['navigation summary', /\.nav-group\s*>\s*summary\b/],
-    ['View options summary', /\.view-options\s*>\s*summary\b/],
-    ['Search', /\.search-field\s+input\b/],
-    ['Refresh', /\.refresh-button\b/],
-    ['Triage actions', /\.triage-actions\s+button\b/],
-    ['Favorite', /\.favorite-button\b/],
-    ['Inspector unstar', /\.github-unstar-action\s+\.danger-action\b/],
-    ['Membership operation', /\.membership-operation-tabs\s+button\b/],
-    ['Native List choices', /\.native-list-choices\s+label\b/],
-    ['Inspector Tags input', /\.annotation-editor\s+input\[type="text"\]/],
-    ['Move-list selects', /\.move-fields\s+select\b/],
-    ['Filter toggles', /\.filter-toggle\b/],
-    ['Advanced filters summary', /\.advanced-filters\s+summary\b/],
-    ['Refreshed membership preview', /\.refresh-membership-preview\b/],
-    ['Cancel queued job', /\.cancel-job\b/],
-    ['Advanced filter inputs', /\.filter-panel\s+input\b/],
-    ['Advanced filter selects', /\.filter-panel\s+select\b/],
-    ['Advanced filter date controls', /\.filter-panel\s+input\[type="date"\]/],
-    ['Clear filters', /\.clear-filters\b/],
-    ['Confirmation primary action', /\.confirmation-dialog\s+\.primary-action\b/],
-    ['Confirmation destructive action', /\.confirmation-dialog\s+\.danger-action\b/],
-    ['Confirmation cancel action', /\.confirmation-dialog\s+\.dialog-cancel\b/]
-  ].flatMap(([name, selector]) =>
-    hasMinimumTouchTarget(mobileStyles, selector as RegExp) ? [] : [name as string]
-  )
-
-  expect(missingTouchTargets).toEqual([])
-})
-
-test('keeps all mobile action classes at 44px despite nested overrides', () => {
-  const mobileStyles = mobileDashboardStyles()
-
-  expect(mobileStyles).not.toBeNull()
-  if (mobileStyles === null) return
-
-  const missingTouchTargets = [
-    ['Primary action', /\.primary-action\b/],
-    ['Secondary action', /\.secondary-action\b/],
-    ['Danger action', /\.danger-action\b/],
-    ['File action', /\.file-action\b/],
-    ['Selection secondary action', /\.selection-bar\s+\.secondary-action\b/],
-    ['Selection danger action', /\.selection-bar\s+\.danger-action\b/],
-    ['Write readiness secondary action', /\.write-readiness-notice\s+\.secondary-action\b/]
-  ].flatMap(([name, selector]) =>
-    hasMinimumTouchTarget(mobileStyles, selector as RegExp) ? [] : [name as string]
-  )
-
-  expect(missingTouchTargets).toEqual([])
-})
-
-function mobileDashboardStyles(): string | null {
-  const mobileQuery = /@media\s*\(\s*max-width\s*:\s*700px\s*\)\s*\{/.exec(styles)
-  if (mobileQuery === null || mobileQuery.index === undefined) return null
-
-  const bodyStart = mobileQuery.index + mobileQuery[0].length
-  let depth = 1
-  for (let index = bodyStart; index < styles.length; index += 1) {
-    if (styles[index] === '{') depth += 1
-    if (styles[index] === '}') depth -= 1
-    if (depth === 0) return styles.slice(bodyStart, index)
+  for (const [theme, tokens] of [
+    ['light', light],
+    ['dark', dark]
+  ] as const) {
+    for (const role of criticalRoles) {
+      expect(resolveToken(tokens, role), `${theme} ${role}`).toMatch(/^#[0-9a-f]{6}$/i)
+    }
+    for (const [foreground, background, threshold] of contrastPairs) {
+      const ratio = contrast(resolveToken(tokens, foreground), resolveToken(tokens, background))
+      expect(ratio, `${theme}: ${foreground} on ${background} = ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(
+        threshold
+      )
+    }
   }
 
-  return null
+  expect(() => resolveToken(new Map(), '--missing')).toThrow('Missing token --missing')
+  expect(() =>
+    resolveToken(
+      new Map([
+        ['--first', 'var(--second)'],
+        ['--second', 'var(--first)']
+      ]),
+      '--first'
+    )
+  ).toThrow('Token cycle at --first')
+})
+
+test('maps forced-colors selectors to explicit system colors', () => {
+  const forced = extractMedia(styles, '(forced-colors: active)')
+  expect(forced).not.toBe('')
+
+  for (const selector of ['.nav-item[aria-current="page"]', '.repository-row.is-selected']) {
+    expect(ruleFor(forced, selector), selector).toMatch(/background:\s*Highlight;/)
+    expect(ruleFor(forced, selector), selector).toMatch(/color:\s*HighlightText;/)
+    expect(ruleFor(forced, selector), selector).toMatch(/border-color:\s*Highlight;/)
+    expect(ruleFor(forced, selector), selector).toMatch(/forced-color-adjust:\s*none;/)
+  }
+  for (const selector of ['button,', 'input,', 'select,', 'textarea,', '.file-action']) {
+    expect(ruleFor(forced, selector), selector).toMatch(/background:\s*ButtonFace;/)
+    expect(ruleFor(forced, selector), selector).toMatch(/color:\s*ButtonText;/)
+    expect(ruleFor(forced, selector), selector).toMatch(/border-color:\s*ButtonText;/)
+  }
+  for (const selector of [':focus-visible,', '.file-action:focus-within']) {
+    expect(ruleFor(forced, selector), selector).toMatch(/outline:\s*3px solid Highlight;/)
+  }
+  for (const selector of ['.status-banner,', '.status-banner.is-success', '.status-banner.is-warning', '.status-banner.is-error']) {
+    expect(ruleFor(forced, selector), selector).toMatch(/background:\s*Canvas;/)
+    expect(ruleFor(forced, selector), selector).toMatch(/color:\s*CanvasText;/)
+    expect(ruleFor(forced, selector), selector).toMatch(/border-color:\s*CanvasText;/)
+    expect(ruleFor(forced, selector), selector).toMatch(/forced-color-adjust:\s*none;/)
+  }
+  expect(ruleFor(forced, 'a')).toMatch(/color:\s*LinkText;/)
+
+  const adjustedSelectors = [
+    ...forced.matchAll(/([^{}]+)\{([^{}]*forced-color-adjust:\s*none[^{}]*)\}/g)
+  ].flatMap(([, selectors]) => (selectors ?? '').split(',').map((selector) => selector.trim()))
+  expect(adjustedSelectors).toEqual([
+    '.nav-item[aria-current="page"]',
+    '.repository-row.is-selected',
+    '.status-banner',
+    '.status-banner.is-success',
+    '.status-banner.is-warning',
+    '.status-banner.is-error'
+  ])
+})
+
+test('wraps user content and preserves readable responsive reflow', () => {
+  for (const selector of [
+    '.nav-label',
+    '.native-list-choices label > span:not(.no-op-label)',
+    '.repository-row h2',
+    '.inspector-heading h2',
+    '.account-login'
+  ]) {
+    expect(ruleFor(styles, selector), selector).toMatch(/overflow-wrap:\s*anywhere/)
+  }
+  expect(styles).not.toMatch(/(?:html|body)[^{}]*\{[^{}]*overflow-x:\s*hidden/)
+
+  const mobile = extractMedia(styles, '(max-width: 700px)')
+  expect(ruleFor(mobile, '.selection-control')).toMatch(/min-inline-size:\s*44px/)
+  expect(ruleFor(mobile, '.selection-control')).toMatch(/min-block-size:\s*44px/)
+  expect(ruleFor(mobile, '.inspector-heading,')).toMatch(/flex-direction:\s*column/)
+  expect(ruleFor(mobile, '.inspector-actions')).toMatch(/justify-content:\s*flex-start/)
+
+  expect(ruleFor(styles, '.state-copy,')).toMatch(/max-width:\s*var\(--measure-prose\)/)
+  expect(declarationsFor(styles, ':root')).toContain('--type-reading-size: 1rem;')
+  expect(ruleFor(styles, '.repository-row-main')).toMatch(/min-width:\s*0/)
+})
+
+test('removes dead legacy dashboard selectors', () => {
+  expect(styles).not.toMatch(/\.(?:nav-list-primary|topbar|privacy-chip|state-index|feature-grid)\b/)
+})
+
+test('uses transform-only bounded skeleton shimmer with reduced-motion suppression', () => {
+  expect(styles).not.toMatch(/@keyframes[^{}]*shimmer[\s\S]*?background-position/)
+  expect(ruleFor(styles, '.skeleton-row')).toMatch(/overflow:\s*hidden/)
+  expect(ruleFor(styles, '.skeleton-row::after')).toMatch(/animation:\s*shimmer[^;]*;/)
+  expect(ruleFor(styles, '.skeleton-row::after')).toMatch(/transform:\s*translateX/)
+  expect(styles).toMatch(/@keyframes\s+shimmer\s*\{\s*to\s*\{\s*transform:\s*translateX/)
+  expect(extractMedia(styles, '(prefers-reduced-motion: reduce)')).toMatch(/animation-duration:\s*0\.01ms/)
+})
+
+test('keeps the modal, focus, and mobile primary controls accessible', () => {
+  expect(ruleFor(styles, '.library-grid')).not.toMatch(/grid-template-columns:/)
+  expect(ruleFor(styles, '.repository-inspection-dialog')).toMatch(/max-height:\s*calc\(100dvh - 48px\)/)
+  expect(ruleFor(styles, '.repository-inspection-dialog')).toMatch(/overflow-y:\s*auto/)
+  expect(ruleFor(styles, '.file-action:focus-within')).toMatch(/outline:\s*3px solid var\(--focus-ring\)/)
+
+  const mobile = extractMedia(styles, '(max-width: 700px)')
+  for (const selector of [
+    '.nav-item',
+    '.nav-group > summary',
+    '.primary-action,',
+    '.triage-actions button,',
+    '.native-list-choices label,'
+  ]) {
+    expect(ruleFor(mobile, selector), selector).toMatch(/min-height:\s*44px/)
+  }
+  expect(ruleFor(mobile, '.library-actions input,')).toMatch(/font-size:\s*16px/)
+})
+
+function declarationsFor(css: string, selector: string): string {
+  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(
+    ([, selectors]) => selectors?.trim() === selector
+  )?.[2] ?? ''
 }
 
-function hasMinimumTouchTarget(mobileStyles: string, selector: RegExp): boolean {
-  return cssRulesFor(mobileStyles, selector).some(({declarations}) =>
-    /(?:min-height|min-block-size):\s*(?:4[4-9]|[5-9]\d|\d{3,})px/.test(declarations)
+function ruleFor(css: string, selectorFragment: string): string {
+  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, selectors]) => selectors?.includes(selectorFragment))
+    .map(([, , declarations]) => declarations ?? '')
+    .join('\n')
+}
+
+function extractMedia(css: string, query: string): string {
+  const match = css.match(new RegExp(`@media\\s*\\(${escapeRegex(query.slice(1, -1))}\\)\\s*\\{`))
+  if (!match || match.index === undefined) return ''
+  const start = match.index + match[0].length
+  let depth = 1
+  for (let index = start; index < css.length; index += 1) {
+    if (css[index] === '{') depth += 1
+    if (css[index] === '}') depth -= 1
+    if (depth === 0) return css.slice(start, index)
+  }
+  return ''
+}
+
+function tokenMap(declarations: string): Map<string, string> {
+  return new Map(
+    [...declarations.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map(([, name, value]) => [
+      name ?? '',
+      value?.trim() ?? ''
+    ])
   )
 }
 
-function mobileRulesFor(mobileStyles: string, selector: RegExp): readonly {
-  readonly declarations: string
-}[] {
-  return cssRulesFor(mobileStyles, selector)
+function resolveToken(tokens: ReadonlyMap<string, string>, name: string, seen = new Set<string>()): string {
+  if (seen.has(name)) throw new Error(`Token cycle at ${name}`)
+  const value = tokens.get(name)
+  if (!value) throw new Error(`Missing token ${name}`)
+  const reference = value.match(/^var\((--[\w-]+)\)$/)?.[1]
+  if (!reference) return value
+  return resolveToken(tokens, reference, new Set([...seen, name]))
 }
 
-function cssRulesFor(cssText: string, selector: RegExp): readonly {
-  readonly declarations: string
-}[] {
-  return [...cssText.matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(
-    ([, selectors, declarations]) =>
-      selector.test(selectors ?? '') ? [{declarations: declarations ?? ''}] : []
-  )
+function contrast(first: string, second: string): number {
+  const luminance = (hex: string) => {
+    const channels = [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16) / 255)
+    const linear = channels.map((value) =>
+      value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+    )
+    return 0.2126 * (linear[0] ?? 0) + 0.7152 * (linear[1] ?? 0) + 0.0722 * (linear[2] ?? 0)
+  }
+  const [bright, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a)
+  return ((bright ?? 0) + 0.05) / ((dark ?? 0) + 0.05)
 }
 
-function hidesContent(declarations: string): boolean {
-  return /display:\s*none|visibility:\s*(?:hidden|collapse)|opacity:\s*0(?:\.0+)?\s*(?:;|$)|clip(?:-path)?:|(?:width|height|inline-size|block-size):\s*1px|position:\s*absolute|overflow:\s*hidden/.test(declarations)
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
