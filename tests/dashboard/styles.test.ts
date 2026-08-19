@@ -38,6 +38,80 @@ const criticalRoles = [
   '--border-current'
 ] as const
 
+test('Archive.Stars provides a self-contained light archive token system and structural boundaries', () => {
+  const root = declarationsFor(styles, ':root')
+
+  for (const token of ['--archive-canvas', '--archive-ink', '--archive-muted', '--archive-line']) {
+    expect(root, token).toMatch(new RegExp(`${token}:\\s*#[0-9a-f]{6};`, 'i'))
+  }
+  expect(styles).not.toMatch(/https?:\/\//i)
+
+  expect(ruleFor(styles, '.archive-app-header')).toMatch(/position:\s*sticky/)
+  expect(ruleFor(styles, '.archive-app-header')).toMatch(/border-bottom:\s*1px solid var\(--archive-line\)/)
+  expect(ruleFor(styles, '.archive-workspace-frame')).toMatch(/grid-template-columns:/)
+  expect(ruleFor(styles, '.archive-directory')).toMatch(/border-right:\s*1px solid var\(--archive-line\)/)
+  expect(ruleFor(styles, '.repository-row-shell + .repository-row-shell')).toMatch(
+    /border-top:\s*1px solid var\(--archive-line\)/
+  )
+})
+
+test('Archive.Stars styles its shell, library, state, and dialog primitives', () => {
+  const primitives = [
+    '.archive-app-shell',
+    '.archive-app-header',
+    '.archive-brand',
+    '.archive-star-mark',
+    '.archive-wordmark',
+    '.archive-utilities',
+    '.archive-directory',
+    '.archive-filter-container',
+    '.library-header',
+    '.library-actions',
+    '.archive-results',
+    '.repository-row',
+    '.state-panel',
+    '.operations-page',
+    '.settings-page',
+    '.confirmation-dialog',
+    '.repository-inspection-dialog'
+  ]
+
+  for (const selector of primitives) {
+    expect(ruleFor(styles, selector), selector).not.toBe('')
+  }
+  expect(ruleFor(styles, '.archive-wordmark')).toMatch(/font-family:\s*var\(--font-technical\)/)
+  expect(ruleFor(styles, '.archive-directory-heading,')).toMatch(/text-transform:\s*uppercase/)
+  expect(ruleFor(styles, '.archive-repository-reference')).toMatch(/font-family:\s*var\(--font-technical\)/)
+})
+
+test('Archive.Stars keeps controls operable across narrow, dark, reduced-motion, and forced-color modes', () => {
+  const mobile = extractMedia(styles, '(max-width: 700px)')
+  const dark = extractMedia(styles, '(prefers-color-scheme: dark)')
+  const forced = extractMedia(styles, '(forced-colors: active)')
+  const reduced = extractMedia(styles, '(prefers-reduced-motion: reduce)')
+
+  expect(mobile).not.toBe('')
+  expect(ruleFor(mobile, '.archive-workspace-frame')).toMatch(/grid-template-columns:\s*1fr/)
+  expect(ruleFor(mobile, '.archive-directory')).toMatch(/border-right:\s*0/)
+  expect(ruleFor(mobile, '.archive-utilities')).not.toMatch(/display:\s*none/)
+  expect(ruleFor(mobile, '.nav-item')).toMatch(/min-height:\s*44px/)
+  expect(ruleFor(mobile, '.selection-control')).toMatch(/min-inline-size:\s*44px/)
+  expect(styles).not.toMatch(/(?:html|body)[^{}]*\{[^{}]*overflow-x:\s*hidden/)
+
+  for (const token of ['--archive-canvas', '--archive-ink', '--archive-muted', '--archive-line']) {
+    expect(declarationsFor(dark, ':root'), `dark ${token}`).toMatch(
+      new RegExp(`${token}:\\s*#[0-9a-f]{6};`, 'i')
+    )
+  }
+  expect(reduced).toMatch(/animation-duration:\s*0\.01ms\s*!important/)
+  expect(exactRuleFor(forced, ['.nav-item[aria-current="page"]', '.repository-row.is-selected']))
+    .toMatch(/background:\s*Highlight\s*!important/)
+  expect(exactRuleFor(forced, ['.status-banner', '.status-banner.is-success', '.status-banner.is-warning', '.status-banner.is-error']))
+    .toMatch(/color:\s*CanvasText\s*!important/)
+  expect(exactRuleFor(forced, ['button', 'input', 'select', 'textarea', '.file-action']))
+    .toMatch(/border-color:\s*ButtonText\s*!important/)
+})
+
 const contrastPairs = [
   ...(['--canvas', '--surface', '--surface-strong'] as const).flatMap((surface) => [
     ['--text-primary', surface, 4.5] as const,
@@ -316,9 +390,10 @@ test('wraps user content and preserves readable responsive reflow', () => {
   expect(ruleFor(styles, '.repository-row-main')).toMatch(/min-width:\s*0/)
 })
 
-test('removes dead legacy dashboard selectors and palette tokens', () => {
-  expect(styles).not.toMatch(/\.(?:nav-list-primary|topbar|privacy-chip|state-index|feature-grid)\b/)
-  expect(styles).not.toMatch(/--navy(?:-deep)?\s*:/)
+test('removes retired parchment and sidebar dashboard vocabulary', () => {
+  expect(styles).not.toMatch(/\.(?:nav-list-primary|topbar|privacy-chip|state-index|feature-grid|sidebar)\b/)
+  expect(styles).not.toMatch(/--(?:navy(?:-deep)?|sage|sand|copper(?:-hover)?)\s*:/)
+  expect(styles).not.toMatch(/#(?:eee8dd|d4c8b5|c4936a)\b/i)
 })
 
 test('uses transform-only bounded skeleton shimmer with reduced-motion suppression', () => {
