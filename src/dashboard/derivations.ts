@@ -42,7 +42,18 @@ export function deriveRepositoryResults(
   limit: number,
   runQuery: RepositoryQueryRunner = queryRepositories
 ): DerivedRepositoryResults {
-  const all = runQuery(repositories, query, now)
+  return projectRepositoryResults(
+    runQuery(repositories, query, now),
+    inspectedRepositoryNodeId,
+    limit
+  )
+}
+
+export function projectRepositoryResults(
+  all: readonly LibraryRepository[],
+  inspectedRepositoryNodeId: string | null,
+  limit: number
+): DerivedRepositoryResults {
   return {
     all,
     visible: all.slice(0, limit),

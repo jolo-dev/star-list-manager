@@ -369,9 +369,10 @@ test('runs one shared repository query per flushed filter change', async () => {
     ...readyState,
     library: {
       ...readyState.library!,
-      repositories: readyState.library!.repositories.map((repository, index) =>
-        index === 0 ? {...repository, primaryLanguage: 'TypeScript'} : repository
-      )
+      repositories: [
+        {...readyState.library!.repositories[0]!, primaryLanguage: 'TypeScript'},
+        {...repositoryRecord('42', 'R_two', 'github/two'), primaryLanguage: 'Rust'}
+      ]
     }
   }
   const library = renderLibraryState(state, (...args) => {
@@ -383,58 +384,93 @@ test('runs one shared repository query per flushed filter change', async () => {
   )
   await browserWindow.happyDOM.whenAsyncComplete()
 
+  const labelledSelect = (labelText: string): HTMLSelectElement => {
+    const label = [...library.querySelectorAll<HTMLLabelElement>('label')].find(
+      (candidate) => candidate.textContent?.includes(labelText)
+    )
+    const control = label?.querySelector<HTMLSelectElement>('select') ?? null
+    expect(control).not.toBeNull()
+    return control!
+  }
   const change = async (
-    control: HTMLInputElement | HTMLSelectElement,
+    getControl: () => HTMLInputElement | HTMLSelectElement,
     value: string,
-    eventName: 'input' | 'change'
+    eventName: 'input' | 'change',
+    expectedIds: readonly string[]
   ) => {
     queryCalls = 0
+    const control = getControl()
     control.value = value
     control.dispatchEvent(
       new browserWindow.Event(eventName, {bubbles: true}) as unknown as Event
     )
     await browserWindow.happyDOM.whenAsyncComplete()
     await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
-    expect(queryCalls).toBe(1)
-    expect(library.querySelector('.result-count')?.textContent).toContain('repositories')
-    visibleRepositoryIds(library)
-    library.querySelector('.repository-inspection-dialog')
-    expect(queryCalls).toBe(1)
-  }
-
-  const search = library.querySelector<HTMLInputElement>('input[type="search"]')!
-  const languageSelect = [...library.querySelectorAll<HTMLLabelElement>('label')]
-    .find((label) => label.textContent?.includes('Language'))!
-    .querySelector<HTMLSelectElement>('select')!
-  const starStateSelect = [...library.querySelectorAll<HTMLLabelElement>('label')]
-    .find((label) => label.textContent?.includes('Star state'))!
-    .querySelector<HTMLSelectElement>('select')!
-  const sortSelect = [...library.querySelectorAll<HTMLLabelElement>('label')]
-    .find((label) => label.textContent?.includes('Sort'))!
-    .querySelector<HTMLSelectElement>('select')!
-
-  await change(search, `${search.value}-one-query`, 'input')
-  await change(languageSelect, 'TypeScript', 'change')
-  await change(
-    starStateSelect,
-    starStateSelect.value === 'all' ? 'starred' : 'all',
-    'change'
-  )
-  await change(sortSelect, sortSelect.value === 'name' ? 'starred-at' : 'name', 'change')
-
-  for (const [control, value, eventName] of [
-    [search, '', 'input'],
-    [languageSelect, '', 'change'],
-    [starStateSelect, 'starred', 'change'],
-    [sortSelect, 'starred-at', 'change']
-  ] as const) {
-    control.value = value
-    control.dispatchEvent(
-      new browserWindow.Event(eventName, {bubbles: true}) as unknown as Event
-    )
     await browserWindow.happyDOM.whenAsyncComplete()
+
+    expect(queryCalls).toBe(1)
+    expect(visibleRepositoryIds(library)).toEqual([...expectedIds])
+    expect(library.querySelector('.result-count')?.textContent).toBe(
+      `${expectedIds.length} repositories`
+    )
+    expect(queryCalls).toBe(1)
   }
+
+  const search = () => library.querySelector<HTMLInputElement>('input[type="search"]')!
+  await change(search, 'octocat/one', 'input', ['R_one'])
+  await change(search, '', 'input', ['R_one', 'R_two'])
+  await change(() => labelledSelect('Language'), 'TypeScript', 'change', ['R_one'])
+  await change(() => labelledSelect('Language'), '', 'change', ['R_one', 'R_two'])
+  await change(() => labelledSelect('Star state'), 'all', 'change', ['R_one', 'R_two'])
+  await change(() => labelledSelect('Star state'), 'starred', 'change', ['R_one', 'R_two'])
+  await change(() => labelledSelect('Sort'), 'name', 'change', ['R_one', 'R_two'])
+  await change(() => labelledSelect('Sort'), 'starred-at', 'change', ['R_one', 'R_two'])
+
+  queryCalls = 0
+  library.querySelector<HTMLButtonElement>('[data-repository-node-id="R_two"]')!.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(queryCalls).toBe(0)
+  expect(library.querySelector('.repository-inspection-dialog h2')?.textContent).toBe('two')
+  expect(visibleRepositoryIds(library)).toEqual(['R_one', 'R_two'])
+
+  await change(() => labelledSelect('Language'), 'TypeScript', 'change', ['R_one'])
+  expect(library.querySelector('.repository-inspection-dialog')).toBeNull()
+  expect(queryCalls).toBe(1)
+
+  await change(() => labelledSelect('Language'), '', 'change', ['R_one', 'R_two'])
   library.remove()
+})
+
+test('stops repository queries after a rendered library is disconnected', async () => {
+  const browserWindow = createDashboardWindow()
+  let queryCalls = 0
+  const {renderLibraryState} = await import('../../src/dashboard/scripts')
+  const library = renderLibraryState(readyDashboardState(), (...args) => {
+    queryCalls += 1
+    return queryRepositories(...args)
+  })
+  browserWindow.document.body.append(
+    library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+  )
+  await browserWindow.happyDOM.whenAsyncComplete()
+  const detachedSearch = library.querySelector<HTMLInputElement>('input[type="search"]')!
+
+  library.remove()
+  queryCalls = 0
+  detachedSearch.value = 'disconnected'
+  detachedSearch.dispatchEvent(
+    new browserWindow.Event('input', {bubbles: true}) as unknown as Event
+  )
+  await browserWindow.happyDOM.whenAsyncComplete()
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+  expect(queryCalls).toBe(0)
+
+  detachedSearch.value = ''
+  detachedSearch.dispatchEvent(
+    new browserWindow.Event('input', {bubbles: true}) as unknown as Event
+  )
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(queryCalls).toBe(0)
 })
 
 test('starts automatic synchronization once per active account', async () => {

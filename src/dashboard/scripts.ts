@@ -38,8 +38,8 @@ import {
   type StarFilter
 } from './library'
 import {
-  deriveRepositoryResults,
   indexLatestRepositoryJobs,
+  projectRepositoryResults,
   type DerivedRepositoryResults,
   type RepositoryQueryRunner
 } from './derivations'
@@ -253,6 +253,13 @@ function ReadyState(
 ) {
   if (activeView.val.kind === 'settings') return SettingsState(state)
   if (activeView.val.kind === 'operations') return OperationsState(state)
+  return ReadyLibraryState(state, runQuery)
+}
+
+function ReadyLibraryState(
+  state: AppState,
+  runQuery: RepositoryQueryRunner = queryRepositories
+) {
   const snapshot = state.library
   if (!snapshot || (!state.sync && snapshot.repositories.length === 0)) {
     return LoadingState('Synchronizing the first public-star observation.')
@@ -262,14 +269,14 @@ function ReadyState(
   }
 
   const repositories = buildLibraryRepositories(snapshot)
+  const repositoryMatches = van.derive(() =>
+    runQuery(repositories, currentQuery(), Date.now())
+  )
   const repositoryResults = van.derive(() =>
-    deriveRepositoryResults(
-      repositories,
-      currentQuery(),
-      Date.now(),
+    projectRepositoryResults(
+      repositoryMatches.val,
       inspectedRepositoryNodeId.val,
-      200,
-      runQuery
+      200
     )
   )
 
@@ -351,8 +358,8 @@ function LibraryHeader(
   return header(
     {class: 'library-header'},
     div(
-      p({class: 'eyebrow'}, viewEyebrow(activeView.val)),
-      NativeListHeaderTitle(state),
+      p({class: 'eyebrow'}, () => viewEyebrow(activeView.val)),
+      () => NativeListHeaderTitle(state),
       p(
         {class: 'result-count', 'aria-live': 'polite'},
         () => `${repositoryResults.val.count} repositories`
@@ -392,7 +399,7 @@ function LibraryHeader(
             span('Language'),
             select(
               {
-                value: language.val ?? '',
+                value: () => language.val ?? '',
                 onchange: (event: Event) => {
                   language.val = (event.currentTarget as HTMLSelectElement).value || null
                 }
@@ -2883,7 +2890,11 @@ export function renderLibraryState(
     state.mutations?.jobs ?? [],
     dashboardAccountId
   )
-  return ReadyState(state, runQuery) as HTMLElement
+  const host = div()
+  van.add(host, () => ReadyLibraryState(state, runQuery))
+  const library = host.firstElementChild
+  if (library === null) throw new Error('Ready dashboard did not render.')
+  return library as HTMLElement
 }
 
 export function renderOperationsState(state: AppState): HTMLElement {

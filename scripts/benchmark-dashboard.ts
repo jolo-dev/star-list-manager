@@ -36,10 +36,14 @@ const indexBuildMs = measureMedian(() => {
   indexLatestRepositoryJobs(jobs, '42')
 })
 const index = indexLatestRepositoryJobs(jobs, '42')
+let indexedLookupChecksum = 0
 const indexedLookupMs = measureMedian(() => {
+  let checksum = 0
   for (let repositoryIndex = 0; repositoryIndex < repositoryCount; repositoryIndex += 1) {
-    index.get(`R_${repositoryIndex}`)
+    const job = index.get(`R_${repositoryIndex}`)
+    if (job) checksum += job.jobId.length + job.repositoryNodeId.length
   }
+  indexedLookupChecksum = checksum
 })
 const repeatedMs = measureMedian(() => {
   queryRepositories(repositories, query, 0)
@@ -61,6 +65,7 @@ console.log(
         legacyMsPerLookup,
         indexBuildMs,
         indexedLookupMs,
+        indexedLookupChecksum,
         indexedAmortizedMsPerLookup,
         normalizedLookupSpeedup: legacyMsPerLookup / indexedAmortizedMsPerLookup
       },
