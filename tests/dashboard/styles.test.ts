@@ -91,7 +91,7 @@ test('Archive.Stars reference layout uses an editorial frame and divided archive
   expect(indexNumber).toMatch(/font-variant-numeric:\s*tabular-nums/)
 
   expect(row).toMatch(/width:\s*100%/)
-  expect(row).toMatch(/border(?:-top|-bottom)?:\s*1px solid var\(--archive-line\)/)
+  expect(exactRuleFor(styles, ['.repository-row'])).not.toMatch(/border-top:/)
   expect(row).not.toMatch(/border-radius:|box-shadow:/)
   expect(summary).toMatch(/min-width:\s*0/)
   expect(facts).toMatch(/display:\s*grid/)
@@ -102,6 +102,41 @@ test('Archive.Stars reference layout uses an editorial frame and divided archive
   expect(styles).not.toMatch(/https?:\/\//i)
   expect(ruleFor(styles, '.repository-inspection-dialog')).not.toMatch(/border-radius:|box-shadow:/)
   expect(ruleFor(styles, '.confirmation-dialog')).not.toMatch(/border-radius:|box-shadow:/)
+})
+
+test('keeps primary navigation slim when it shares the directory nav-item class', () => {
+  const primaryLink = exactRuleFor(styles, ['.nav-item.archive-primary-link'])
+  const primaryCurrent = exactRuleFor(styles, [
+    '.nav-item.archive-primary-link:hover',
+    '.nav-item.archive-primary-link[aria-current="page"]'
+  ])
+
+  expect(primaryLink).toMatch(/display:\s*inline-flex/)
+  expect(primaryLink).toMatch(/width:\s*auto/)
+  expect(primaryLink).toMatch(/border:\s*0/)
+  expect(primaryLink).toMatch(/border-bottom:\s*1px solid var\(--transparent\)/)
+  expect(primaryCurrent).toMatch(/background:\s*var\(--surface\)/)
+  expect(primaryCurrent).toMatch(/border-bottom-color:\s*var\(--archive-line\)/)
+})
+
+test('uses one shell-level separator between archive records without changing job history dividers', () => {
+  const recordDivider = exactRuleFor(styles, ['.repository-row-shell + .repository-row-shell'])
+  const jobHistoryDivider = exactRuleFor(styles, ['.batch-jobs li', '.operation-history-list li'])
+
+  expect(recordDivider).toMatch(/border-top:\s*1px solid var\(--archive-line\)/)
+  expect(parseRules(styles).filter((rule) => rule.selectors.includes('.repository-list li + li'))).toEqual([])
+  expect(exactRuleFor(styles, ['.repository-row'])).not.toMatch(/border-top:/)
+  expect(jobHistoryDivider).toMatch(/border-top:\s*1px solid var\(--line\)/)
+})
+
+test('gives primary actions and GitHub links explicit keyboard focus rings', () => {
+  const anchorFocus = exactRuleFor(styles, [
+    '.primary-action:focus-visible',
+    '.github-link:focus-visible'
+  ])
+
+  expect(anchorFocus).toMatch(/outline:\s*3px solid var\(--focus-ring\)/)
+  expect(anchorFocus).toMatch(/outline-offset:\s*2px/)
 })
 
 test('Archive.Stars keeps its desktop directory rail visible without constraining the mobile stack', () => {
@@ -126,7 +161,6 @@ test('Archive.Stars styles its shell, library, state, and dialog primitives', ()
     '.archive-brand',
     '.archive-star-mark',
     '.archive-wordmark',
-    '.archive-utilities',
     '.archive-directory',
     '.archive-filter-container',
     '.library-header',
@@ -157,7 +191,6 @@ test('Archive.Stars keeps controls operable across narrow, dark, reduced-motion,
   expect(mobile).not.toBe('')
   expect(ruleFor(mobile, '.archive-workspace-frame')).toMatch(/grid-template-columns:\s*1fr/)
   expect(ruleFor(mobile, '.archive-directory')).toMatch(/border-right:\s*0/)
-  expect(ruleFor(mobile, '.archive-utilities')).not.toMatch(/display:\s*none/)
   expect(ruleFor(mobile, '.nav-item')).toMatch(/min-height:\s*44px/)
   expect(ruleFor(mobile, '.selection-control')).toMatch(/min-inline-size:\s*44px/)
   expect(styles).not.toMatch(/(?:html|body)[^{}]*\{[^{}]*overflow-x:\s*hidden/)

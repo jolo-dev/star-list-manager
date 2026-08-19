@@ -256,6 +256,20 @@ details.nav-group { display: grid; gap: 7px; }
 }
 .nav-item:hover { background: var(--surface-muted); }
 .nav-item.is-active, .nav-item[aria-current="page"] { background: var(--surface-nav-active); border-bottom-color: var(--border-current); font-weight: 700; }
+.nav-item.archive-primary-link {
+  display: inline-flex;
+  width: auto;
+  padding: 7px 0;
+  background: var(--surface);
+  border: 0;
+  border-bottom: 1px solid var(--transparent);
+  font-weight: 500;
+}
+.nav-item.archive-primary-link:hover,
+.nav-item.archive-primary-link[aria-current="page"] {
+  background: var(--surface);
+  border-bottom-color: var(--archive-line);
+}
 .archive-index-number { color: var(--text-secondary); font-family: var(--font-technical); font-size: var(--type-label-size); font-variant-numeric: tabular-nums; }
 .archive-directory-count { justify-self: end; color: var(--text-secondary); font-family: var(--font-technical); font-size: var(--type-label-size); font-variant-numeric: tabular-nums; }
 .nav-item[aria-current="page"] .archive-directory-count { color: var(--text-nav-count-active); }
@@ -332,7 +346,7 @@ h1 { max-width: 25ch; margin-bottom: 0; font-size: clamp(32px, 3.45vw, 48px); fo
 
 .library-grid { display: block; margin-top: 28px; }
 .results-panel { overflow-y: auto; background: var(--surface); border-top: 1px solid var(--archive-line); border-bottom: 1px solid var(--archive-line); }
-.repository-list li + li, .batch-jobs li, .operation-history-list li { border-top: 1px solid var(--line); }
+.batch-jobs li, .operation-history-list li { border-top: 1px solid var(--line); }
 .repository-row-shell { display: flex; align-items: stretch; min-width: 0; }
 .repository-row-shell + .repository-row-shell { border-top: 1px solid var(--archive-line); }
 .selection-control { display: grid; flex: 0 0 44px; place-items: center; background: var(--surface-muted); border-right: 1px solid var(--line); }
@@ -347,7 +361,6 @@ h1 { max-width: 25ch; margin-bottom: 0; font-size: clamp(32px, 3.45vw, 48px); fo
   padding: 24px 0;
   color: inherit;
   background: var(--surface);
-  border-top: 1px solid var(--archive-line);
   border-right: 0;
   border-bottom: 0;
   border-left: 0;
@@ -413,6 +426,8 @@ h1 { max-width: 25ch; margin-bottom: 0; font-size: clamp(32px, 3.45vw, 48px); fo
 .inspector-heading h2 { min-width: 0; margin-bottom: 0; overflow-wrap: anywhere; font-size: 23px; line-height: 1.2; }
 .github-link { flex: 0 0 auto; color: var(--text-primary); font-family: var(--font-technical); font-size: var(--type-data-size); font-weight: 650; text-decoration-color: var(--focus); text-underline-offset: 3px; }
 .github-link:hover { color: var(--focus); }
+.primary-action:focus-visible,
+.github-link:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .inspector-description { margin: 18px 0; color: var(--type-color-reading); font-size: var(--type-reading-size); line-height: var(--type-leading-reading); }
 .inspector-section { padding: 18px 0; border-bottom: 1px solid var(--line); }
 .inspector-section > h3, .detail-group h4 { margin: 0 0 10px; }
