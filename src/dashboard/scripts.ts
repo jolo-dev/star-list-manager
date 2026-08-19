@@ -179,9 +179,20 @@ const workspaceKind = van.derive(() =>
 function Dashboard() {
   const workspaces = {
     library: ReadyLibraryState(),
-    operations: PersistentStatePage('operations-page', OperationsState),
-    settings: PersistentStatePage('settings-page', SettingsState),
-    phase: div({class: 'phase-workspace'}, () => renderState(currentPublishedState()))
+    operations: PersistentStatePage(
+      'operations-page',
+      OperationsState,
+      operationsPublishedState
+    ),
+    settings: PersistentStatePage(
+      'settings-page',
+      SettingsState,
+      settingsPublishedState
+    ),
+    phase: div(
+      {class: 'phase-workspace'},
+      () => renderState(phasePublishedState())
+    )
   }
   return div(
     {class: 'app-shell'},
@@ -271,26 +282,65 @@ function NavItem(title: string, view: LibraryView, count: number | null) {
   )
 }
 
-function currentPublishedState(): AppState {
+function phasePublishedState(): AppState {
   return {
+    ...emptyState,
     phase: publishedPhase.val,
-    identity: publishedIdentity.val,
     authorization: publishedAuthorization.val,
+    error: publishedError.val
+  }
+}
+
+function operationsPublishedState(): AppState {
+  return {
+    ...emptyState,
+    phase: 'ready',
+    identity: publishedIdentity.val,
+    mutations: publishedMutations.val ?? null
+  }
+}
+
+function settingsPublishedState(): AppState {
+  return {
+    ...emptyState,
+    phase: 'ready',
+    identity: publishedIdentity.val,
     writeAuthorization: publishedWriteAuthorization.val,
     ...(publishedNativeListMembership.val === undefined
       ? {}
       : {nativeListMembership: publishedNativeListMembership.val}),
-    ...(publishedNativeListRename.val === undefined
+    sync: publishedSync.val,
+    nativeListSync: publishedNativeListSync.val
+  }
+}
+
+function libraryActionPublishedState(): AppState {
+  return {
+    ...emptyState,
+    phase: 'ready',
+    writeAuthorization: publishedWriteAuthorization.val,
+    ...(publishedNativeListMembership.val === undefined
       ? {}
-      : {nativeListRename: publishedNativeListRename.val}),
+      : {nativeListMembership: publishedNativeListMembership.val}),
+    library: publishedLibrary.val
+  }
+}
+
+function statusPublishedState(): AppState {
+  return {
+    ...emptyState,
+    phase: 'ready',
     sync: publishedSync.val,
     nativeListSync: publishedNativeListSync.val,
-    triageCounts: publishedTriageCounts.val,
-    library: publishedLibrary.val,
-    ...(publishedMutations.val === undefined
-      ? {}
-      : {mutations: publishedMutations.val}),
     error: publishedError.val
+  }
+}
+
+function writeAuthorizationPublishedState(): AppState {
+  return {
+    ...emptyState,
+    phase: 'ready',
+    writeAuthorization: publishedWriteAuthorization.val
   }
 }
 
@@ -311,12 +361,13 @@ function renderWorkspace(
 
 function PersistentStatePage(
   className: string,
-  render: (state: AppState) => HTMLElement
+  render: (state: AppState) => HTMLElement,
+  readState: () => AppState
 ) {
   return div(
     {class: className},
     () => {
-      const rendered = render(currentPublishedState())
+      const rendered = render(readState())
       return div({class: 'state-page-content'}, ...rendered.childNodes)
     }
   )
@@ -371,9 +422,9 @@ function ReadyLibraryState(
   page = div(
     {class: 'library-page'},
     LibraryHeader(repositories, repositoryMatches),
-    () => SelectionActions(currentPublishedState(), repositories.val),
+    () => SelectionActions(libraryActionPublishedState(), repositories.val),
     () => AdvancedFilters(),
-    () => StatusBanners(currentPublishedState()),
+    () => StatusBanners(statusPublishedState()),
     () => {
       publishedLibrary.val
       return LibraryResults(
@@ -387,7 +438,7 @@ function ReadyLibraryState(
     () =>
       pendingUnstarTargets.val.length > 0
         ? UnstarConfirmation(
-            currentPublishedState(),
+            writeAuthorizationPublishedState(),
             pendingUnstarTargets.val,
             () => void confirmPendingUnstars(),
             () => cancelUnstarConfirmation(true)
@@ -417,10 +468,6 @@ function LibraryResults(results: DerivedRepositoryResults) {
         (item) => item.repository.repositoryNodeId === inspectedRepositoryNodeId.val
       ) ?? null
     : null
-  if (inspectedRepositoryNodeId.val && !results.inspectedRemainsVisible) {
-    dismissStaleRepositoryInspection()
-  }
-
   return div(
     {class: 'library-results'},
     div(
@@ -475,8 +522,11 @@ function LibraryHeader(
           placeholder: 'Search stars, notes, Lists…',
           value: searchText,
           oninput: (event: Event) => {
-            searchText.val = (event.currentTarget as HTMLInputElement).value
-            selectedRepositoryNodeId.val = null
+            const value = (event.currentTarget as HTMLInputElement).value
+            updateRepositoryQuery(() => {
+              searchText.val = value
+              selectedRepositoryNodeId.val = null
+            })
           }
         })
       ),
@@ -500,7 +550,10 @@ function LibraryHeader(
               {
                 value: () => language.val ?? '',
                 onchange: (event: Event) => {
-                  language.val = (event.currentTarget as HTMLSelectElement).value || null
+                  const value = (event.currentTarget as HTMLSelectElement).value || null
+                  updateRepositoryQuery(() => {
+                    language.val = value
+                  })
                 }
               },
               option({value: ''}, 'All'),
@@ -515,8 +568,11 @@ function LibraryHeader(
               {
                 value: sort,
                 onchange: (event: Event) => {
-                  sort.val = (event.currentTarget as HTMLSelectElement)
+                  const value = (event.currentTarget as HTMLSelectElement)
                     .value as RepositorySort
+                  updateRepositoryQuery(() => {
+                    sort.val = value
+                  })
                 }
               },
               option({value: 'starred-at'}, 'Star date'),
@@ -531,7 +587,9 @@ function LibraryHeader(
               type: 'button',
               'aria-pressed': ascending,
               onclick: () => {
-                ascending.val = !ascending.val
+                updateRepositoryQuery(() => {
+                  ascending.val = !ascending.val
+                })
               }
             },
             () => (ascending.val ? 'Ascending' : 'Descending')
@@ -542,7 +600,9 @@ function LibraryHeader(
               type: 'button',
               'aria-pressed': hideArchived,
               onclick: () => {
-                hideArchived.val = !hideArchived.val
+                updateRepositoryQuery(() => {
+                  hideArchived.val = !hideArchived.val
+                })
               }
             },
             () => (hideArchived.val ? 'Archived hidden' : 'Archived shown')
@@ -1728,7 +1788,7 @@ function RepositoryInspector(item: LibraryRepository) {
         'List membership and starring controls below change your connected GitHub account. Local organization stays in this browser.'
       ),
       repository.isStarred
-        ? () => NativeListMembershipControls(currentPublishedState(), [repository], 'single')
+        ? () => NativeListMembershipControls(libraryActionPublishedState(), [repository], 'single')
         : null,
       repository.isStarred
         ? div(
@@ -1751,7 +1811,7 @@ function RepositoryInspector(item: LibraryRepository) {
                 : 'Review unstar'
             ),
             () => publishedWriteAuthorization.val.readiness !== 'ready'
-              ? WriteReadinessNotice(currentPublishedState())
+              ? WriteReadinessNotice(writeAuthorizationPublishedState())
               : null
           )
         : null,
@@ -1997,7 +2057,9 @@ function AdvancedFilters() {
           ['all', 'All states']
         ],
         (value) => {
-          starState.val = value as StarFilter
+          updateRepositoryQuery(() => {
+            starState.val = value as StarFilter
+          })
         }
       ),
       FilterSelect(
@@ -2011,7 +2073,9 @@ function AdvancedFilters() {
           ['snoozed', 'Snoozed']
         ],
         (value) => {
-          triageState.val = value ? (value as TriageState) : null
+          updateRepositoryQuery(() => {
+            triageState.val = value ? (value as TriageState) : null
+          })
         }
       ),
       FilterSelect(
@@ -2023,7 +2087,9 @@ function AdvancedFilters() {
           ['only', 'Only disabled']
         ],
         (value) => {
-          disabled.val = value as InclusionFilter
+          updateRepositoryQuery(() => {
+            disabled.val = value as InclusionFilter
+          })
         }
       ),
       DateFilter('Starred after', starredAfter),
@@ -2072,7 +2138,10 @@ function DateFilter(title: string, state: {val: string | null}) {
       type: 'date',
       value: state.val ?? '',
       onchange: (event: Event) => {
-        state.val = (event.currentTarget as HTMLInputElement).value || null
+        const value = (event.currentTarget as HTMLInputElement).value || null
+        updateRepositoryQuery(() => {
+          state.val = value
+        })
       }
     })
   )
@@ -2291,25 +2360,6 @@ function closeRepositoryInspection(): void {
   restoreDialogInvoker(dismissRepositoryInspection())
 }
 
-function dismissStaleRepositoryInspection(): void {
-  const invoker = repositoryDialogInvoker
-  const ownerDocument = invoker?.element.ownerDocument ?? document
-  const MutationObserverConstructor = ownerDocument.defaultView?.MutationObserver
-  const fallbackSelector = '.repository-list .repository-row:not(:disabled)'
-
-  if (invoker?.element.isConnected && MutationObserverConstructor && ownerDocument.body) {
-    const observer = new MutationObserverConstructor(() => {
-      if (invoker.element.isConnected) return
-      observer.disconnect()
-      focusDialogInvoker(invoker, fallbackSelector, true)
-    })
-    observer.observe(ownerDocument.body, {childList: true, subtree: true})
-    dismissRepositoryInspection()
-    return
-  }
-
-  restoreDialogInvoker(dismissRepositoryInspection(), fallbackSelector, true)
-}
 
 function dismissRepositoryInspection(): DialogInvoker | null {
   const invoker = repositoryDialogInvoker
@@ -2647,7 +2697,7 @@ function applyState(state: AppState): void {
   appState.val = state
   publishStateSlices(state, nextFingerprints)
   if (phaseChanged) refreshWorkspacePhase(state.phase)
-  if (position) restoreDashboardPosition(position)
+  if (position) scheduleRepositoryQueryReconciliation(position)
   if (state.library) {
     const selectable = new Set(
       state.library.repositories
@@ -2684,13 +2734,17 @@ function applyState(state: AppState): void {
 function refreshWorkspacePhase(phase: AppPhase): void {
   for (const workspace of document.querySelectorAll<HTMLElement>('.workspace')) {
     if (phase !== 'ready') {
-      workspace.replaceChildren(renderState(currentPublishedState()))
+      workspace.replaceChildren(renderState(phasePublishedState()))
       continue
     }
     if (activeView.val.kind === 'operations') {
-      workspace.replaceChildren(PersistentStatePage('operations-page', OperationsState))
+      workspace.replaceChildren(
+        PersistentStatePage('operations-page', OperationsState, operationsPublishedState)
+      )
     } else if (activeView.val.kind === 'settings') {
-      workspace.replaceChildren(PersistentStatePage('settings-page', SettingsState))
+      workspace.replaceChildren(
+        PersistentStatePage('settings-page', SettingsState, settingsPublishedState)
+      )
     } else {
       workspace.replaceChildren(ReadyLibraryState())
     }
@@ -2793,40 +2847,111 @@ function publishIfMateriallyChanged<T>(
 interface DashboardPosition {
   readonly scrollTop: number
   readonly repositoryNodeId: string | null
-  readonly search: {readonly start: number | null; readonly end: number | null} | null
+  readonly repositoryIndex: number
+  readonly hadRepositoryFocus: boolean
+  readonly search: {
+    readonly element: HTMLInputElement
+    readonly start: number | null
+    readonly end: number | null
+  } | null
+  readonly dialogInvoker: DialogInvoker | null
+}
+
+function updateRepositoryQuery(update: () => void): void {
+  const position = captureDashboardPosition()
+  update()
+  scheduleRepositoryQueryReconciliation(position)
 }
 
 function captureDashboardPosition(): DashboardPosition | null {
-  const list = document.querySelector<HTMLElement>('.repository-list')
   const active = document.activeElement as HTMLElement | null
   const focusedRow = active?.closest<HTMLElement>('.repository-row') ?? null
-  const searchInput = active?.id === 'library-search' ? active as HTMLInputElement : null
-  if (!list && !focusedRow && !searchInput) return null
+  const searchInput = active?.id === 'library-search'
+    ? active as HTMLInputElement
+    : null
+  const libraryPage = focusedRow?.closest<HTMLElement>('.library-page') ??
+    searchInput?.closest<HTMLElement>('.library-page') ??
+    document.querySelector<HTMLElement>('.library-page')
+  const list = libraryPage?.querySelector<HTMLElement>('.repository-list') ?? null
+  const rows = list
+    ? [...list.querySelectorAll<HTMLElement>('.repository-row')]
+    : []
+  if (!list && !focusedRow && !searchInput && !repositoryDialogInvoker) return null
   return {
     scrollTop: list?.scrollTop ?? 0,
     repositoryNodeId: focusedRow?.dataset.repositoryNodeId ?? null,
+    repositoryIndex: focusedRow ? rows.indexOf(focusedRow) : -1,
+    hadRepositoryFocus: focusedRow !== null,
     search: searchInput
-      ? {start: searchInput.selectionStart, end: searchInput.selectionEnd}
-      : null
+      ? {
+          element: searchInput,
+          start: searchInput.selectionStart,
+          end: searchInput.selectionEnd
+        }
+      : null,
+    dialogInvoker: repositoryDialogInvoker
+  }
+}
+
+function scheduleRepositoryQueryReconciliation(
+  position: DashboardPosition | null
+): void {
+  window.setTimeout(() => window.setTimeout(() => {
+    reconcileStaleRepositoryInspection(position)
+    if (position) restoreDashboardPosition(position)
+  }, 0), 0)
+}
+
+function reconcileStaleRepositoryInspection(
+  position: DashboardPosition | null
+): void {
+  if (
+    inspectedRepositoryNodeId.val === null ||
+    document.querySelector('.repository-inspection-dialog') !== null
+  ) {
+    return
+  }
+  const invoker = dismissRepositoryInspection() ?? position?.dialogInvoker ?? null
+  if (!position?.hadRepositoryFocus && position?.search === null) {
+    restoreDialogInvoker(invoker, '.repository-list .repository-row:not(:disabled)', true)
   }
 }
 
 function restoreDashboardPosition(position: DashboardPosition): void {
-  window.setTimeout(() => window.setTimeout(() => {
-    const list = document.querySelector<HTMLElement>('.repository-list')
-    if (list) list.scrollTop = position.scrollTop
-    if (position.repositoryNodeId) {
-      [...document.querySelectorAll<HTMLElement>('.repository-row')]
-        .find((row) => row.dataset.repositoryNodeId === position.repositoryNodeId)
-        ?.focus()
-      return
-    }
-    if (position.search) {
-      const searchInput = document.getElementById('library-search') as HTMLInputElement | null
-      searchInput?.focus()
-      searchInput?.setSelectionRange(position.search.start, position.search.end)
-    }
-  }, 0), 0)
+  const libraryPage = document.querySelector<HTMLElement>('.library-page')
+  const list = libraryPage?.querySelector<HTMLElement>('.repository-list') ?? null
+  if (list) list.scrollTop = position.scrollTop
+
+  if (position.search) {
+    const searchInput = position.search.element.isConnected
+      ? position.search.element
+      : document.getElementById('library-search') as HTMLInputElement | null
+    searchInput?.focus()
+    searchInput?.setSelectionRange(position.search.start, position.search.end)
+    return
+  }
+
+  if (!position.hadRepositoryFocus) return
+  const rows = list
+    ? [...list.querySelectorAll<HTMLElement>('.repository-row:not(:disabled)')]
+    : []
+  const retained = position.repositoryNodeId
+    ? rows.find((row) => row.dataset.repositoryNodeId === position.repositoryNodeId) ?? null
+    : null
+  const fallback = rows[position.repositoryIndex] ??
+    rows[Math.min(Math.max(position.repositoryIndex - 1, 0), rows.length - 1)] ??
+    rows[0] ??
+    null
+  const target = retained ?? fallback
+  if (target) {
+    target.focus()
+    return
+  }
+  focusDialogInvoker(
+    position.dialogInvoker,
+    '.repository-list .repository-row:not(:disabled)',
+    true
+  )
 }
 
 function reconcileActiveNativeList(state: AppState): void {
@@ -2953,9 +3078,16 @@ async function confirmCompleteRemoval(): Promise<void> {
 }
 
 function setActiveView(view: LibraryView): void {
-  if (JSON.stringify(activeView.val) !== JSON.stringify(view)) resetNativeListRenameEditor()
-  activeView.val = view
-  refreshActiveViewDom(view)
+  const previous = activeView.val
+  if (JSON.stringify(previous) !== JSON.stringify(view)) resetNativeListRenameEditor()
+  const applyView = () => {
+    activeView.val = view
+    refreshActiveViewDom(view)
+  }
+  const previousIsLibrary = previous.kind === 'unlist' || previous.kind === 'list'
+  const nextIsLibrary = view.kind === 'unlist' || view.kind === 'list'
+  if (previousIsLibrary && nextIsLibrary) updateRepositoryQuery(applyView)
+  else applyView()
 }
 
 function refreshActiveViewDom(view: LibraryView): void {
@@ -3123,13 +3255,15 @@ function activeAdvancedFilterLabels(): readonly string[] {
 }
 
 function clearAdvancedFilters(): void {
-  starState.val = 'starred'
-  disabled.val = 'all'
-  triageState.val = null
-  starredAfter.val = null
-  starredBefore.val = null
-  pushedAfter.val = null
-  pushedBefore.val = null
+  updateRepositoryQuery(() => {
+    starState.val = 'starred'
+    disabled.val = 'all'
+    triageState.val = null
+    starredAfter.val = null
+    starredBefore.val = null
+    pushedAfter.val = null
+    pushedBefore.val = null
+  })
 }
 
 function toStartOfDay(value: string | null): string | null {
@@ -3180,6 +3314,10 @@ function setStateImmediately<T>(signal: {val: T}, value: T): void {
 }
 
 function publishTestStateImmediately(state: AppState): void {
+  setStateImmediately(
+    workspaceKind,
+    classifyWorkspace(state.phase, activeView.val)
+  )
   setStateImmediately(publishedPhase, state.phase)
   setStateImmediately(publishedIdentity, state.identity)
   setStateImmediately(publishedAuthorization, state.authorization)

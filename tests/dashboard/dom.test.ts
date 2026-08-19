@@ -898,10 +898,13 @@ test('keeps dashboard nodes, focus, scroll, and query work stable across equival
   }
   renderAppState(succeeded)
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.sidebar')).toBe(sidebar)
   expect(root.querySelector('.library-page')).toBe(page)
   expect(root.querySelector('.repository-list')).toBe(list)
+  rows.forEach((item, index) => expect(root.querySelectorAll('.repository-row-shell')[index]).toBe(item))
   expect(root.querySelector('.repository-row')).toBe(row)
   expect(document.activeElement).toBe(row)
+  expect(list.scrollTop).toBe(96)
   expect(root.querySelector('.mutation-status')?.getAttribute('data-status')).toBe('succeeded')
   expect(queryCalls).toBe(0)
 
@@ -919,7 +922,14 @@ test('keeps dashboard nodes, focus, scroll, and query work stable across equival
 test('updates material library metadata while restoring row and Search focus', async () => {
   const state = readyDashboardState()
   const root = await mountReadyDashboard(state)
-  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const {renderAppState, renderLibraryState} = await import('../../src/dashboard/scripts')
+  let queryCalls = 0
+  const queryProbe = renderLibraryState(state, (...args) => {
+    queryCalls += 1
+    return queryRepositories(...args)
+  })
+  document.body.append(queryProbe)
+  queryCalls = 0
   const page = root.querySelector('.library-page')
   const list = root.querySelector<HTMLElement>('.repository-list')!
   const row = root.querySelector<HTMLElement>('.repository-row')!
@@ -934,6 +944,10 @@ test('updates material library metadata while restoring row and Search focus', a
         name: 'renamed',
         fullName: 'octocat/renamed',
         description: 'Updated description'
+      })),
+      nativeLists: state.library!.nativeLists.map((list) => ({
+        ...list,
+        name: 'Renamed List'
       }))
     }
   }
@@ -943,6 +957,8 @@ test('updates material library metadata while restoring row and Search focus', a
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
   expect(root.querySelector('.library-page')).toBe(page)
   expect(root.querySelector('.repository-row h2')?.textContent).toBe('renamed')
+  expect(root.querySelector('.sidebar')?.textContent).toContain('Renamed List')
+  expect(queryCalls).toBe(1)
   expect((document.activeElement as HTMLElement | null)?.dataset.repositoryNodeId).toBe('R_one')
   expect(root.querySelector<HTMLElement>('.repository-list')?.scrollTop).toBe(96)
 
@@ -968,6 +984,228 @@ test('updates material library metadata while restoring row and Search focus', a
   expect(search.value).toBe('rename')
   expect(search.selectionStart).toBe(2)
   expect(search.selectionEnd).toBe(5)
+  queryProbe.remove()
+})
+
+test('keeps Operations and Settings page content stable across unrelated slice updates', async () => {
+  const base: AppState = {
+    ...readyDashboardState(),
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists')
+  }
+  const root = await mountReadyDashboard(base)
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const navigationButton = (label: string) =>
+    [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
+      (button) => button.querySelector('.nav-label')?.textContent === label
+    )!
+
+  navigationButton('Operations').click()
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  const operationsPage = root.querySelector('.operations-page')
+  const operationsContent = root.querySelector('.operations-page .state-page-content')
+  renderAppState({
+    ...base,
+    writeAuthorization: {...base.writeAuthorization, previewVisible: true}
+  })
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.operations-page')).toBe(operationsPage)
+  expect(root.querySelector('.operations-page .state-page-content')).toBe(operationsContent)
+
+  navigationButton('Settings').click()
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  const settingsPage = root.querySelector('.settings-page')
+  const settingsContent = root.querySelector('.settings-page .state-page-content')
+  renderAppState({
+    ...base,
+    mutations: {
+      jobs: [{...mutationJob('42', 'failed', 1), repositoryNodeId: 'R_one'}],
+      batches: [],
+      history: []
+    }
+  })
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.settings-page')).toBe(settingsPage)
+  expect(root.querySelector('.settings-page .state-page-content')).toBe(settingsContent)
+})
+
+test('keeps library selection and status subtrees stable across unrelated slices', async () => {
+  const state = readyDashboardState()
+  const root = await mountReadyDashboard(state)
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  root.querySelector<HTMLInputElement>('.selection-control input')!.click()
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  const selection = root.querySelector('.selection-bar')
+  const status = root.querySelector('.status-stack')
+
+  renderAppState({...state, triageCounts: {inbox: 9, backlog: 8, due: 7, organized: 6}})
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('.selection-bar')).toBe(selection)
+  expect(root.querySelector('.status-stack')).toBe(status)
+})
+
+test('preserves repository focus and scroll across sort, filters, and List view changes', async () => {
+  const base = readyDashboardState()
+  const repositories = [
+    {...base.library!.repositories[0]!, primaryLanguage: 'TypeScript'},
+    {...repositoryRecord('42', 'R_two', 'octocat/two'), primaryLanguage: 'Rust'},
+    {...repositoryRecord('42', 'R_three', 'octocat/three'), primaryLanguage: 'Go'}
+  ]
+  const state: AppState = {
+    ...base,
+    library: {
+      ...base.library!,
+      repositories,
+      nativeLists: [
+        ...base.library!.nativeLists,
+        nativeList('L_other', 'Other List')
+      ],
+      nativeMemberships: repositories.flatMap((repository) => [
+        {
+          githubUserId: '42',
+          repositoryNodeId: repository.repositoryNodeId,
+          listNodeId: 'L_current',
+          lastObservedAt: '2026-08-04T10:00:00Z'
+        },
+        {
+          githubUserId: '42',
+          repositoryNodeId: repository.repositoryNodeId,
+          listNodeId: 'L_other',
+          lastObservedAt: '2026-08-04T10:00:00Z'
+        }
+      ])
+    }
+  }
+  const root = await mountReadyDashboard(state)
+  const browserWindow = window as unknown as Window
+  const search = root.querySelector<HTMLInputElement>('#library-search')!
+  search.value = ''
+  search.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+  const initialLanguage = [...root.querySelectorAll<HTMLLabelElement>('label')].find(
+    (label) => label.firstElementChild?.textContent === 'Language'
+  )!.querySelector<HTMLSelectElement>('select')!
+  initialLanguage.value = ''
+  initialLanguage.dispatchEvent(
+    new browserWindow.Event('change', {bubbles: true}) as unknown as Event
+  )
+  root.querySelector<HTMLButtonElement>('.clear-filters')?.click()
+  const currentList = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
+    (button) => button.querySelector('.nav-label')?.textContent === 'Current List'
+  )!
+  currentList.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  const focusedRepositoryId = 'R_two'
+  const focusRow = () => root.querySelector<HTMLElement>(
+    `.repository-row[data-repository-node-id="${focusedRepositoryId}"]`
+  )!
+  let list = root.querySelector<HTMLElement>('.repository-list')!
+  list.scrollTop = 84
+  focusRow().focus()
+
+  const sort = [...root.querySelectorAll<HTMLLabelElement>('label')].find(
+    (label) => label.firstElementChild?.textContent === 'Sort'
+  )!.querySelector<HTMLSelectElement>('select')!
+  sort.value = 'name'
+  sort.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+  expect((document.activeElement as HTMLElement | null)?.dataset.repositoryNodeId).toBe(focusedRepositoryId)
+  expect(root.querySelector<HTMLElement>('.repository-list')?.scrollTop).toBe(84)
+
+  const assertQueryControlPreservesPosition = async (
+    apply: () => void,
+    scrollTop: number
+  ) => {
+    const currentListElement = root.querySelector<HTMLElement>('.repository-list')!
+    currentListElement.scrollTop = scrollTop
+    focusRow().focus()
+    apply()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+    expect((document.activeElement as HTMLElement | null)?.dataset.repositoryNodeId).toBe(focusedRepositoryId)
+    expect(root.querySelector<HTMLElement>('.repository-list')?.scrollTop).toBe(scrollTop)
+  }
+  await assertQueryControlPreservesPosition(() => {
+    search.value = 'octocat'
+    search.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+  }, 81)
+  const starStateControl = [...root.querySelectorAll<HTMLLabelElement>('label')].find(
+    (label) => label.firstElementChild?.textContent === 'Star state'
+  )!.querySelector<HTMLSelectElement>('select')!
+  await assertQueryControlPreservesPosition(() => {
+    starStateControl.value = 'all'
+    starStateControl.dispatchEvent(
+      new browserWindow.Event('change', {bubbles: true}) as unknown as Event
+    )
+  }, 79)
+  const archiveControl = [...root.querySelectorAll<HTMLButtonElement>('.filter-toggle')].find(
+    (button) => button.textContent?.startsWith('Archived')
+  )!
+  await assertQueryControlPreservesPosition(() => archiveControl.click(), 77)
+
+  list = root.querySelector<HTMLElement>('.repository-list')!
+  list.scrollTop = 73
+  focusRow().focus()
+  const otherList = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
+    (button) => button.querySelector('.nav-label')?.textContent === 'Other List'
+  )!
+  otherList.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+  expect((document.activeElement as HTMLElement | null)?.dataset.repositoryNodeId).toBe(focusedRepositoryId)
+  expect(root.querySelector<HTMLElement>('.repository-list')?.scrollTop).toBe(73)
+
+  search.value = ''
+  search.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+  starStateControl.value = 'starred'
+  starStateControl.dispatchEvent(
+    new browserWindow.Event('change', {bubbles: true}) as unknown as Event
+  )
+  archiveControl.click()
+  sort.value = 'starred-at'
+  sort.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+  const unlist = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
+    (button) => button.querySelector('.nav-label')?.textContent === 'Unlist'
+  )!
+  unlist.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+})
+
+test('moves focus to an available repository when a filter removes the focused row', async () => {
+  const base = readyDashboardState()
+  const state: AppState = {
+    ...base,
+    library: {
+      ...base.library!,
+      repositories: [
+        {...base.library!.repositories[0]!, primaryLanguage: 'TypeScript'},
+        {...repositoryRecord('42', 'R_two', 'octocat/two'), primaryLanguage: 'Rust'},
+        {...repositoryRecord('42', 'R_three', 'octocat/three'), primaryLanguage: 'TypeScript'}
+      ]
+    }
+  }
+  const root = await mountReadyDashboard(state)
+  const browserWindow = window as unknown as Window
+  const focused = root.querySelector<HTMLElement>(
+    '.repository-row[data-repository-node-id="R_two"]'
+  )!
+  focused.focus()
+  const language = [...root.querySelectorAll<HTMLLabelElement>('label')].find(
+    (label) => label.firstElementChild?.textContent === 'Language'
+  )!.querySelector<HTMLSelectElement>('select')!
+  language.value = 'TypeScript'
+  language.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+
+  const active = document.activeElement as HTMLElement | null
+  expect(active).not.toBe(document.body)
+  expect(active?.classList.contains('repository-row')).toBe(true)
+  expect(active?.dataset.repositoryNodeId).toBe('R_three')
+
+  language.value = ''
+  language.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+  await browserWindow.happyDOM.whenAsyncComplete()
 })
 
 test('reindexes repository jobs when only the active account changes', async () => {

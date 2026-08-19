@@ -63,6 +63,7 @@ console.log(
       dataset: {repositories: repositoryCount, jobs: jobCount, legacyLookupSampleSize},
       jobs: {
         legacyMsPerLookup,
+        indexedLookupCount: repositoryCount,
         indexBuildMs,
         indexedLookupMs,
         indexedLookupChecksum,
