@@ -221,6 +221,7 @@ let activeMembershipPreviewRequestToken: number | null = null
 let pollTimer: number | null = null
 let autoSyncAccountId: string | null = null
 let dashboardAccountId: string | null = null
+let dashboardAccountGeneration = 0
 let mountedDashboardRoot: HTMLElement | null = null
 let nextDashboardMountId = 0
 let activeDashboardMountId = 0
@@ -239,10 +240,27 @@ interface DialogInvoker {
 interface NativeListRenameRequest {
   readonly token: number
   readonly accountId: string | null
+  readonly focusLifecycle: FocusLifecycle
 }
 
 interface NativeListRenameInvoker {
   readonly listNodeId: string
+}
+
+interface FocusLifecycle {
+  readonly mountId: number
+  readonly accountId: string | null
+  readonly accountGeneration: number
+  readonly dashboardRoot: HTMLElement | null
+  readonly scope: HTMLElement | null
+  readonly ownerDocument: Document
+}
+
+interface SuccessFocusRequest {
+  readonly lifecycle: FocusLifecycle
+  readonly invoker: DialogInvoker | null
+  readonly repositoryNodeIds: readonly string[]
+  readonly view: LibraryView
 }
 
 function Dashboard(runQuery: RepositoryQueryRunner = queryRepositories) {
@@ -573,7 +591,7 @@ function LibraryHeader(
       () => LibraryViewContext(),
       h1(() => populationTitle(starState.val)),
       p(
-        {class: 'result-count', role: 'status', 'aria-live': 'polite'},
+        {class: 'result-count', role: 'status'},
         () => `${repositoryMatches.val.length} repositories`
       )
     ),
@@ -858,9 +876,12 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
     return
   }
 
+  const invoker = nativeListRenameInvoker ?? {listNodeId}
+  const invokerElement = findNativeListRenameInvoker(invoker)
   const request: NativeListRenameRequest = {
     token: ++nextNativeListRenameRequestToken,
-    accountId: appState.val.identity?.githubUserId ?? null
+    accountId: appState.val.identity?.githubUserId ?? null,
+    focusLifecycle: captureFocusLifecycle(invokerElement)
   }
   activeNativeListRenameRequest = request
   savingNativeListRename.val = true
@@ -897,11 +918,10 @@ async function submitNativeListRename(listNodeId: string): Promise<void> {
     ) {
       return
     }
-    const invoker = nativeListRenameInvoker ?? {listNodeId}
     applyState(response.data)
     if (activeView.val.kind === 'list' && activeView.val.listNodeId === listNodeId) {
       resetNativeListRenameEditor()
-      restoreNativeListRenameInvoker(invoker)
+      restoreNativeListRenameInvoker(invoker, request.focusLifecycle)
     }
   } catch {
     if (isCurrentNativeListRenameEditor(request, listNodeId)) {
@@ -942,27 +962,28 @@ function resetNativeListRenameEditor(): void {
   nativeListRenameInvoker = null
 }
 
-function restoreNativeListRenameInvoker(invoker: NativeListRenameInvoker | null): void {
-  if (invoker === null) return
-  const mountId = activeDashboardMountId
-  const accountId = dashboardAccountId
-  const current = [...document.querySelectorAll<HTMLButtonElement>(
+function findNativeListRenameInvoker(
+  invoker: NativeListRenameInvoker
+): HTMLButtonElement | null {
+  return [...document.querySelectorAll<HTMLButtonElement>(
     '[data-native-list-rename-invoker]'
   )].find((element) => element.dataset.nativeListRenameInvoker === invoker.listNodeId) ?? null
-  const scope = current?.closest<HTMLElement>('.app-shell, .library-page') ?? null
-  window.setTimeout(() => {
-    if (
-      mountId !== activeDashboardMountId ||
-      accountId !== dashboardAccountId ||
-      (scope !== null && !scope.isConnected)
-    ) {
-      return
-    }
-    const searchRoot: ParentNode = scope ?? document
+}
+
+function restoreNativeListRenameInvoker(
+  invoker: NativeListRenameInvoker | null,
+  lifecycle?: FocusLifecycle
+): void {
+  if (invoker === null) return
+  const initiated = lifecycle ?? captureFocusLifecycle(findNativeListRenameInvoker(invoker))
+  const ownerWindow = initiated.ownerDocument.defaultView ?? window
+  ownerWindow.setTimeout(() => {
+    if (!isFocusLifecycleCurrent(initiated)) return
+    const searchRoot: ParentNode = initiated.scope ?? initiated.ownerDocument
     const editButton = [...searchRoot.querySelectorAll<HTMLButtonElement>(
       '[data-native-list-rename-invoker]'
     )].find((element) => element.dataset.nativeListRenameInvoker === invoker.listNodeId) ?? null
-    if (isVisibleFocusTarget(editButton)) editButton.focus()
+    tryFocusTarget(editButton)
   }, 0)
 }
 
@@ -980,9 +1001,12 @@ function SelectionActions(
   if (selected.length === 0) return ''
 
   return section(
-    {class: 'selection-bar', role: 'status', 'aria-live': 'polite'},
+    {class: 'selection-bar'},
     div(
-      span({class: 'selection-count'}, `${selected.length} selected`),
+      span(
+        {class: 'selection-announcement', role: 'status'},
+        `${selected.length} selected`
+      ),
       span('Selection changes no stars, notes, tags, favorites, or triage state.')
     ),
     div(
@@ -2225,7 +2249,7 @@ function DateFilter(title: string, state: {val: string | null}) {
 
 function StatusBanners(state: AppState) {
   return div(
-    {class: 'status-stack', role: 'status', 'aria-live': 'polite'},
+    {class: 'status-stack', role: 'status'},
     state.sync?.phase === 'stale'
       ? p({class: 'status-banner is-warning'}, 'Star data is stale; the last complete library remains available.')
       : null,
@@ -2458,23 +2482,94 @@ function beginMembershipPreviewRequest(invoker: HTMLElement): number | null {
   return requestToken
 }
 
-function isVisibleFocusTarget(element: HTMLElement | null): element is HTMLElement {
-  return Boolean(
-    element?.isConnected &&
-    !element.matches(':disabled') &&
-    element.closest('[hidden]') === null
+function hasClosedDetailsAncestor(element: HTMLElement): boolean {
+  let ancestor = element.parentElement
+  while (ancestor !== null) {
+    if (ancestor.tagName === 'DETAILS') {
+      const details = ancestor as HTMLDetailsElement
+      const summary = [...details.children].find((child) => child.tagName === 'SUMMARY')
+      if (!details.open && !summary?.contains(element)) return true
+    }
+    ancestor = ancestor.parentElement
+  }
+  return false
+}
+
+export function isDashboardFocusTargetVisible(
+  element: HTMLElement | null
+): element is HTMLElement {
+  if (
+    element === null ||
+    !element.isConnected ||
+    element.matches(':disabled') ||
+    element.closest('[hidden], [inert], [aria-hidden="true"]') !== null ||
+    hasClosedDetailsAncestor(element)
+  ) {
+    return false
+  }
+  const view = element.ownerDocument.defaultView
+  if (view?.getComputedStyle) {
+    let current: HTMLElement | null = element
+    while (current !== null) {
+      const style = view.getComputedStyle(current)
+      if (
+        style.display === 'none' ||
+        style.visibility === 'hidden' ||
+        style.visibility === 'collapse' ||
+        (current as HTMLElement & {readonly inert?: boolean}).inert === true
+      ) return false
+      current = current.parentElement
+    }
+  }
+  return true
+}
+
+function tryFocusTarget(element: HTMLElement | null): boolean {
+  if (!isDashboardFocusTargetVisible(element)) return false
+  element.focus()
+  return element.ownerDocument.activeElement === element
+}
+
+function captureFocusLifecycle(element: HTMLElement | null): FocusLifecycle {
+  const ownerDocument = element?.ownerDocument ?? document
+  const elementShell = element?.closest<HTMLElement>('.app-shell') ?? null
+  const elementPage = element?.closest<HTMLElement>('.library-page') ?? null
+  const dashboardRoot = mountedDashboardRoot !== null &&
+    (element === null || mountedDashboardRoot.contains(element))
+    ? mountedDashboardRoot
+    : null
+  return {
+    mountId: activeDashboardMountId,
+    accountId: dashboardAccountId,
+    accountGeneration: dashboardAccountGeneration,
+    dashboardRoot,
+    scope: dashboardRoot ?? elementShell ?? elementPage,
+    ownerDocument
+  }
+}
+
+function isFocusLifecycleCurrent(lifecycle: FocusLifecycle): boolean {
+  return (
+    lifecycle.mountId === activeDashboardMountId &&
+    lifecycle.accountId === dashboardAccountId &&
+    lifecycle.accountGeneration === dashboardAccountGeneration &&
+    (lifecycle.dashboardRoot === null || mountedDashboardRoot === lifecycle.dashboardRoot) &&
+    (lifecycle.scope === null || lifecycle.scope.isConnected)
   )
 }
 
 function resolveDialogInvoker(
   invoker: DialogInvoker | null,
-  ownerDocument: Document
+  searchRoot: ParentNode
 ): HTMLElement | null {
-  if (isVisibleFocusTarget(invoker?.element ?? null)) return invoker?.element ?? null
+  if (isDashboardFocusTargetVisible(invoker?.element ?? null)) {
+    return invoker?.element ?? null
+  }
   if (invoker?.id === null || invoker?.id === undefined) return null
-  return [...ownerDocument.querySelectorAll<HTMLElement>('[data-dialog-invoker]')].find(
+  return [...searchRoot.querySelectorAll<HTMLElement>('[data-dialog-invoker]')].find(
     (element) =>
-      element.dataset.dialogInvoker === invoker.id && isVisibleFocusTarget(element)
+      element.dataset.dialogInvoker === invoker.id &&
+      isDashboardFocusTargetVisible(element)
   ) ?? null
 }
 
@@ -2488,8 +2583,11 @@ function focusDialogInvoker(
   const fallback = fallbackSelector
     ? ownerDocument.querySelector<HTMLElement>(fallbackSelector)
     : null
-  const target = preferFallback ? fallback : current ?? fallback
-  if (isVisibleFocusTarget(target)) target.focus()
+  if (preferFallback) {
+    if (!tryFocusTarget(fallback)) tryFocusTarget(current)
+  } else if (!tryFocusTarget(current)) {
+    tryFocusTarget(fallback)
+  }
 }
 
 function restoreDialogInvoker(
@@ -2497,42 +2595,94 @@ function restoreDialogInvoker(
   fallbackSelector?: string,
   preferFallback = false
 ): void {
-  const ownerDocument = invoker?.element.ownerDocument ?? document
-  const ownerWindow = ownerDocument.defaultView ?? window
-  const mountId = activeDashboardMountId
-  const accountId = dashboardAccountId
-  const scope = invoker?.element.closest<HTMLElement>('.app-shell, .library-page') ?? null
+  const lifecycle = captureFocusLifecycle(invoker?.element ?? null)
+  const ownerWindow = lifecycle.ownerDocument.defaultView ?? window
   ownerWindow.setTimeout(() => {
-    if (
-      mountId !== activeDashboardMountId ||
-      accountId !== dashboardAccountId ||
-      (scope !== null && !scope.isConnected)
-    ) {
-      return
-    }
+    if (!isFocusLifecycleCurrent(lifecycle)) return
     focusDialogInvoker(invoker, fallbackSelector, preferFallback)
   }, 0)
 }
 
-function restoreUnstarSuccessFocus(invoker: DialogInvoker | null): void {
-  const ownerDocument = invoker?.element.ownerDocument ?? document
-  const ownerWindow = ownerDocument.defaultView ?? window
-  const mountId = activeDashboardMountId
-  const accountId = dashboardAccountId
-  const scope = invoker?.element.closest<HTMLElement>('.app-shell, .library-page') ?? null
+function captureSuccessFocusRequest(
+  invoker: DialogInvoker | null,
+  repositoryNodeIds: readonly string[]
+): SuccessFocusRequest {
+  return {
+    lifecycle: captureFocusLifecycle(invoker?.element ?? null),
+    invoker,
+    repositoryNodeIds: [...repositoryNodeIds],
+    view: activeView.val
+  }
+}
+
+function repositoryFocusCandidates(
+  request: SuccessFocusRequest,
+  searchRoot: ParentNode
+): readonly HTMLElement[] {
+  const rows = [...searchRoot.querySelectorAll<HTMLElement>('.repository-row')]
+  const requested = request.repositoryNodeIds.flatMap((repositoryNodeId) => {
+    const row = rows.find((candidate) =>
+      candidate.dataset.repositoryNodeId === repositoryNodeId
+    )
+    return row ? [row] : []
+  })
+  return [...requested, ...rows.filter((row) => !requested.includes(row))]
+}
+
+function navigationFocusCandidates(
+  request: SuccessFocusRequest,
+  includeOperations: boolean
+): readonly HTMLElement[] {
+  const navigationRoot: ParentNode = request.lifecycle.dashboardRoot ??
+    request.lifecycle.scope ??
+    request.lifecycle.ownerDocument
+  const buttons = [...navigationRoot.querySelectorAll<HTMLElement>('[data-view-kind]')]
+  const currentViewKey = JSON.stringify(request.view)
+  const current = buttons.find((button) => button.dataset.viewKey === currentViewKey)
+  const unlist = buttons.find((button) => button.dataset.viewKind === 'unlist')
+  const operations = buttons.find((button) => button.dataset.viewKind === 'operations')
+  return [current, unlist, includeOperations ? operations : null]
+    .flatMap((candidate) => candidate ? [candidate] : [])
+    .filter((candidate, index, values) => values.indexOf(candidate) === index)
+}
+
+function tryFocusNavigation(element: HTMLElement): boolean {
+  const details = element.closest<HTMLDetailsElement>('details')
+  if (details && !details.open) details.open = true
+  return tryFocusTarget(element)
+}
+
+function restoreMembershipSuccessFocus(request: SuccessFocusRequest): void {
+  const ownerWindow = request.lifecycle.ownerDocument.defaultView ?? window
   ownerWindow.setTimeout(() => {
-    if (
-      mountId !== activeDashboardMountId ||
-      accountId !== dashboardAccountId ||
-      (scope !== null && !scope.isConnected)
-    ) {
-      return
+    if (!isFocusLifecycleCurrent(request.lifecycle)) return
+    const searchRoot: ParentNode = request.lifecycle.scope ?? request.lifecycle.ownerDocument
+    if (tryFocusTarget(resolveDialogInvoker(request.invoker, searchRoot))) return
+    for (const row of repositoryFocusCandidates(request, searchRoot)) {
+      if (tryFocusTarget(row)) return
     }
-    const searchRoot: ParentNode = scope ?? ownerDocument
-    const target = resolveDialogInvoker(invoker, ownerDocument) ??
-      searchRoot.querySelector<HTMLElement>('.repository-row') ??
-      ownerDocument.querySelector<HTMLElement>('[data-view-kind="operations"]')
-    if (isVisibleFocusTarget(target)) target.focus()
+    for (const navigation of navigationFocusCandidates(request, true)) {
+      if (tryFocusNavigation(navigation)) return
+    }
+  }, 0)
+}
+
+function restoreUnstarSuccessFocus(request: SuccessFocusRequest): void {
+  const ownerWindow = request.lifecycle.ownerDocument.defaultView ?? window
+  ownerWindow.setTimeout(() => {
+    if (!isFocusLifecycleCurrent(request.lifecycle)) return
+    const searchRoot: ParentNode = request.lifecycle.scope ?? request.lifecycle.ownerDocument
+    if (tryFocusTarget(resolveDialogInvoker(request.invoker, searchRoot))) return
+    for (const row of repositoryFocusCandidates(request, searchRoot)) {
+      if (tryFocusTarget(row)) return
+    }
+    const navigationRoot: ParentNode = request.lifecycle.dashboardRoot ??
+      request.lifecycle.scope ??
+      request.lifecycle.ownerDocument
+    const operations = navigationRoot.querySelector<HTMLElement>(
+      '[data-view-kind="operations"]'
+    )
+    if (operations) tryFocusNavigation(operations)
   }, 0)
 }
 
@@ -2637,6 +2787,10 @@ async function confirmMembershipPreview(): Promise<void> {
   if (!preview || preview.repositories.every((repository) => !repository.createsJob)) {
     return
   }
+  const focusRequest = captureSuccessFocusRequest(
+    membershipDialogInvoker,
+    preview.repositories.map((repository) => repository.repositoryNodeId)
+  )
   confirmingMembership.val = true
   try {
     const response = (await sendRuntimeMessage({
@@ -2648,12 +2802,11 @@ async function confirmMembershipPreview(): Promise<void> {
       applyState({...appState.val, error: response.error})
       return
     }
-    const invoker = membershipDialogInvoker
     resetMembershipPreview()
     selectedNativeListIds.val = new Set()
     membershipActivity.val = 'Membership work queued for observation and remote verification.'
     applyState(response.data)
-    restoreDialogInvoker(invoker, '.repository-row')
+    restoreMembershipSuccessFocus(focusRequest)
   } finally {
     confirmingMembership.val = false
   }
@@ -2730,6 +2883,10 @@ async function confirmPendingUnstars(): Promise<void> {
   ) {
     return
   }
+  const focusRequest = captureSuccessFocusRequest(
+    unstarDialogInvoker,
+    repositoryNodeIds
+  )
   enqueueingUnstars.val = true
   try {
     const queued = await sendAction({
@@ -2737,10 +2894,9 @@ async function confirmPendingUnstars(): Promise<void> {
       repositoryNodeIds
     })
     if (queued) {
-      const invoker = unstarDialogInvoker
       resetUnstarConfirmation()
       selectedForUnstar.val = new Set()
-      restoreUnstarSuccessFocus(invoker)
+      restoreUnstarSuccessFocus(focusRequest)
     }
   } finally {
     enqueueingUnstars.val = false
@@ -2814,6 +2970,7 @@ function applyState(state: AppState): void {
     membershipActivity.val = null
     resetMembershipPreview()
     resetNativeListRenameEditor()
+    dashboardAccountGeneration += 1
     dashboardAccountId = nextAccountId
     const mountedPage = mountedDashboardRoot?.querySelector<HTMLElement>('.library-page')
     const lifecycle = mountedPage

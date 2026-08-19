@@ -30,30 +30,43 @@ test('mounts one main landmark without a broad application live region', async (
   expect(indexHtml).not.toMatch(/id="app"[^>]*aria-live/)
 
   const browserWindow = new Window({url: 'chrome-extension://fixture/dashboard/index.html'})
-  Object.assign(globalThis, {
-    window: browserWindow,
-    document: browserWindow.document,
-    HTMLElement: browserWindow.HTMLElement,
-    Text: browserWindow.Text,
-    Event: browserWindow.Event,
-    KeyboardEvent: browserWindow.KeyboardEvent
-  })
-  const {mountDashboard} = await import('../../src/dashboard/scripts')
-  const root = browserWindow.document.createElement('div')
-  root.id = 'app'
-  browserWindow.document.body.append(root)
-  mountDashboard(root as unknown as HTMLElement)
-
-  expect(root.querySelectorAll('main')).toHaveLength(1)
-  expect(root.querySelector('main')?.classList.contains('workspace')).toBe(true)
-  expect(root.hasAttribute('aria-live')).toBe(false)
-  expect(root.querySelector('nav')?.getAttribute('aria-label')).toBe('Library')
-  expect(root.querySelector('[aria-busy="true"]')).not.toBeNull()
-  expect(root.textContent).toContain('Star List')
-  const unlist = [...root.querySelectorAll('button')].find(
-    (element) => element.textContent?.includes('Unlist')
+  const globalKeys = ['window', 'document', 'HTMLElement', 'Text', 'Event', 'KeyboardEvent'] as const
+  const previousGlobals = new Map(
+    globalKeys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
   )
-  expect(unlist?.getAttribute('aria-current')).toBe('page')
+  const root = browserWindow.document.createElement('div')
+  try {
+    Object.assign(globalThis, {
+      window: browserWindow,
+      document: browserWindow.document,
+      HTMLElement: browserWindow.HTMLElement,
+      Text: browserWindow.Text,
+      Event: browserWindow.Event,
+      KeyboardEvent: browserWindow.KeyboardEvent
+    })
+    const {mountDashboard} = await import('../../src/dashboard/scripts')
+    root.id = 'app'
+    browserWindow.document.body.append(root)
+    mountDashboard(root as unknown as HTMLElement)
+
+    expect(root.querySelectorAll('main')).toHaveLength(1)
+    expect(root.querySelector('main')?.classList.contains('workspace')).toBe(true)
+    expect(root.hasAttribute('aria-live')).toBe(false)
+    expect(root.querySelector('nav')?.getAttribute('aria-label')).toBe('Library')
+    expect(root.querySelector('[aria-busy="true"]')).not.toBeNull()
+    expect(root.textContent).toContain('Star List')
+    const unlist = [...root.querySelectorAll('button')].find(
+      (element) => element.textContent?.includes('Unlist')
+    )
+    expect(unlist?.getAttribute('aria-current')).toBe('page')
+  } finally {
+    root.remove()
+    for (const key of globalKeys) {
+      const descriptor = previousGlobals.get(key)
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+      else delete (globalThis as Record<string, unknown>)[key]
+    }
+  }
 })
 
 test('uses only targeted dashboard live regions', async () => {
@@ -61,15 +74,59 @@ test('uses only targeted dashboard live regions', async () => {
   const selection = root.querySelector<HTMLInputElement>('.selection-control input')
   selection?.click()
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
-  const liveRegions = [...root.querySelectorAll<HTMLElement>('[aria-live]')]
+  const implicitStatuses = [...root.querySelectorAll<HTMLElement>('[role="status"]')]
+  const explicitLiveRegions = [...root.querySelectorAll<HTMLElement>('[aria-live]')]
 
-  expect(liveRegions.map((region) => region.className).sort()).toEqual([
-    'result-count',
-    'selection-bar',
-    'status-stack'
-  ])
-  expect(liveRegions.every((region) => region.getAttribute('role') === 'status')).toBe(true)
-  expect(root.querySelector('nav [aria-live], [role="dialog"] [aria-live]')).toBeNull()
+  expect(implicitStatuses.map((region) => region.className).sort()).toEqual(
+    expect.arrayContaining([
+      'result-count',
+      'selection-announcement',
+      'status-stack'
+    ])
+  )
+  expect(explicitLiveRegions).toEqual([])
+  expect(root.querySelector('.selection-bar')?.hasAttribute('role')).toBe(false)
+  expect(root.querySelector('.selection-bar')?.hasAttribute('aria-live')).toBe(false)
+  for (const region of implicitStatuses) {
+    expect(region.querySelector('button, a, input, select, textarea, [role="status"]')).toBeNull()
+    expect(region.closest('[role="status"]')).toBe(region)
+  }
+  expect(root.querySelector('nav [role="status"], [role="dialog"] [role="status"]')).toBeNull()
+})
+
+test('rejects hidden, inert, closed-details, aria-hidden, and disabled focus targets', async () => {
+  const browserWindow = createDashboardWindow()
+  const {isDashboardFocusTargetVisible} = await import('../../src/dashboard/scripts')
+  const host = browserWindow.document.createElement('div')
+  const details = browserWindow.document.createElement('details')
+  const summary = browserWindow.document.createElement('summary')
+  const button = browserWindow.document.createElement('button')
+  summary.textContent = 'Toggle'
+  details.append(summary, button)
+  host.append(details)
+  browserWindow.document.body.append(host)
+
+  expect(isDashboardFocusTargetVisible(summary as unknown as HTMLElement)).toBe(true)
+  expect(isDashboardFocusTargetVisible(button as unknown as HTMLElement)).toBe(false)
+  details.open = true
+  expect(isDashboardFocusTargetVisible(button as unknown as HTMLElement)).toBe(true)
+  button.disabled = true
+  expect(isDashboardFocusTargetVisible(button as unknown as HTMLElement)).toBe(false)
+  button.disabled = false
+  host.setAttribute('aria-hidden', 'true')
+  expect(isDashboardFocusTargetVisible(button as unknown as HTMLElement)).toBe(false)
+  host.removeAttribute('aria-hidden')
+  host.setAttribute('inert', '')
+  expect(isDashboardFocusTargetVisible(button as unknown as HTMLElement)).toBe(false)
+  host.removeAttribute('inert')
+  host.hidden = true
+  expect(isDashboardFocusTargetVisible(button as unknown as HTMLElement)).toBe(false)
+  host.hidden = false
+  host.style.display = 'none'
+  expect(isDashboardFocusTargetVisible(button as unknown as HTMLElement)).toBe(false)
+  host.style.display = ''
+  host.style.visibility = 'hidden'
+  expect(isDashboardFocusTargetVisible(button as unknown as HTMLElement)).toBe(false)
 })
 
 test('transitions a cold loading mount through ready utilities and recreates after phase exit', async () => {
@@ -2068,6 +2125,8 @@ test('focuses Operations when a successful unstar leaves no surviving result', a
     mountDashboard(library, state)
     await browserWindow.happyDOM.whenAsyncComplete()
     await openRepositoryDetails(library, browserWindow)
+    const utilities = navigationGroup(sidebarNavigation(library), 'Utilities')
+    utilities?.removeAttribute('open')
     const review = [...library.querySelectorAll<HTMLButtonElement>('button')].find(
       (element) => element.textContent === 'Review unstar'
     )
@@ -2080,10 +2139,12 @@ test('focuses Operations when a successful unstar leaves no surviving result', a
     await nextTurn(browserWindow)
 
     expect(library.querySelector('.repository-row')).toBeNull()
-    const operations = library.ownerDocument.querySelector<HTMLButtonElement>(
+    const operations = library.querySelector<HTMLButtonElement>(
       '[data-view-kind="operations"]'
     )
     expect(operations?.isConnected).toBe(true)
+    const activeUtilities = navigationGroup(sidebarNavigation(library), 'Utilities')
+    expect(activeUtilities?.hasAttribute('open')).toBe(true)
     expect((browserWindow.document.activeElement as unknown) === operations).toBe(true)
   } finally {
     if (previousChrome === undefined) {
@@ -2091,6 +2152,63 @@ test('focuses Operations when a successful unstar leaves no surviving result', a
     } else {
       Object.assign(globalThis, {chrome: previousChrome})
     }
+  }
+})
+
+test('does not restore pending unstar focus into a replacement dashboard lifecycle', async () => {
+  const browserWindow = createDashboardWindow()
+  const pending = deferred()
+  const state = membershipReadyDashboardState()
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {
+    chrome: {
+      runtime: {
+        sendMessage: async (message: {readonly type: string}) => {
+          if (message.type === 'enqueue-confirmed-unstars') {
+            await pending.promise
+            return {ok: true, data: state}
+          }
+          if (message.type === 'start-sync') return {ok: true, data: state}
+          throw new Error(`Unexpected runtime message: ${message.type}`)
+        }
+      }
+    }
+  })
+  try {
+    const {mountDashboard} = await import('../../src/dashboard/scripts')
+    const firstRoot = browserWindow.document.createElement('div') as unknown as HTMLElement
+    browserWindow.document.body.append(
+      firstRoot as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(firstRoot, state)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await openRepositoryDetails(firstRoot, browserWindow)
+    ;[...firstRoot.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === 'Review unstar')?.click()
+    await nextTurn(browserWindow)
+    ;[...firstRoot.querySelectorAll<HTMLButtonElement>('.unstar-confirmation button')]
+      .find((button) => button.textContent?.includes('Confirm unstar'))?.click()
+
+    const replacementRoot = browserWindow.document.createElement('div') as unknown as HTMLElement
+    const sentinel = browserWindow.document.createElement('button')
+    sentinel.textContent = 'Replacement focus'
+    replacementRoot.append(
+      sentinel as unknown as Parameters<typeof replacementRoot.append>[0]
+    )
+    browserWindow.document.body.append(
+      replacementRoot as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(replacementRoot, state)
+    sentinel.focus()
+    pending.resolve()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await nextTurn(browserWindow)
+
+    expect((browserWindow.document.activeElement as unknown) === sentinel).toBe(true)
+  } finally {
+    pending.resolve()
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
   }
 })
 
@@ -3072,6 +3190,98 @@ test('cancels the named membership confirmation with Escape', async () => {
   }
 })
 
+test('membership success falls back to visible Unlist when its repository disappears', async () => {
+  const browserWindow = createDashboardWindow()
+  const state = membershipReadyDashboardState()
+  const result: AppState = {
+    ...state,
+    library: {...state.library!, repositories: [], annotations: [], nativeMemberships: []}
+  }
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {
+    chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+      if (message.type === 'preview-native-list-membership') {
+        return {ok: true, data: membershipPreview('add', null)}
+      }
+      if (message.type === 'confirm-native-list-membership-preview') {
+        return {ok: true, data: result}
+      }
+      if (message.type === 'start-sync') return {ok: true, data: result}
+      throw new Error(`Unexpected runtime message: ${message.type}`)
+    }}}
+  })
+  try {
+    const {mountDashboard} = await import('../../src/dashboard/scripts')
+    const root = browserWindow.document.createElement('div') as unknown as HTMLElement
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
+    )
+    mountDashboard(root, state)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await openAndConfirmMembership(root, browserWindow)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await nextTurn(browserWindow)
+
+    expect(root.querySelector('.repository-row')).toBeNull()
+    const unlist = root.querySelector<HTMLButtonElement>('[data-view-kind="unlist"]')
+    expect(unlist?.isConnected).toBe(true)
+    expect(unlist?.closest('[hidden]')).toBeNull()
+    expect((browserWindow.document.activeElement as unknown) === unlist).toBe(true)
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('does not restore pending membership focus after an account lifecycle change', async () => {
+  const browserWindow = createDashboardWindow()
+  const pending = deferred()
+  const state = membershipReadyDashboardState()
+  const switched: AppState = {
+    ...state,
+    identity: {...state.identity!, githubUserId: '7', userNodeId: 'U_7', login: 'other'}
+  }
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  Object.assign(globalThis, {
+    chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+      if (message.type === 'preview-native-list-membership') {
+        return {ok: true, data: membershipPreview('add', null)}
+      }
+      if (message.type === 'confirm-native-list-membership-preview') {
+        await pending.promise
+        return {ok: true, data: state}
+      }
+      if (message.type === 'start-sync') return {ok: true, data: state}
+      throw new Error(`Unexpected runtime message: ${message.type}`)
+    }}}
+  })
+  try {
+    const {mountDashboard, renderAppState} = await import('../../src/dashboard/scripts')
+    const root = browserWindow.document.createElement('div') as unknown as HTMLElement
+    const sentinel = browserWindow.document.createElement('button')
+    sentinel.textContent = 'Account-change focus'
+    browserWindow.document.body.append(
+      root as unknown as Parameters<typeof browserWindow.document.body.append>[0],
+      sentinel
+    )
+    mountDashboard(root, state)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await openAndConfirmMembership(root, browserWindow)
+    renderAppState(switched)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    sentinel.focus()
+    pending.resolve()
+    await browserWindow.happyDOM.whenAsyncComplete()
+    await nextTurn(browserWindow)
+
+    expect((browserWindow.document.activeElement as unknown) === sentinel).toBe(true)
+  } finally {
+    pending.resolve()
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
 test('keeps native List recovery outcomes actionable without automatic blocked retries', async () => {
   const {renderOperationsState} = await import('../../src/dashboard/scripts')
   const statuses: readonly MutationJobStatus[] = [
@@ -3695,6 +3905,27 @@ async function openRepositoryDetails(library: HTMLElement, browserWindow: Window
   if (row === null) return
   row.dispatchEvent(new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event)
   await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+}
+
+async function openAndConfirmMembership(root: HTMLElement, browserWindow: Window): Promise<void> {
+  await openRepositoryDetails(root, browserWindow)
+  const listChoice = root.querySelector<HTMLInputElement>(
+    '.native-list-choices input[type="checkbox"]'
+  )
+  if (listChoice === null) throw new Error('Membership choice did not render.')
+  listChoice.checked = true
+  listChoice.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+  await browserWindow.happyDOM.whenAsyncComplete()
+  const review = [...root.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent?.includes('Review additive assignment')
+  )
+  if (review === undefined) throw new Error('Membership review action did not render.')
+  review.click()
+  await nextTurn(browserWindow)
+  const confirm = [...root.querySelectorAll<HTMLButtonElement>('.membership-confirmation button')]
+    .find((button) => button.textContent?.includes('Confirm and queue'))
+  if (confirm === undefined) throw new Error('Membership confirmation did not render.')
+  confirm.click()
 }
 
 function deferred(): {readonly promise: Promise<void>; readonly resolve: () => void} {
