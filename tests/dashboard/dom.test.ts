@@ -81,36 +81,59 @@ test('mounts one main landmark without a broad application live region', async (
   }
 })
 
-test('renders the reference archive frame with real primary navigation', async () => {
+test('renders the Star List Manager shell with real primary navigation', async () => {
   const root = await mountReadyDashboard()
   const browserWindow = window as unknown as Window
-  const frame = root.querySelector<HTMLElement>('.archive-frame')
-  const header = root.querySelector<HTMLElement>('.archive-app-header')
-  const workspace = root.querySelector<HTMLElement>('main.workspace.archive-main')
-  const primaryLinks = [...(header?.querySelectorAll<HTMLButtonElement>('.archive-primary-link') ?? [])]
+  const shell = root.querySelector<HTMLElement>('.app-shell')
+  const header = root.querySelector<HTMLElement>('.app-header')
+  const frame = root.querySelector<HTMLElement>('.app-frame')
+  const workspace = root.querySelector<HTMLElement>('main.workspace.app-main')
+  const sidebar = root.querySelector<HTMLElement>('.list-sidebar')
+  const navigation = sidebar?.querySelector<HTMLElement>('.list-navigation') ?? null
+  const primaryLinks = [
+    ...root.querySelectorAll<HTMLButtonElement>(
+      '[data-view-kind="unlist"], [data-view-kind="operations"], [data-view-kind="settings"]'
+    )
+  ].filter((button) => ['Library', 'Operations', 'Settings'].includes(button.textContent ?? ''))
   const primaryLink = (label: string) =>
     primaryLinks.find((link) => link.textContent === label) ?? null
+  const accountIndicator = header?.querySelector<HTMLElement>(
+    '.account-indicator[aria-label="Connected as octocat"]'
+  ) ?? null
 
-  expect(frame).not.toBeNull()
-  expect(header?.querySelector('.archive-wordmark')?.textContent).toBe('Archive.Stars')
+  expect(accountIndicator).not.toBeNull()
+  expect(accountIndicator?.closest('.app-header')).toBe(header)
+  expect(shell).not.toBeNull()
+  expect(header).not.toBeNull()
+  expect(header?.querySelector('.brand-wordmark')?.textContent).toBe('Star List Manager')
+  expect(root.querySelector('.archive-wordmark')).toBeNull()
+  expect(frame?.closest('.app-shell')).toBe(shell)
+  expect(sidebar?.closest('.app-frame')).toBe(frame)
+  expect(sidebar?.querySelector('.list-sidebar-heading')?.textContent).toBe('My Lists')
+  expect(navigation?.getAttribute('aria-label')).toBe('Library')
   expect(primaryLinks).toHaveLength(3)
+  expect(primaryLinks.every((link) => link.tagName === 'BUTTON')).toBe(true)
   expect(primaryLinks.map((link) => link.textContent)).toEqual(['Library', 'Operations', 'Settings'])
   expect(root.querySelectorAll('main')).toHaveLength(1)
   expect(workspace).not.toBeNull()
-  expect(workspace?.closest('.archive-frame')).toBe(frame)
+  expect(workspace?.closest('.app-frame')).toBe(frame)
   expect(primaryLink('Library')?.dataset.viewKind).toBe('unlist')
   expect(primaryLink('Library')?.getAttribute('aria-current')).toBe('page')
   expect(workspace?.querySelector('.library-page')).not.toBeNull()
+  expect(header?.querySelector('#library-search')).toBeNull()
+  expect(workspace?.querySelector('.library-header #library-search')).not.toBeNull()
 
   primaryLink('Operations')?.click()
   await browserWindow.happyDOM.whenAsyncComplete()
   expect(workspace?.querySelector('.operations-page h1')?.textContent).toBe('Operations')
   expect(primaryLink('Operations')?.getAttribute('aria-current')).toBe('page')
+  expect(header?.querySelector('.account-indicator')).toBe(accountIndicator)
 
   primaryLink('Settings')?.click()
   await browserWindow.happyDOM.whenAsyncComplete()
   expect(workspace?.querySelector('.settings-page h1')?.textContent).toBe('Settings')
   expect(primaryLink('Settings')?.getAttribute('aria-current')).toBe('page')
+  expect(header?.querySelector('.account-indicator')).toBe(accountIndicator)
 
   primaryLink('Library')?.click()
   await browserWindow.happyDOM.whenAsyncComplete()
@@ -118,7 +141,7 @@ test('renders the reference archive frame with real primary navigation', async (
   expect(primaryLink('Library')?.getAttribute('aria-current')).toBe('page')
 })
 
-test('renders the Archive.Stars frame without changing repository activation contracts', async () => {
+test('renders the application frame without changing repository activation contracts', async () => {
   const ready = readyDashboardState()
   const secondRepository = repositoryRecord('42', 'R_two', 'octocat/two')
   const root = await mountReadyDashboard({
@@ -129,30 +152,26 @@ test('renders the Archive.Stars frame without changing repository activation con
     }
   })
   const browserWindow = window as unknown as Window
-  const shell = root.querySelector<HTMLElement>('.archive-app-shell')
-  const frame = root.querySelector<HTMLElement>('.archive-frame')
-  const workspaceFrame = root.querySelector<HTMLElement>('.archive-workspace-frame')
-  const header = root.querySelector<HTMLElement>('.archive-app-header')
-  const directory = root.querySelector<HTMLElement>('.archive-directory')
-  const results = root.querySelector<HTMLElement>('main.workspace.archive-results')
+  const shell = root.querySelector<HTMLElement>('.app-shell')
+  const frame = root.querySelector<HTMLElement>('.app-frame')
+  const header = root.querySelector<HTMLElement>('.app-header')
+  const sidebar = root.querySelector<HTMLElement>('.list-sidebar')
+  const results = root.querySelector<HTMLElement>('main.workspace.app-main')
 
   expect(shell).not.toBeNull()
-  expect(root.querySelector('.app-shell')).toBeNull()
   expect(frame).not.toBeNull()
-  expect(workspaceFrame).not.toBeNull()
-  expect(workspaceFrame?.closest('.archive-frame')).toBe(frame)
-  expect(root.querySelector('.archive-workspace')).toBeNull()
+  expect(frame?.closest('.app-shell')).toBe(shell)
   expect(header).not.toBeNull()
-  expect(header?.querySelector('.archive-wordmark')?.textContent).toContain('Archive.Stars')
-  expect(directory?.querySelector('nav')?.getAttribute('aria-label')).toBe('Library')
-  expect(results?.parentElement).toBe(workspaceFrame)
-  expect(root.querySelector('div.archive-results')).toBeNull()
+  expect(header?.querySelector('.brand-wordmark')?.textContent).toBe('Star List Manager')
+  expect(sidebar?.querySelector('.list-navigation')?.getAttribute('aria-label')).toBe('Library')
+  expect(results?.closest('.app-frame')).toBe(frame)
   expect(
-    [...(header?.querySelectorAll<HTMLButtonElement>('.archive-primary-link') ?? [])].map(
+    [...root.querySelectorAll<HTMLButtonElement>('[data-view-kind="operations"], [data-view-kind="settings"]')].map(
       (element) => element.textContent
     )
   ).toEqual(expect.arrayContaining(['Operations', 'Settings']))
 
+  await selectResultMode(root, 'list', browserWindow)
   const repositoryList = results?.querySelector<HTMLUListElement>('.repository-list') ?? null
   const rows = [...(repositoryList?.querySelectorAll<HTMLButtonElement>('.repository-row') ?? [])]
   const firstRow = rows[0] ?? null
@@ -179,7 +198,7 @@ test('renders the Archive.Stars frame without changing repository activation con
   expect(results?.querySelector('.repository-inspection-dialog h2')?.textContent).toBe('two')
 
   const utilityButton = (label: string) =>
-    [...(header?.querySelectorAll<HTMLButtonElement>('.archive-primary-link') ?? [])].find(
+    [...root.querySelectorAll<HTMLButtonElement>('[data-view-kind]')].find(
       (element) => element.textContent === label
     ) ?? null
   utilityButton('Operations')?.click()
@@ -190,7 +209,7 @@ test('renders the Archive.Stars frame without changing repository activation con
   expect(results?.querySelector('.settings-page h1')?.textContent).toBe('Settings')
 })
 
-test('keeps Archive.Stars state pages and dialogs inside the archive results landmark', async () => {
+test('keeps state pages and dialogs inside the application main landmark', async () => {
   const globalKeys = ['window', 'document', 'HTMLElement', 'Text', 'Event', 'KeyboardEvent'] as const
   const previousGlobals = new Map(
     globalKeys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
@@ -226,11 +245,11 @@ test('keeps Archive.Stars state pages and dialogs inside the archive results lan
     mountDashboard(root, signedOut)
     await browserWindow.happyDOM.whenAsyncComplete()
 
-    const results = root.querySelector<HTMLElement>('main.archive-results')
+    const results = root.querySelector<HTMLElement>('main.workspace.app-main')
     const statePanel = root.querySelector<HTMLElement>('.phase-workspace .state-panel')
-    expect(root.querySelector('.archive-app-header')).not.toBeNull()
+    expect(root.querySelector('.app-header')).not.toBeNull()
     expect(results).not.toBeNull()
-    expect(statePanel?.closest('main.archive-results')).toBe(results)
+    expect(statePanel?.closest('main.workspace.app-main')).toBe(results)
     expect(statePanel?.querySelector('h2')?.textContent).toBe('Reconnect your GitHub library')
     expect(statePanel?.textContent).toContain(
       'Notes, tags, favorites, and revisit dates remain local.'
@@ -249,7 +268,7 @@ test('keeps Archive.Stars state pages and dialogs inside the archive results lan
     renderAppState({...signedOut, phase: 'loading', error: null})
     await browserWindow.happyDOM.whenAsyncComplete()
     const loading = root.querySelector<HTMLElement>('.phase-workspace .state-panel[aria-busy="true"]')
-    expect(loading?.closest('main.archive-results')).toBe(results)
+    expect(loading?.closest('main.workspace.app-main')).toBe(results)
     expect(loading?.querySelector('h2')?.textContent).toBe('Preparing your dashboard')
     expect(loading?.textContent).toContain('Loading the local account state and extension configuration.')
     expect(root.querySelectorAll('[aria-live]')).toHaveLength(0)
@@ -258,42 +277,44 @@ test('keeps Archive.Stars state pages and dialogs inside the archive results lan
     const ready = membershipReadyDashboardState()
     renderAppState(ready)
     await browserWindow.happyDOM.whenAsyncComplete()
-    expect(root.querySelector('.status-stack[role="status"]')?.closest('main.archive-results')).toBe(
+    expect(root.querySelector('.status-stack[role="status"]')?.closest('main.workspace.app-main')).toBe(
       results
     )
     expect(root.querySelectorAll('[aria-live]')).toHaveLength(0)
 
     const utility = (label: string) =>
-      [...root.querySelectorAll<HTMLButtonElement>('.archive-primary-link')].find(
+      [...root.querySelectorAll<HTMLButtonElement>('[data-view-kind]')].find(
         (button) => button.textContent === label
       ) ?? null
     utility('Operations')?.click()
     await browserWindow.happyDOM.whenAsyncComplete()
     expect(root.querySelector('.operations-page h1')?.textContent).toBe('Operations')
-    expect(root.querySelector('.operations-page')?.closest('main.archive-results')).toBe(results)
+    expect(root.querySelector('.operations-page')?.closest('main.workspace.app-main')).toBe(results)
     expect(utility('Operations')?.getAttribute('aria-current')).toBe('page')
 
     utility('Settings')?.click()
     await browserWindow.happyDOM.whenAsyncComplete()
     expect(root.querySelector('.settings-page h1')?.textContent).toBe('Settings')
-    expect(root.querySelector('.settings-page')?.closest('main.archive-results')).toBe(results)
+    expect(root.querySelector('.settings-page')?.closest('main.workspace.app-main')).toBe(results)
     expect(utility('Settings')?.getAttribute('aria-current')).toBe('page')
 
     renderAppState(ready)
     await browserWindow.happyDOM.whenAsyncComplete()
-    const unlist = [...root.querySelectorAll<HTMLButtonElement>('.archive-directory .nav-item')].find(
+    const unlist = [...root.querySelectorAll<HTMLButtonElement>('.list-navigation .nav-item')].find(
       (button) => button.querySelector('.nav-label')?.textContent === 'Unlist'
     )
     if (unlist === undefined) throw new Error('The Unlist navigation action is required.')
     unlist.click()
     await browserWindow.happyDOM.whenAsyncComplete()
+    await selectResultMode(root, 'list', browserWindow)
     const row = root.querySelector<HTMLButtonElement>('.repository-row')
     if (row === null) throw new Error('The repository inspection invoker is required.')
 
+    expect(runtimeMessages).not.toContain('enqueue-confirmed-unstars')
     row.click()
     await nextTurn(browserWindow)
     const inspection = root.querySelector<HTMLElement>('.repository-inspection-dialog')
-    expect(inspection?.closest('main.archive-results')).toBe(results)
+    expect(inspection?.closest('main.workspace.app-main')).toBe(results)
     expect(inspection?.getAttribute('role')).toBe('dialog')
     expect(inspection?.getAttribute('aria-modal')).toBe('true')
     const closeDetails = [...(inspection?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
@@ -304,7 +325,7 @@ test('keeps Archive.Stars state pages and dialogs inside the archive results lan
     closeDetails.click()
     await nextTurn(browserWindow)
     expect(root.querySelector('.repository-inspection-dialog')).toBeNull()
-    expect(root.querySelector('.library-page')?.closest('main.archive-results')).toBe(results)
+    expect(root.querySelector('.library-page')?.closest('main.workspace.app-main')).toBe(results)
     const restoredRow = root.querySelector<HTMLButtonElement>('.repository-row')
     expect(restoredRow).not.toBeNull()
     expect(restoredRow?.isConnected).toBe(true)
@@ -319,8 +340,9 @@ test('keeps Archive.Stars state pages and dialogs inside the archive results lan
     if (review === undefined) throw new Error('The unstar confirmation action is required.')
     review.click()
     await nextTurn(browserWindow)
+    expect(runtimeMessages).not.toContain('enqueue-confirmed-unstars')
     const confirmation = root.querySelector<HTMLElement>('.unstar-confirmation[role="dialog"]')
-    expect(confirmation?.closest('main.archive-results')).toBe(results)
+    expect(confirmation?.closest('main.workspace.app-main')).toBe(results)
     expect(accessibleDialogName(confirmation)).toBe('Remove 1 star from GitHub?')
     expect(confirmation?.textContent).toContain('There is no Undo or re-star control')
     const confirm = [...(confirmation?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
@@ -336,7 +358,7 @@ test('keeps Archive.Stars state pages and dialogs inside the archive results lan
     await nextTurn(browserWindow)
     expect(root.querySelector('.unstar-confirmation')).toBeNull()
     expect(root.querySelector('.repository-inspection-dialog')).toBeNull()
-    expect(root.querySelector('.library-page')?.closest('main.archive-results')).toBe(results)
+    expect(root.querySelector('.library-page')?.closest('main.workspace.app-main')).toBe(results)
     expect(root.querySelector<HTMLButtonElement>('.repository-row')?.isConnected).toBe(true)
     expect(runtimeMessages).not.toContain('enqueue-confirmed-unstars')
   } finally {
@@ -365,7 +387,7 @@ test('keeps Archive.Stars state pages and dialogs inside the archive results lan
   }
 })
 
-test('composes archive state, secondary, and dialog documents without changing safeguards', async () => {
+test('composes state, secondary, and dialog documents without changing safeguards', async () => {
   const browserWindow = createDashboardWindow()
   const previousChrome = (globalThis as {chrome?: unknown}).chrome
   const runtimeMessages: string[] = []
@@ -400,16 +422,15 @@ test('composes archive state, secondary, and dialog documents without changing s
     mountDashboard(root, signedOut)
     await browserWindow.happyDOM.whenAsyncComplete()
 
-    const frame = root.querySelector<HTMLElement>('.archive-frame')
-    const archiveMain = root.querySelector<HTMLElement>('main.archive-main')
-    const expectArchiveDocument = (element: HTMLElement | null) => {
+    const appMain = root.querySelector<HTMLElement>('main.workspace')
+    const expectAppDocument = (element: HTMLElement | null) => {
+      expect(appMain).not.toBeNull()
       expect(element).not.toBeNull()
-      expect(element?.closest('.archive-frame')).toBe(frame)
-      expect(element?.closest('main.archive-main')).toBe(archiveMain)
+      expect(element?.closest('main.workspace')).toBe(appMain)
     }
-    const signedOutPanel = root.querySelector<HTMLElement>('.archive-state-document.state-panel')
-    expectArchiveDocument(signedOutPanel)
-    expect(signedOutPanel?.querySelector('.archive-document-header h2')?.textContent).toBe(
+    const signedOutPanel = root.querySelector<HTMLElement>('.state-panel')
+    expectAppDocument(signedOutPanel)
+    expect(signedOutPanel?.querySelector('h2')?.textContent).toBe(
       'Reconnect your GitHub library'
     )
     expect(signedOutPanel?.textContent).toContain(
@@ -426,52 +447,49 @@ test('composes archive state, secondary, and dialog documents without changing s
 
     renderAppState({...signedOut, phase: 'loading', error: null})
     await browserWindow.happyDOM.whenAsyncComplete()
-    const loading = root.querySelector<HTMLElement>('.archive-state-document.state-panel[aria-busy="true"]')
-    expectArchiveDocument(loading)
-    expect(loading?.querySelector('.archive-document-header h2')?.textContent).toBe(
-      'Preparing your dashboard'
-    )
+    const loading = root.querySelector<HTMLElement>('.state-panel[aria-busy="true"]')
+    expectAppDocument(loading)
+    expect(loading?.querySelector('h2')?.textContent).toBe('Preparing your dashboard')
 
     renderAppState({...signedOut, phase: 'authorization-expired', error: null})
     await browserWindow.happyDOM.whenAsyncComplete()
-    const authorizationError = root.querySelector<HTMLElement>('.archive-state-document.state-panel')
-    expectArchiveDocument(authorizationError)
-    expect(authorizationError?.querySelector('.archive-document-header h2')?.textContent).toBe(
-      'Code expired'
-    )
+    const authorizationError = root.querySelector<HTMLElement>('.state-panel')
+    expectAppDocument(authorizationError)
+    expect(authorizationError?.querySelector('h2')?.textContent).toBe('Code expired')
 
     const ready = membershipReadyDashboardState()
     renderAppState(ready)
     await browserWindow.happyDOM.whenAsyncComplete()
     const utility = (label: string) =>
-      [...root.querySelectorAll<HTMLButtonElement>('.archive-primary-link')].find(
+      [...root.querySelectorAll<HTMLButtonElement>('[data-view-kind]')].find(
         (button) => button.textContent === label
       ) ?? null
 
     utility('Operations')?.click()
     await browserWindow.happyDOM.whenAsyncComplete()
-    const operations = root.querySelector<HTMLElement>('.operations-page.archive-document')
-    expectArchiveDocument(operations)
-    expect(operations?.querySelector('header.archive-document-header > h1')?.textContent).toBe('Operations')
+    const operations = root.querySelector<HTMLElement>('.operations-page')
+    expectAppDocument(operations)
+    expect(operations?.querySelector('h1')?.textContent).toBe('Operations')
 
     utility('Settings')?.click()
     await browserWindow.happyDOM.whenAsyncComplete()
-    const settings = root.querySelector<HTMLElement>('.settings-page.archive-document')
-    expectArchiveDocument(settings)
-    expect(settings?.querySelector('header.archive-document-header > h1')?.textContent).toBe('Settings')
+    const settings = root.querySelector<HTMLElement>('.settings-page')
+    expectAppDocument(settings)
+    expect(settings?.querySelector('h1')?.textContent).toBe('Settings')
 
     utility('Library')?.click()
     await browserWindow.happyDOM.whenAsyncComplete()
+    await selectResultMode(root, 'list', browserWindow)
     const row = root.querySelector<HTMLButtonElement>('.repository-row')
     if (row === null) throw new Error('The repository inspection invoker is required.')
     row.click()
     await nextTurn(browserWindow)
     const inspection = root.querySelector<HTMLElement>('.repository-inspection-dialog')
-    expectArchiveDocument(inspection)
+    expectAppDocument(inspection)
     expect(inspection?.getAttribute('role')).toBe('dialog')
     expect(inspection?.getAttribute('aria-modal')).toBe('true')
     expect(accessibleDialogName(inspection)).toBe('one')
-    expect(inspection?.querySelector('.archive-dialog-header h2')?.textContent).toBe('one')
+    expect(inspection?.querySelector('h2')?.textContent).toBe('one')
 
     const reviewUnstar = [...(inspection?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
       (button) => button.textContent === 'Review unstar'
@@ -480,12 +498,10 @@ test('composes archive state, secondary, and dialog documents without changing s
     reviewUnstar.click()
     await nextTurn(browserWindow)
     const unstar = root.querySelector<HTMLElement>('.unstar-confirmation[role="dialog"]')
-    expectArchiveDocument(unstar)
+    expectAppDocument(unstar)
     expect(unstar?.getAttribute('aria-modal')).toBe('true')
     expect(accessibleDialogName(unstar)).toBe('Remove 1 star from GitHub?')
-    expect(unstar?.querySelector('.archive-dialog-header h2')?.textContent).toBe(
-      'Remove 1 star from GitHub?'
-    )
+    expect(unstar?.querySelector('h2')?.textContent).toBe('Remove 1 star from GitHub?')
     expect(unstar?.textContent).toContain('There is no Undo or re-star control')
     const cancelUnstar = [...(unstar?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
       (button) => button.textContent === 'Cancel'
@@ -513,10 +529,10 @@ test('composes archive state, secondary, and dialog documents without changing s
     reviewMembership.click()
     await nextTurn(browserWindow)
     const membership = root.querySelector<HTMLElement>('.membership-confirmation[role="dialog"]')
-    expectArchiveDocument(membership)
+    expectAppDocument(membership)
     expect(membership?.getAttribute('aria-modal')).toBe('true')
     expect(accessibleDialogName(membership)).toBe('Review List memberships for 2 repositories')
-    expect(membership?.querySelector('.archive-dialog-header h2')?.textContent).toBe(
+    expect(membership?.querySelector('h2')?.textContent).toBe(
       'Review List memberships for 2 repositories'
     )
     expect(membership?.textContent).toContain('GitHub replaces the complete List membership set')
@@ -534,26 +550,19 @@ test('composes archive state, secondary, and dialog documents without changing s
   }
 })
 
-test('groups real View options and Filters under one archive Status container', async () => {
+test('groups real View options and Filters under one labelled Status section', async () => {
   const root = await mountReadyDashboard()
   const browserWindow = window as unknown as Window
-  const heading = root.querySelector<HTMLElement>('.archive-filter-heading')
-  const containers = [
-    ...root.querySelectorAll<HTMLElement>(
-      'section.archive-filter-container[aria-labelledby="archive-filter-heading"]'
-    )
-  ]
+  const viewOptions = root.querySelector<HTMLDetailsElement>('details.view-options')
+  const advancedFilters = root.querySelector<HTMLDetailsElement>('details.advanced-filters')
+  const container = viewOptions?.closest('section') ?? null
+  const heading = [...(container?.querySelectorAll<HTMLElement>('h2, h3') ?? [])].find(
+    (candidate) => candidate.textContent === 'Status'
+  ) ?? null
 
-  expect(containers).toHaveLength(1)
-  const container = containers[0] ?? null
   expect(container?.tagName).toBe('SECTION')
-  expect(container?.getAttribute('aria-labelledby')).toBe('archive-filter-heading')
   expect(container?.contains(heading ?? document.createElement('h2'))).toBe(true)
   expect(heading?.textContent).toBe('Status')
-
-  const viewOptions = container?.querySelector<HTMLDetailsElement>('details.view-options') ?? null
-  const advancedFilters =
-    container?.querySelector<HTMLDetailsElement>('details.advanced-filters') ?? null
   expect(viewOptions).not.toBeNull()
   expect(advancedFilters).not.toBeNull()
   expect(viewOptions?.parentElement).toBe(container)
@@ -595,16 +604,38 @@ test('groups real View options and Filters under one archive Status container', 
   }
 })
 
-test('renders archive directory and archive result archive markup for the ready library', async () => {
+test('renders accessible List navigation and repository results for the ready library', async () => {
   const root = await mountReadyDashboard()
+  const browserWindow = window as unknown as Window
+  const sidebar = root.querySelector<HTMLElement>('.list-sidebar')
+  const navigation = sidebar?.querySelector<HTMLElement>('.list-navigation') ?? null
+  const listButtons = [...(navigation?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+    .filter((button) => button.querySelector('.nav-label'))
+  const markers = [...root.querySelectorAll<HTMLElement>('.list-marker')]
 
-  expect(root.querySelector('.archive-directory-heading')?.textContent).toContain('Directory')
-  expect(root.querySelector('.archive-filter-heading')?.textContent).toContain('Status')
-  expect(root.querySelector('.archive-result-count')?.textContent).toMatch(/repositories/)
-  expect(root.querySelector('.repository-row .archive-repository-reference')).not.toBeNull()
+  expect(markers.length).toBeGreaterThan(0)
+  expect(markers.every((marker) => marker.getAttribute('aria-hidden') === 'true')).toBe(true)
+  expect(sidebar?.querySelector('.list-sidebar-heading')?.textContent).toBe('My Lists')
+  expect(navigation?.getAttribute('aria-label')).toBe('Library')
+  expect(listButtons.map((button) => button.textContent)).toEqual(
+    expect.arrayContaining([expect.stringContaining('Unlist'), expect.stringContaining('Current List')])
+  )
+  for (const button of listButtons) {
+    const marker = button.querySelector('.list-marker')
+    const label = button.querySelector('.nav-label')?.textContent?.trim() ?? ''
+    expect(marker).not.toBeNull()
+    expect(marker?.getAttribute('aria-hidden')).toBe('true')
+    expect(label).not.toBe('')
+    expect(button.textContent).toContain(label)
+    expect(button.textContent).toMatch(/\d/)
+  }
+  expect(navigation?.querySelector('[aria-current="page"]')?.textContent).toContain('Unlist')
+  expect(root.querySelector('.result-count')?.textContent).toMatch(/repositories/)
+  await selectResultMode(root, 'list', browserWindow)
+  expect(root.querySelector('.repository-row')).not.toBeNull()
 })
 
-test('renders a real archive index and archive records without changing Library controls', async () => {
+test('renders real List navigation and repository records without changing Library controls', async () => {
   const ready = readyDashboardState()
   const secondRepository = repositoryRecord('42', 'R_two', 'octocat/two')
   const state: AppState = {
@@ -637,26 +668,23 @@ test('renders a real archive index and archive records without changing Library 
     mountDashboard(root, state)
     await browserWindow.happyDOM.whenAsyncComplete()
 
-    const index = root.querySelector<HTMLOListElement>('.archive-directory-index')
-    const indexItems = [...(index?.querySelectorAll<HTMLButtonElement>('.nav-item') ?? [])]
+    const navigation = root.querySelector<HTMLElement>('.list-navigation')
+    const indexItems = [...(navigation?.querySelectorAll<HTMLButtonElement>('.nav-item') ?? [])]
     const currentList = indexItems.find(
       (button) => button.querySelector('.nav-label')?.textContent === 'Current List'
     ) ?? null
+    await selectResultMode(root, 'list', browserWindow)
     const firstRow = root.querySelector<HTMLButtonElement>('[data-repository-node-id="R_one"]')
     const secondRow = root.querySelector<HTMLButtonElement>('[data-repository-node-id="R_two"]')
-    const selection = root.querySelector<HTMLInputElement>(
-      '.repository-row-shell:has([data-repository-node-id="R_one"]) .selection-control input'
-    )
+    const selection = root.querySelector<HTMLInputElement>('.selection-control input')
 
-    expect(index).not.toBeNull()
-    expect(index?.querySelector('.archive-index-number')?.textContent).toMatch(/^00\./)
+    expect(navigation).not.toBeNull()
     expect(currentList?.dataset.viewKind).toBe('list')
-    expect(root.querySelector('.archive-collection-kicker')?.textContent).toMatch(/collection|archive/i)
     expect(firstRow?.tagName).toBe('BUTTON')
     expect(firstRow?.dataset.repositoryNodeId).toBe('R_one')
     expect(firstRow?.dataset.dialogInvoker).toBe('repository-R_one')
-    expect(firstRow?.querySelector('.archive-record-summary .repository-owner')?.textContent).toBe('octocat')
-    expect(firstRow?.querySelector('.archive-record-facts .repository-meta')).not.toBeNull()
+    expect(firstRow?.textContent).toContain('octocat')
+    expect(firstRow?.textContent).toContain('one')
     expect(selection?.type).toBe('checkbox')
 
     selection?.click()
@@ -710,7 +738,7 @@ test('renders a real archive index and archive records without changing Library 
 
     currentList?.click()
     await browserWindow.happyDOM.whenAsyncComplete()
-    expect(root.querySelector('.archive-collection-kicker')?.textContent).toContain('Current List')
+    expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Current List')
   } finally {
     if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
     else Object.assign(globalThis, {chrome: previousChrome})
@@ -718,7 +746,11 @@ test('renders a real archive index and archive records without changing Library 
 })
 
 test('uses only targeted dashboard live regions', async () => {
-  const root = await mountReadyDashboard()
+  const root = await mountReadyDashboard({
+    ...readyDashboardState(),
+    sync: {...completeSyncState('stars'), phase: 'stale'},
+    nativeListSync: {...completeSyncState('native-lists'), phase: 'partial', skippedItems: 2}
+  })
   const selection = root.querySelector<HTMLInputElement>('.selection-control input')
   selection?.click()
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
@@ -733,6 +765,13 @@ test('uses only targeted dashboard live regions', async () => {
     ])
   )
   expect(explicitLiveRegions).toEqual([])
+  const warnings = [...root.querySelectorAll('.status-banner.is-warning')].map(
+    (warning) => warning.textContent
+  )
+  expect(warnings).toEqual(expect.arrayContaining([
+    'Star data is stale; the last complete library remains available.',
+    'Native List coverage is partial because inaccessible items are not disclosed.'
+  ]))
   expect(root.querySelector('.selection-bar')?.hasAttribute('role')).toBe(false)
   expect(root.querySelector('.selection-bar')?.hasAttribute('aria-live')).toBe(false)
   for (const region of implicitStatuses) {
@@ -853,8 +892,8 @@ test('keeps Operations and Settings reachable through utility navigation', async
   const browserWindow = createDashboardWindow()
   const root = await mountReadyDashboard()
   const utilityButton = (label: string) =>
-    [...(root.querySelectorAll<HTMLButtonElement>('.archive-primary-link'))].find(
-      (button) => button.querySelector('.nav-label')?.textContent === label
+    [...root.querySelectorAll<HTMLButtonElement>('[data-view-kind]')].find(
+      (button) => button.textContent === label
     ) ?? null
 
   utilityButton('Operations')?.click()
@@ -940,6 +979,7 @@ test('hides completed unstars from default Unlist and retains explicit unstarred
   )
   mountDashboard(root, state)
   await browserWindow.happyDOM.whenAsyncComplete()
+  await selectResultMode(root, 'list', browserWindow)
 
   const defaultRepositoryIds = visibleRepositoryIds(root)
   expect(defaultRepositoryIds).toHaveLength(stillStarredStatuses.length)
@@ -1058,6 +1098,7 @@ test('returns to Unlist when a normal refresh removes the active native List', a
     )
     mountDashboard(root, state)
     await browserWindow.happyDOM.whenAsyncComplete()
+    await selectResultMode(root, 'list', browserWindow)
 
     const currentList = [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
       (button) => button.querySelector('.nav-label')?.textContent === 'Current List'
@@ -1078,7 +1119,7 @@ test('returns to Unlist when a normal refresh removes the active native List', a
 
     expect(messages).toEqual(['start-sync'])
     const activeNavigation = root.querySelector<HTMLButtonElement>(
-      '.archive-directory .nav-item[aria-current="page"]'
+      'nav[aria-label="Library"] .nav-item[aria-current="page"]'
     )
     expect(activeNavigation?.querySelector('.nav-label')?.textContent).toBe('Unlist')
     expect((browserWindow.document.activeElement as unknown) === activeNavigation).toBe(true)
@@ -1322,6 +1363,7 @@ test('aligns Unlist and native List counts with the current archive scope', asyn
     }
   }
   const root = await mountReadyDashboard(state)
+  await selectResultMode(root, 'list', browserWindow)
   const navigationCount = (label: string) =>
     [...root.querySelectorAll<HTMLButtonElement>('.nav-item')].find(
       (button) => button.querySelector('.nav-label')?.textContent === label
@@ -1393,8 +1435,8 @@ test('keeps a visible Search label beside the prominent Refresh control', async 
   if (headerControls === null) return
   const search = headerControls.querySelector<HTMLInputElement>('input[type="search"]')
   const refresh = directHeaderControl(headerControls, '.refresh-button')
-  const filterContainer = headerControls.querySelector<HTMLElement>('.archive-filter-container')
-  const viewOptions = directHeaderControl(filterContainer, 'details.view-options')
+  const viewOptions = headerControls.querySelector<HTMLDetailsElement>('details.view-options')
+  const filterContainer = viewOptions?.closest('section') ?? null
   const searchLabel = search?.labels?.[0] ?? null
 
   expect(search).not.toBeNull()
@@ -1416,8 +1458,8 @@ test('places language, sort, direction, and archive controls under View options'
   const {renderLibraryState} = await import('../../src/dashboard/scripts')
   const library = renderLibraryState(readyDashboardState())
   const headerControls = library.querySelector('.library-actions')
-  const filterContainer = headerControls?.querySelector<HTMLElement>('.archive-filter-container') ?? null
-  const viewOptions = directHeaderControl(filterContainer, 'details.view-options')
+  const viewOptions = headerControls?.querySelector<HTMLDetailsElement>('details.view-options') ?? null
+  const filterContainer = viewOptions?.closest('section') ?? null
   const viewOptionControls = ['Language', 'Sort', 'Descending', 'Archived hidden']
 
   expect(filterContainer).not.toBeNull()
@@ -1455,6 +1497,7 @@ test('runs one shared repository query per flushed filter change', async () => {
     library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
   await browserWindow.happyDOM.whenAsyncComplete()
+  await selectResultMode(library, 'list', browserWindow)
 
   const labelledSelect = (labelText: string): HTMLSelectElement => {
     const label = [...library.querySelectorAll<HTMLLabelElement>('label')].find(
@@ -1829,6 +1872,7 @@ test('keeps an unstar confirmation authoritative over attempted polling and clea
     )
     mountDashboard(root, pollingState)
     await browserWindow.happyDOM.whenAsyncComplete()
+    await selectResultMode(root, 'list', browserWindow)
     const checkbox = root.querySelector<HTMLInputElement>(
       'input[aria-label="Select octocat/one for unstar"]'
     )
@@ -1905,6 +1949,7 @@ test('discards a poll that was already in flight when a foreground action begins
       root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
     )
     mountDashboard(root, base)
+    await selectResultMode(root, 'list', browserWindow)
     const poll = sendDashboardAction({type: 'get-app-state'})
     const action = sendDashboardAction({type: 'start-sync', force: true})
     pendingAction.resolve()
@@ -1966,6 +2011,7 @@ test('applies independent foreground responses in arrival order', async () => {
       root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
     )
     mountDashboard(root, base)
+    await selectResultMode(root, 'list', browserWindow)
     const first = sendDashboardAction({type: 'start-sync', force: true})
     const second = sendDashboardAction({type: 'disconnect-write-auth'})
     firstPending.resolve()
@@ -2001,21 +2047,22 @@ test('keeps dashboard nodes, focus, scroll, and query work stable across equival
   })
   const {renderAppState} = await import('../../src/dashboard/scripts')
   queryCalls = 0
-  const directoryNavigation = root.querySelector('.archive-directory-nav')
+  await selectResultMode(root, 'list', window as unknown as Window)
+  const directoryNavigation = root.querySelector('nav[aria-label="Library"]')
   expect(directoryNavigation).not.toBeNull()
   const page = root.querySelector('.library-page')
   const list = root.querySelector<HTMLElement>('.repository-list')!
-  const rows = [...root.querySelectorAll('.repository-row-shell')]
+  const rows = [...root.querySelectorAll('.repository-row')]
   const row = root.querySelector<HTMLElement>('.repository-row')!
   list.scrollTop = 96
   row.focus()
 
   renderAppState(structuredClone(state))
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
-  expect(root.querySelector('.archive-directory-nav')).toBe(directoryNavigation)
+  expect(root.querySelector('nav[aria-label="Library"]')).toBe(directoryNavigation)
   expect(root.querySelector('.library-page')).toBe(page)
   expect(root.querySelector('.repository-list')).toBe(list)
-  rows.forEach((item, index) => expect(root.querySelectorAll('.repository-row-shell')[index]).toBe(item))
+  rows.forEach((item, index) => expect(root.querySelectorAll('.repository-row')[index]).toBe(item))
   expect(document.activeElement).toBe(row)
   expect(list.scrollTop).toBe(96)
   expect(queryCalls).toBe(0)
@@ -2030,10 +2077,10 @@ test('keeps dashboard nodes, focus, scroll, and query work stable across equival
   }
   renderAppState(succeeded)
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
-  expect(root.querySelector('.archive-directory-nav')).toBe(directoryNavigation)
+  expect(root.querySelector('nav[aria-label="Library"]')).toBe(directoryNavigation)
   expect(root.querySelector('.library-page')).toBe(page)
   expect(root.querySelector('.repository-list')).toBe(list)
-  rows.forEach((item, index) => expect(root.querySelectorAll('.repository-row-shell')[index]).toBe(item))
+  rows.forEach((item, index) => expect(root.querySelectorAll('.repository-row')[index]).toBe(item))
   expect(root.querySelector('.repository-row')).toBe(row)
   expect(document.activeElement).toBe(row)
   expect(list.scrollTop).toBe(96)
@@ -2044,7 +2091,7 @@ test('keeps dashboard nodes, focus, scroll, and query work stable across equival
   navButton.focus()
   renderAppState(structuredClone(succeeded))
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
-  expect(root.querySelector('.archive-directory-nav')).toBe(directoryNavigation)
+  expect(root.querySelector('nav[aria-label="Library"]')).toBe(directoryNavigation)
   expect(root.querySelector('[aria-current="page"]')).toBe(navButton)
   expect(document.activeElement).toBe(navButton)
   expect(queryCalls).toBe(0)
@@ -2059,6 +2106,7 @@ test('updates material library metadata while restoring row and Search focus', a
   })
   const {renderAppState} = await import('../../src/dashboard/scripts')
   queryCalls = 0
+  await selectResultMode(root, 'list', window as unknown as Window)
   const page = root.querySelector('.library-page')
   const list = root.querySelector<HTMLElement>('.repository-list')!
   const row = root.querySelector<HTMLElement>('.repository-row')!
@@ -2086,7 +2134,7 @@ test('updates material library metadata while restoring row and Search focus', a
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
   expect(root.querySelector('.library-page')).toBe(page)
   expect(root.querySelector('.repository-row h2')?.textContent).toBe('renamed')
-  expect(root.querySelector('.archive-directory-nav')?.textContent).toContain('Renamed List')
+  expect(root.querySelector('nav[aria-label="Library"]')?.textContent).toContain('Renamed List')
   expect(queryCalls).toBe(1)
   expect((document.activeElement as HTMLElement | null)?.dataset.repositoryNodeId).toBe('R_one')
   expect(root.querySelector<HTMLElement>('.repository-list')?.scrollTop).toBe(96)
@@ -2234,6 +2282,7 @@ test('preserves repository focus and scroll across sort, filters, and List view 
   }
   const root = await mountReadyDashboard(state)
   const browserWindow = window as unknown as Window
+  await selectResultMode(root, 'list', browserWindow)
   const search = root.querySelector<HTMLInputElement>('#library-search')!
   search.value = ''
   search.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
@@ -2342,6 +2391,7 @@ test('moves focus to an available repository when a filter removes the focused r
   }
   const root = await mountReadyDashboard(state)
   const browserWindow = window as unknown as Window
+  await selectResultMode(root, 'list', browserWindow)
   const focused = root.querySelector<HTMLElement>(
     '.repository-row[data-repository-node-id="R_two"]'
   )!
@@ -2382,6 +2432,7 @@ test('supersedes rapid query focus work and respects intentional focus movement'
     return queryRepositories(...args)
   })
   queryCalls = 0
+  await selectResultMode(root, 'list', window as unknown as Window)
   const focused = root.querySelector<HTMLElement>(
     '.repository-row[data-repository-node-id="R_two"]'
   )!
@@ -2416,6 +2467,7 @@ test('does not restore dashboard focus after focus moves outside its scope', asy
     }
   }
   const root = await mountReadyDashboard(state)
+  await selectResultMode(root, 'list', window as unknown as Window)
   const externalTarget = document.createElement('button')
   externalTarget.textContent = 'Outside dashboard'
   document.body.append(externalTarget)
@@ -2451,6 +2503,7 @@ test('cancels pending query reconciliation when its dashboard is unmounted', asy
     return queryRepositories(...args)
   })
   queryCalls = 0
+  await selectResultMode(root, 'list', window as unknown as Window)
   root.querySelector<HTMLElement>('[data-repository-node-id="R_two"]')!.focus()
   const language = [...root.querySelectorAll<HTMLLabelElement>('label')].find(
     (candidate) => candidate.firstElementChild?.textContent === 'Language'
@@ -2690,6 +2743,7 @@ test('disables native membership review when membership readiness is unavailable
   browserWindow.document.body.append(
     library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
+  await selectResultMode(library, 'list', browserWindow)
   const repositoryRow = library.querySelector<HTMLButtonElement>('.repository-row')
   expect(repositoryRow).not.toBeNull()
   if (repositoryRow === null) return
@@ -2847,6 +2901,7 @@ test('uses a labelled repository button list and moves focus with arrow keys', a
   browserWindow.document.body.append(
     library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
+  await selectResultMode(library, 'list', browserWindow)
   const repositoryList = library.querySelector('.repository-list')
   const rows = [...library.querySelectorAll<HTMLButtonElement>('.repository-row')]
   const firstRow = rows.find((row) => row.textContent?.includes('one')) ?? null
@@ -2890,6 +2945,7 @@ test('opens repository inspection in a modal only after a row is activated', asy
   browserWindow.document.body.append(
     library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
+  await selectResultMode(library, 'list', browserWindow)
   const row = library.querySelector<HTMLButtonElement>('.repository-row')
 
   expect(library.querySelector('.library-grid > .inspector')).toBeNull()
@@ -2915,6 +2971,7 @@ test('dismisses repository inspection with Escape or its backdrop and restores r
   browserWindow.document.body.append(
     library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
+  await selectResultMode(library, 'list', browserWindow)
   const row = library.querySelector<HTMLButtonElement>('.repository-row')
   expect(row).not.toBeNull()
   if (row === null) return
@@ -4529,6 +4586,11 @@ test('renders account-isolated job states, batch counts, and queued-only cancell
   ]) {
     expect(operations.textContent).toContain(label)
   }
+  for (const status of ['queued', 'retry-waiting', 'failed', 'blocked-unknown'] as const) {
+    const labels = [...operations.querySelectorAll<HTMLElement>(`.mutation-status[data-status="${status}"]`)]
+    expect(labels).not.toHaveLength(0)
+    expect(labels.every((label) => (label.textContent?.trim().length ?? 0) > 0)).toBe(true)
+  }
   for (const label of [
     'Succeeded1',
     'Failed1',
@@ -4854,6 +4916,7 @@ test('restores focus to an available result when filtering removes the inspected
     library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
   mountDashboard(library, state)
+  await selectResultMode(library, 'list', browserWindow)
   const inspectedRow = library.querySelector<HTMLButtonElement>(
     '[data-repository-node-id="R_inspected"]'
   )
@@ -4917,13 +4980,19 @@ test('uses accessible local List and Cards modes while preserving real card sele
   const mode = (name: 'list' | 'cards') =>
     root.querySelector<HTMLButtonElement>(`[data-result-mode="${name}"]`)
 
+  expect(mode('list')?.getAttribute('aria-pressed')).toBe('false')
+  expect(mode('cards')?.getAttribute('aria-pressed')).toBe('true')
+  expect(root.querySelector('.repository-card-grid')).not.toBeNull()
+
+  mode('list')?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
   expect(mode('list')?.getAttribute('aria-pressed')).toBe('true')
   expect(mode('cards')?.getAttribute('aria-pressed')).toBe('false')
   expect(root.querySelector('.repository-list')).not.toBeNull()
+  expect(root.querySelector('.repository-card-grid')).toBeNull()
 
   mode('cards')?.click()
   await browserWindow.happyDOM.whenAsyncComplete()
-
   expect(mode('list')?.getAttribute('aria-pressed')).toBe('false')
   expect(mode('cards')?.getAttribute('aria-pressed')).toBe('true')
   const cards = root.querySelector<HTMLUListElement>('.repository-card-grid')
@@ -4986,6 +5055,7 @@ test('progressively renders local repository batches from an intersection sentin
   )
   mountDashboard(root, state)
   await browserWindow.happyDOM.whenAsyncComplete()
+  await selectResultMode(root, 'list', browserWindow)
   const visibleCount = () => root.querySelectorAll('.repository-row').length
 
   try {
@@ -5070,6 +5140,7 @@ test('ignores stale intersection callbacks after a query reset, navigation, and 
   try {
     mountDashboard(firstRoot, state)
     await nextTurn(browserWindow)
+    await selectResultMode(firstRoot, 'list', browserWindow)
     expect(visibleCount(firstRoot)).toBe(100)
 
     const sort = [...firstRoot.querySelectorAll<HTMLSelectElement>('.view-options select')]
@@ -5103,6 +5174,7 @@ test('ignores stale intersection callbacks after a query reset, navigation, and 
     )
     mountDashboard(secondRoot, state)
     await nextTurn(browserWindow)
+    await selectResultMode(secondRoot, 'list', browserWindow)
     observer.intersect(0, true)
     await nextTurn(browserWindow)
     expect(visibleCount(secondRoot)).toBe(100)
@@ -5137,6 +5209,7 @@ test('offers a local Load more fallback without IntersectionObserver', async () 
       library: {...ready.library!, repositories}
     })
     await browserWindow.happyDOM.whenAsyncComplete()
+    await selectResultMode(root, 'list', browserWindow)
     const loadMore = root.querySelector<HTMLButtonElement>('.load-more-results')
     expect(root.querySelectorAll('.repository-row')).toHaveLength(100)
     expect(loadMore?.textContent).toBe('Load more')
@@ -5243,6 +5316,7 @@ test('restores focus to an available result when search removes the inspected re
     library as unknown as Parameters<typeof browserWindow.document.body.append>[0]
   )
   mountDashboard(library, state)
+  await selectResultMode(library, 'list', browserWindow)
   const inspectedRow = library.querySelector<HTMLButtonElement>(
     '[data-repository-node-id="R_inspected"]'
   )
@@ -5283,6 +5357,7 @@ function createDashboardWindow(): Window {
 }
 
 async function openRepositoryDetails(library: HTMLElement, browserWindow: Window): Promise<void> {
+  await selectResultMode(library, 'list', browserWindow)
   const row = library.querySelector<HTMLButtonElement>('.repository-row')
   expect(row).not.toBeNull()
   if (row === null) return
@@ -5427,6 +5502,7 @@ function accountBDashboardState(): AppState {
 }
 
 async function expectAccountBDashboard(root: HTMLElement, browserWindow: Window): Promise<void> {
+  await selectResultMode(root, 'list', browserWindow)
   expect(visibleRepositoryIds(root)).toEqual(['R_account_b'])
   await openRepositoryDetails(root, browserWindow)
   expect(root.querySelector<HTMLTextAreaElement>('.annotation-editor textarea')?.textContent).toBe(
@@ -5492,7 +5568,7 @@ function renameEditButton(root: Element): HTMLButtonElement | null {
 
 function nativeListNavigationButton(root: Element, name: string): HTMLButtonElement | null {
   return (
-    [...root.querySelectorAll<HTMLButtonElement>('nav.archive-directory-nav .nav-item')].find(
+    [...root.querySelectorAll<HTMLButtonElement>('nav[aria-label="Library"] .nav-item')].find(
       (button) => button.textContent?.includes(name)
     ) ?? null
   )
@@ -5502,6 +5578,18 @@ function submitNativeListRename(_browserWindow: Window, root: Element): void {
   nativeListHeader(root)?.querySelector<HTMLButtonElement>(
     'form.native-list-rename-editor .primary-action'
   )?.click()
+}
+
+async function selectResultMode(
+  root: Element,
+  mode: 'list' | 'cards',
+  browserWindow: Window
+): Promise<void> {
+  const button = root.querySelector<HTMLButtonElement>(`[data-result-mode="${mode}"]`)
+  expect(button).not.toBeNull()
+  if (button === null) throw new Error(`${mode} result mode is required.`)
+  button.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
 }
 
 async function nextTurn(browserWindow: Window): Promise<void> {
@@ -5535,7 +5623,7 @@ function navigationLabels(group: Element | null): string[] {
 }
 
 function sidebarNavigation(root: Element): Element | null {
-  return root.querySelector('nav.archive-directory-nav[aria-label="Library"]')
+  return root.querySelector('nav[aria-label="Library"]')
 }
 
 function navigationGroup(sidebar: Element | null, title: string): Element | null {
