@@ -1814,7 +1814,7 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
       div(
         {class: 'repository-row-main'},
         div(
-          {class: 'archive-record-summary'},
+          {class: 'repository-row-summary'},
           div(
             {class: 'archive-repository-reference'},
             span({class: 'repository-owner'}, repository.ownerLogin),
@@ -1826,7 +1826,7 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
           )
         ),
         div(
-          {class: 'archive-record-facts'},
+          {class: 'repository-row-facts'},
           div(
             {class: 'repository-meta'},
             repository.primaryLanguage ? span(repository.primaryLanguage) : null,

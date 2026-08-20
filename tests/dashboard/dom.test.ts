@@ -217,184 +217,6 @@ test('renders the application frame without changing repository activation contr
   expect(results?.querySelector('.settings-page h1')?.textContent).toBe('Settings')
 })
 
-test('keeps state pages and dialogs inside the application main landmark', async () => {
-  const globalKeys = ['window', 'document', 'HTMLElement', 'Text', 'Event', 'KeyboardEvent'] as const
-  const previousGlobals = new Map(
-    globalKeys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
-  )
-  const browserWindow = createDashboardWindow()
-  const previousChrome = (globalThis as {chrome?: unknown}).chrome
-  const runtimeMessages: string[] = []
-  Object.assign(globalThis, {
-    chrome: {
-      runtime: {
-        sendMessage: async (message: {readonly type: string}) => {
-          runtimeMessages.push(message.type)
-          if (message.type === 'start-sync') return {ok: true, data: membershipReadyDashboardState()}
-          throw new Error(`Unexpected runtime message: ${message.type}`)
-        }
-      }
-    }
-  })
-  const root = browserWindow.document.createElement('div') as unknown as HTMLElement
-  try {
-    const {mountDashboard, renderAppState} = await import('../../src/dashboard/scripts')
-    const signedOut: AppState = {
-      ...signedOutDashboardState(),
-      error: {
-        category: 'network',
-        message: 'GitHub is unavailable. No local data was changed.',
-        retryable: true
-      }
-    }
-    browserWindow.document.body.append(
-      root as unknown as Parameters<typeof browserWindow.document.body.append>[0]
-    )
-    mountDashboard(root, signedOut)
-    await browserWindow.happyDOM.whenAsyncComplete()
-
-    const results = root.querySelector<HTMLElement>('main.workspace.app-main')
-    const statePanel = root.querySelector<HTMLElement>('.phase-workspace .state-panel')
-    expect(root.querySelector('.app-header')).not.toBeNull()
-    expect(results).not.toBeNull()
-    expect(statePanel?.closest('main.workspace.app-main')).toBe(results)
-    expect(statePanel?.querySelector('h2')?.textContent).toBe('Reconnect your GitHub library')
-    expect(statePanel?.textContent).toContain(
-      'Notes, tags, favorites, and revisit dates remain local.'
-    )
-    expect(statePanel?.querySelector('[role="alert"]')?.textContent).toBe(
-      'GitHub is unavailable. No local data was changed.'
-    )
-    expect(
-      [...(statePanel?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
-        (button) => button.textContent?.trim() === 'Connect GitHubDevice flow'
-      )?.getAttribute('type')
-    ).toBe('button')
-    expect(root.querySelectorAll('[aria-live]')).toHaveLength(0)
-    expect(root.querySelectorAll('[role="status"]')).toHaveLength(0)
-
-    renderAppState({...signedOut, phase: 'loading', error: null})
-    await browserWindow.happyDOM.whenAsyncComplete()
-    const loading = root.querySelector<HTMLElement>('.phase-workspace .state-panel[aria-busy="true"]')
-    expect(loading?.closest('main.workspace.app-main')).toBe(results)
-    expect(loading?.querySelector('h2')?.textContent).toBe('Preparing your dashboard')
-    expect(loading?.textContent).toContain('Loading the local account state and extension configuration.')
-    expect(root.querySelectorAll('[aria-live]')).toHaveLength(0)
-    expect(root.querySelectorAll('[role="status"]')).toHaveLength(0)
-
-    const ready = membershipReadyDashboardState()
-    renderAppState(ready)
-    await browserWindow.happyDOM.whenAsyncComplete()
-    expect(root.querySelector('.status-stack[role="status"]')?.closest('main.workspace.app-main')).toBe(
-      results
-    )
-    expect(root.querySelectorAll('[aria-live]')).toHaveLength(0)
-
-    const utility = (label: string) =>
-      [...root.querySelectorAll<HTMLButtonElement>('[data-view-kind]')].find(
-        (button) => button.textContent === label
-      ) ?? null
-    utility('Operations')?.click()
-    await browserWindow.happyDOM.whenAsyncComplete()
-    expect(root.querySelector('.operations-page h1')?.textContent).toBe('Operations')
-    expect(root.querySelector('.operations-page')?.closest('main.workspace.app-main')).toBe(results)
-    expect(utility('Operations')?.getAttribute('aria-current')).toBe('page')
-
-    utility('Settings')?.click()
-    await browserWindow.happyDOM.whenAsyncComplete()
-    expect(root.querySelector('.settings-page h1')?.textContent).toBe('Settings')
-    expect(root.querySelector('.settings-page')?.closest('main.workspace.app-main')).toBe(results)
-    expect(utility('Settings')?.getAttribute('aria-current')).toBe('page')
-
-    renderAppState(ready)
-    await browserWindow.happyDOM.whenAsyncComplete()
-    const unlist = [...root.querySelectorAll<HTMLButtonElement>('.list-navigation .nav-item')].find(
-      (button) => button.querySelector('.nav-label')?.textContent === 'Unlist'
-    )
-    if (unlist === undefined) throw new Error('The Unlist navigation action is required.')
-    unlist.click()
-    await browserWindow.happyDOM.whenAsyncComplete()
-    await selectResultMode(root, 'list', browserWindow)
-    const row = root.querySelector<HTMLButtonElement>('.repository-row')
-    if (row === null) throw new Error('The repository inspection invoker is required.')
-
-    expect(runtimeMessages).not.toContain('enqueue-confirmed-unstars')
-    row.click()
-    await nextTurn(browserWindow)
-    const inspection = root.querySelector<HTMLElement>('.repository-inspection-dialog')
-    expect(inspection?.closest('main.workspace.app-main')).toBe(results)
-    expect(inspection?.getAttribute('role')).toBe('dialog')
-    expect(inspection?.getAttribute('aria-modal')).toBe('true')
-    const closeDetails = [...(inspection?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
-      (button) => button.textContent === 'Close details'
-    )
-    expect(closeDetails).not.toBeNull()
-    if (closeDetails === undefined) throw new Error('The repository inspection close action is required.')
-    closeDetails.click()
-    await nextTurn(browserWindow)
-    expect(root.querySelector('.repository-inspection-dialog')).toBeNull()
-    expect(root.querySelector('.library-page')?.closest('main.workspace.app-main')).toBe(results)
-    const restoredRow = root.querySelector<HTMLButtonElement>('.repository-row')
-    expect(restoredRow).not.toBeNull()
-    expect(restoredRow?.isConnected).toBe(true)
-    if (restoredRow === null) throw new Error('The ready repository row must be restored.')
-
-    restoredRow.click()
-    await nextTurn(browserWindow)
-    const reopenedInspection = root.querySelector<HTMLElement>('.repository-inspection-dialog')
-    const review = [...(reopenedInspection?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
-      (button) => button.textContent === 'Review unstar'
-    )
-    if (review === undefined) throw new Error('The unstar confirmation action is required.')
-    review.click()
-    await nextTurn(browserWindow)
-    expect(runtimeMessages).not.toContain('enqueue-confirmed-unstars')
-    const confirmation = root.querySelector<HTMLElement>('.unstar-confirmation[role="dialog"]')
-    expect(confirmation?.closest('main.workspace.app-main')).toBe(results)
-    expect(accessibleDialogName(confirmation)).toBe('Remove 1 star from GitHub?')
-    expect(confirmation?.textContent).toContain('There is no Undo or re-star control')
-    const confirm = [...(confirmation?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
-      (button) => button.textContent === 'Confirm unstar 1'
-    )
-    const cancel = [...(confirmation?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
-      (button) => button.textContent === 'Cancel'
-    )
-    expect(confirm).not.toBeNull()
-    expect(cancel).not.toBeNull()
-    if (cancel === undefined) throw new Error('The unstar confirmation cancel action is required.')
-    cancel.click()
-    await nextTurn(browserWindow)
-    expect(root.querySelector('.unstar-confirmation')).toBeNull()
-    expect(root.querySelector('.repository-inspection-dialog')).toBeNull()
-    expect(root.querySelector('.library-page')?.closest('main.workspace.app-main')).toBe(results)
-    expect(root.querySelector<HTMLButtonElement>('.repository-row')?.isConnected).toBe(true)
-    expect(runtimeMessages).not.toContain('enqueue-confirmed-unstars')
-  } finally {
-    const cancel = [...root.querySelectorAll<HTMLButtonElement>('.unstar-confirmation button')].find(
-      (button) => button.textContent === 'Cancel' && !button.disabled
-    )
-    if (cancel) {
-      cancel.click()
-      await nextTurn(browserWindow)
-    }
-    const closeDetails = [...root.querySelectorAll<HTMLButtonElement>('.repository-inspection-dialog button')].find(
-      (button) => button.textContent === 'Close details' && !button.disabled
-    )
-    if (closeDetails) {
-      closeDetails.click()
-      await nextTurn(browserWindow)
-    }
-    root.remove()
-    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
-    else Object.assign(globalThis, {chrome: previousChrome})
-    for (const key of globalKeys) {
-      const descriptor = previousGlobals.get(key)
-      if (descriptor) Object.defineProperty(globalThis, key, descriptor)
-      else delete (globalThis as Record<string, unknown>)[key]
-    }
-  }
-})
-
 test('composes state, secondary, and dialog documents without changing safeguards', async () => {
   const browserWindow = createDashboardWindow()
   const previousChrome = (globalThis as {chrome?: unknown}).chrome
@@ -432,6 +254,7 @@ test('composes state, secondary, and dialog documents without changing safeguard
 
     const appMain = root.querySelector<HTMLElement>('main.workspace')
     const expectAppDocument = (element: HTMLElement | null) => {
+      expect(root.querySelectorAll('main')).toHaveLength(1)
       expect(appMain).not.toBeNull()
       expect(element).not.toBeNull()
       expect(element?.closest('main.workspace')).toBe(appMain)
@@ -452,12 +275,19 @@ test('composes state, secondary, and dialog documents without changing safeguard
         (button) => button.textContent?.trim() === 'Connect GitHubDevice flow'
       )?.getAttribute('type')
     ).toBe('button')
+    expect(root.querySelectorAll('[aria-live]')).toHaveLength(0)
+    expect(root.querySelectorAll('[role="status"]')).toHaveLength(0)
 
     renderAppState({...signedOut, phase: 'loading', error: null})
     await browserWindow.happyDOM.whenAsyncComplete()
     const loading = root.querySelector<HTMLElement>('.state-panel[aria-busy="true"]')
     expectAppDocument(loading)
     expect(loading?.querySelector('h2')?.textContent).toBe('Preparing your dashboard')
+    expect(loading?.textContent).toContain(
+      'Loading the local account state and extension configuration.'
+    )
+    expect(root.querySelectorAll('[aria-live]')).toHaveLength(0)
+    expect(root.querySelectorAll('[role="status"]')).toHaveLength(0)
 
     renderAppState({...signedOut, phase: 'authorization-expired', error: null})
     await browserWindow.happyDOM.whenAsyncComplete()
@@ -468,6 +298,8 @@ test('composes state, secondary, and dialog documents without changing safeguard
     const ready = membershipReadyDashboardState()
     renderAppState(ready)
     await browserWindow.happyDOM.whenAsyncComplete()
+    expectAppDocument(root.querySelector<HTMLElement>('.status-stack[role="status"]'))
+    expect(root.querySelectorAll('[aria-live]')).toHaveLength(0)
     const utility = (label: string) =>
       [...root.querySelectorAll<HTMLButtonElement>('[data-view-kind]')].find(
         (button) => button.textContent === label
@@ -478,12 +310,14 @@ test('composes state, secondary, and dialog documents without changing safeguard
     const operations = root.querySelector<HTMLElement>('.operations-page')
     expectAppDocument(operations)
     expect(operations?.querySelector('h1')?.textContent).toBe('Operations')
+    expect(utility('Operations')?.getAttribute('aria-current')).toBe('page')
 
     utility('Settings')?.click()
     await browserWindow.happyDOM.whenAsyncComplete()
     const settings = root.querySelector<HTMLElement>('.settings-page')
     expectAppDocument(settings)
     expect(settings?.querySelector('h1')?.textContent).toBe('Settings')
+    expect(utility('Settings')?.getAttribute('aria-current')).toBe('page')
 
     utility('Library')?.click()
     await browserWindow.happyDOM.whenAsyncComplete()
@@ -498,6 +332,11 @@ test('composes state, secondary, and dialog documents without changing safeguard
     expect(inspection?.getAttribute('aria-modal')).toBe('true')
     expect(accessibleDialogName(inspection)).toBe('one')
     expect(inspection?.querySelector('h2')?.textContent).toBe('one')
+    expect(
+      [...(inspection?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
+        (button) => button.textContent === 'Close details'
+      )
+    ).not.toBeNull()
 
     const reviewUnstar = [...(inspection?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
       (button) => button.textContent === 'Review unstar'
@@ -511,12 +350,21 @@ test('composes state, secondary, and dialog documents without changing safeguard
     expect(accessibleDialogName(unstar)).toBe('Remove 1 star from GitHub?')
     expect(unstar?.querySelector('h2')?.textContent).toBe('Remove 1 star from GitHub?')
     expect(unstar?.textContent).toContain('There is no Undo or re-star control')
+    expect(
+      [...(unstar?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
+        (button) => button.textContent === 'Confirm unstar 1'
+      )
+    ).not.toBeNull()
     const cancelUnstar = [...(unstar?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
       (button) => button.textContent === 'Cancel'
     )
     if (cancelUnstar === undefined) throw new Error('The unstar cancellation action is required.')
     cancelUnstar.click()
     await nextTurn(browserWindow)
+    expect(root.querySelector('.unstar-confirmation')).toBeNull()
+    expect(root.querySelector('.repository-inspection-dialog')).toBeNull()
+    expectAppDocument(root.querySelector<HTMLElement>('.library-page'))
+    expect(root.querySelector<HTMLButtonElement>('.repository-row')?.isConnected).toBe(true)
     expect(runtimeMessages).not.toContain('enqueue-confirmed-unstars')
 
     const restoredRow = root.querySelector<HTMLButtonElement>('.repository-row')
@@ -645,8 +493,8 @@ test('renders accessible List navigation and repository results for the ready li
 
 test('preserves long repository and List names with sparse facts and status semantics', async () => {
   const ready = readyDashboardState()
-  const owner = `owner-${'a'.repeat(96)}`
-  const name = `repository-${'b'.repeat(128)}`
+  const owner = `owner-${'a'.repeat(33)}`
+  const name = `repository-${'b'.repeat(89)}`
   const listName = `List ${'c'.repeat(160)}`
   const repository = repositoryRecord('42', 'R_long', `${owner}/${name}`)
   const activeJob = {
@@ -673,6 +521,8 @@ test('preserves long repository and List names with sparse facts and status sema
   const unlistButton = [...root.querySelectorAll<HTMLButtonElement>('.list-navigation .nav-item')]
     .find((button) => button.querySelector('.nav-label')?.textContent === 'Unlist') ?? null
 
+  expect(owner).toHaveLength(39)
+  expect(name).toHaveLength(100)
   expect(card?.querySelector('.repository-owner')?.textContent).toBe(owner)
   expect(card?.querySelector('h2')?.textContent).toBe(name)
   expect(accessibleText(card)).toContain(owner)
@@ -696,6 +546,8 @@ test('preserves long repository and List names with sparse facts and status sema
   await selectResultMode(root, 'list', browserWindow)
   const row = root.querySelector<HTMLButtonElement>('.repository-row')
   const rowFacts = [...(row?.querySelectorAll<HTMLElement>('.repository-meta > span') ?? [])]
+  expect(row?.querySelector('.repository-row-summary')).not.toBeNull()
+  expect(row?.querySelector('.repository-row-facts .repository-meta')).not.toBeNull()
   expect(row?.querySelector('.repository-owner')?.textContent).toBe(owner)
   expect(row?.querySelector('h2')?.textContent).toBe(name)
   expect(accessibleText(row)).toContain(owner)

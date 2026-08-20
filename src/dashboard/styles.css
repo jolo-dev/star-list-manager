@@ -1004,7 +1004,7 @@ h1 {
   gap: 20px;
 }
 
-.archive-record-summary,
+.repository-row-summary,
 .archive-repository-reference {
   min-width: 0;
 }
@@ -1034,7 +1034,7 @@ h1 {
   -webkit-line-clamp: 2;
 }
 
-.archive-record-facts {
+.repository-row-facts {
   display: grid;
   min-width: 0;
   align-content: start;
@@ -1976,7 +1976,7 @@ textarea:disabled {
     gap: 12px;
   }
 
-  .archive-record-facts,
+  .repository-row-facts,
   .repository-meta {
     justify-items: start;
     text-align: left;

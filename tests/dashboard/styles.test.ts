@@ -272,8 +272,8 @@ test('wraps user content and preserves mobile controls and reflow', () => {
     '.repository-card-footer',
     '.repository-card-facts',
     '.repository-row-main',
-    '.archive-record-summary',
-    '.archive-record-facts',
+    '.repository-row-summary',
+    '.repository-row-facts',
     '.repository-meta',
     '.native-list-header-title'
   ]) {
