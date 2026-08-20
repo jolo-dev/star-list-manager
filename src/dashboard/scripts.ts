@@ -431,7 +431,7 @@ function NavItem(
             .filter(Boolean)
             .join(' '),
         type: 'button',
-        'aria-current': () => isActiveView(view) ? 'page' : null,
+        'aria-current': () => isActiveView(view) ? 'page' : false,
         'data-view-kind': view.kind,
         'data-view-key': JSON.stringify(view),
         onclick: () => {

@@ -119,6 +119,8 @@ test('renders the Star List Manager shell with real primary navigation', async (
   expect(workspace?.closest('.app-frame')).toBe(frame)
   expect(primaryLink('Library')?.dataset.viewKind).toBe('unlist')
   expect(primaryLink('Library')?.getAttribute('aria-current')).toBe('page')
+  expect(primaryLink('Operations')?.getAttribute('aria-current')).toBe('false')
+  expect(primaryLink('Settings')?.getAttribute('aria-current')).toBe('false')
   expect(workspace?.querySelector('.library-page')).not.toBeNull()
   expect(header?.querySelector('#library-search')).toBeNull()
   expect(workspace?.querySelector('.library-header #library-search')).not.toBeNull()
@@ -126,12 +128,16 @@ test('renders the Star List Manager shell with real primary navigation', async (
   primaryLink('Operations')?.click()
   await browserWindow.happyDOM.whenAsyncComplete()
   expect(workspace?.querySelector('.operations-page h1')?.textContent).toBe('Operations')
+  expect(primaryLink('Library')?.getAttribute('aria-current')).toBe('false')
   expect(primaryLink('Operations')?.getAttribute('aria-current')).toBe('page')
+  expect(primaryLink('Settings')?.getAttribute('aria-current')).toBe('false')
   expect(header?.querySelector('.account-indicator')).toBe(accountIndicator)
 
   primaryLink('Settings')?.click()
   await browserWindow.happyDOM.whenAsyncComplete()
   expect(workspace?.querySelector('.settings-page h1')?.textContent).toBe('Settings')
+  expect(primaryLink('Library')?.getAttribute('aria-current')).toBe('false')
+  expect(primaryLink('Operations')?.getAttribute('aria-current')).toBe('false')
   expect(primaryLink('Settings')?.getAttribute('aria-current')).toBe('page')
   expect(header?.querySelector('.account-indicator')).toBe(accountIndicator)
 
@@ -139,6 +145,8 @@ test('renders the Star List Manager shell with real primary navigation', async (
   await browserWindow.happyDOM.whenAsyncComplete()
   expect(workspace?.querySelector('.library-page')).not.toBeNull()
   expect(primaryLink('Library')?.getAttribute('aria-current')).toBe('page')
+  expect(primaryLink('Operations')?.getAttribute('aria-current')).toBe('false')
+  expect(primaryLink('Settings')?.getAttribute('aria-current')).toBe('false')
 })
 
 test('renders the application frame without changing repository activation contracts', async () => {
@@ -682,7 +690,7 @@ test('preserves long repository and List names with sparse facts and status sema
   expect(longListButton?.querySelector('.list-count')?.textContent).toBe('0')
   expect(accessibleText(longListButton)).toContain(listName)
   expect(accessibleText(longListButton)).toMatch(/0$/)
-  expect(longListButton?.getAttribute('aria-current')).not.toBe('page')
+  expect(longListButton?.getAttribute('aria-current')).toBe('false')
   expect(unlistButton?.getAttribute('aria-current')).toBe('page')
 
   await selectResultMode(root, 'list', browserWindow)
@@ -709,6 +717,7 @@ test('preserves long repository and List names with sparse facts and status sema
   longListButton?.click()
   await browserWindow.happyDOM.whenAsyncComplete()
   expect(longListButton?.getAttribute('aria-current')).toBe('page')
+  expect(unlistButton?.getAttribute('aria-current')).toBe('false')
   expect(longListButton?.querySelector('.nav-label')?.textContent).toBe(listName)
   expect(longListButton?.querySelector('.list-count')?.textContent).toBe('0')
 })
