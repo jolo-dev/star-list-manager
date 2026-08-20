@@ -98,7 +98,7 @@ test('renders the Star List Manager shell with real primary navigation', async (
   const primaryLink = (label: string) =>
     primaryLinks.find((link) => link.textContent === label) ?? null
   const accountIndicator = header?.querySelector<HTMLElement>(
-    '.account-indicator[aria-label="Connected as octocat"]'
+    '.account-indicator[aria-label="Connected as account-42"]'
   ) ?? null
 
   expect(accountIndicator).not.toBeNull()

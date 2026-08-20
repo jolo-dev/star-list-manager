@@ -203,7 +203,7 @@ let ascending = van.state(false)
 type ResultMode = 'list' | 'cards'
 
 const resultBatchSize = 100
-let resultMode = van.state<ResultMode>('list')
+let resultMode = van.state<ResultMode>('cards')
 let visibleResultCount = van.state(resultBatchSize)
 let resultObserver: IntersectionObserver | null = null
 let resultObserverRegistrationTimer: number | null = null
@@ -316,65 +316,70 @@ function Dashboard(runQuery: RepositoryQueryRunner = queryRepositories) {
   let retainedKind: DashboardWorkspace | null = null
   let retainedWorkspace: HTMLElement | null = null
   return div(
-    {class: 'archive-app-shell'},
+    {class: 'app-shell'},
+    AppHeader(),
     div(
-      {class: 'archive-frame'},
-      ArchiveHeader(),
-      div(
-        {class: 'archive-workspace-frame'},
-        Navigation(),
-        main(
-          {
-            class: 'workspace archive-main archive-results',
-            'data-workspace-kind': () =>
-              classifyWorkspace(publishedPhase.val, activeView.val)
-          },
-          () => {
-            const kind = classifyWorkspace(publishedPhase.val, activeView.val)
-            if (kind === retainedKind && retainedWorkspace !== null) {
-              return retainedWorkspace
-            }
-            retainedKind = kind
-            retainedWorkspace = createWorkspace(kind, runQuery)
+      {class: 'app-frame'},
+      Navigation(),
+      main(
+        {
+          class: 'workspace app-main',
+          'data-workspace-kind': () =>
+            classifyWorkspace(publishedPhase.val, activeView.val)
+        },
+        () => {
+          const kind = classifyWorkspace(publishedPhase.val, activeView.val)
+          if (kind === retainedKind && retainedWorkspace !== null) {
             return retainedWorkspace
           }
-        )
+          retainedKind = kind
+          retainedWorkspace = createWorkspace(kind, runQuery)
+          return retainedWorkspace
+        }
       )
     )
   )
 }
 
-function ArchiveHeader() {
+function AppHeader() {
   return header(
-    {class: 'archive-app-header'},
+    {class: 'app-header'},
     div(
-      {class: 'archive-brand'},
-      span({class: 'archive-star-mark', 'aria-hidden': 'true'}, '★'),
-      span({class: 'archive-wordmark'}, 'Archive.Stars')
+      {class: 'app-brand'},
+      span({class: 'brand-mark', 'aria-hidden': 'true'}, '★'),
+      span({class: 'brand-wordmark'}, 'Star List Manager')
     ),
     nav(
-      {class: 'archive-primary-nav', 'aria-label': 'Primary navigation'},
+      {class: 'primary-navigation', 'aria-label': 'Primary navigation'},
       ul(
-        {class: 'archive-primary-list'},
-        NavItem('Library', {kind: 'unlist'}, null, 'archive-primary-link'),
-        NavItem('Operations', {kind: 'operations'}, null, 'archive-primary-link'),
-        NavItem('Settings', {kind: 'settings'}, null, 'archive-primary-link')
+        {class: 'primary-navigation-list'},
+        NavItem('Library', {kind: 'unlist'}, null, 'primary-navigation-item'),
+        NavItem('Operations', {kind: 'operations'}, null, 'primary-navigation-item'),
+        NavItem('Settings', {kind: 'settings'}, null, 'primary-navigation-item')
       )
-    )
+    ),
+    () => {
+      const identity = publishedIdentity.val
+      return identity
+        ? span(
+            {
+              class: 'account-indicator',
+              title: `Connected as ${identity.login}`,
+              'aria-label': `Connected as ${identity.login}`
+            },
+            identity.login.slice(0, 1).toLocaleUpperCase()
+          )
+        : null
+    }
   )
 }
 
 function Navigation() {
   return div(
-    {class: 'archive-directory'},
-    h2({class: 'archive-directory-heading'}, 'Directory'),
+    {class: 'list-sidebar'},
+    h2({class: 'list-sidebar-heading'}, 'My Lists'),
     nav(
-      {class: 'archive-directory-nav', 'aria-label': 'Library'},
-      div(
-        {class: 'brand'},
-        span({class: 'brand-mark', 'aria-hidden': 'true'}, 'S'),
-        div(span({class: 'brand-name'}, 'Star List'), span('Manager'))
-      ),
+      {class: 'list-navigation', 'aria-label': 'Library'},
       () => div({class: 'nav-groups'}, ...NavigationGroups())
     )
   )
@@ -402,7 +407,7 @@ function NavigationGroups() {
       {class: 'nav-group', open: true},
       summary('GitHub Lists'),
       ul(
-        {class: 'nav-list nav-list-secondary archive-directory-index'},
+        {class: 'nav-list nav-list-secondary'},
         ...directoryEntries.map((entry, index) =>
           NavItem(entry.title, entry.view, entry.count, '', index)
         )
@@ -442,9 +447,9 @@ function NavItem(
       },
       index === null
         ? null
-        : span({class: 'archive-index-number', 'aria-hidden': 'true'}, `${String(index).padStart(2, '0')}.`),
+        : span({class: `list-marker list-marker-${index % 4}`, 'aria-hidden': 'true'}),
       span({class: 'nav-label'}, title),
-      count === null ? null : span({class: 'archive-directory-count'}, String(count))
+      count === null ? null : span({class: 'list-count'}, String(count))
     )
   )
 }
@@ -666,6 +671,7 @@ function LibraryHeader(
   return header(
     {class: 'library-header'},
     div(
+      {class: 'library-heading'},
       () => LibraryViewContext(),
       h1(() => populationTitle(starState.val)),
       p(
@@ -677,7 +683,7 @@ function LibraryHeader(
       )
     ),
     div(
-      {class: 'library-actions archive-control-strip'},
+      {class: 'library-toolbar library-actions archive-control-strip'},
       label(
         {class: 'search-field'},
         span('Search'),
@@ -808,20 +814,7 @@ function LibraryHeader(
         ),
         ),
         () => AdvancedFilters()
-      ),
-      () => {
-        const identity = publishedIdentity.val
-        return identity
-          ? span(
-              {
-                class: 'header-avatar',
-                title: `Connected as ${identity.login}`,
-                'aria-label': `Connected as ${identity.login}`
-              },
-              identity.login.slice(0, 1).toLocaleUpperCase()
-            )
-          : null
-      }
+      )
     )
   )
 }
@@ -1903,22 +1896,30 @@ function RepositoryCard(item: LibraryRepository, selected: LibraryRepository | n
       },
       div(
         {class: 'repository-card-heading'},
-        span({class: 'repository-owner'}, repository.ownerLogin),
-        h2(repository.name)
+        span({class: 'repository-icon', 'aria-hidden': 'true'}),
+        div(
+          {class: 'repository-card-reference'},
+          span({class: 'repository-owner'}, repository.ownerLogin),
+          span({'aria-hidden': 'true'}, '/'),
+          h2(repository.name)
+        )
       ),
       p(repository.description ?? 'No description provided.'),
       div(
-        {class: 'repository-card-facts'},
-        repository.primaryLanguage ? span(repository.primaryLanguage) : null,
-        span(`Starred ${formatDate(repository.starredAt)}`),
-        item.annotation?.favorite ? span({title: 'Local favorite'}, 'Favorite') : null,
-        () => {
-          const latestJob = latestRepositoryJob(repository.repositoryNodeId)
-          return latestJob ? MutationStatus(latestJob) : null
-        }
-      ),
-      span({class: `triage-pill triage-${item.annotation?.triageState ?? 'unclassified'}`},
-        item.annotation?.triageState ?? 'unclassified'
+        {class: 'repository-card-footer'},
+        div(
+          {class: 'repository-card-facts'},
+          repository.primaryLanguage ? span(repository.primaryLanguage) : null,
+          span(`Starred ${formatDate(repository.starredAt)}`),
+          item.annotation?.favorite ? span({title: 'Local favorite'}, 'Favorite') : null,
+          () => {
+            const latestJob = latestRepositoryJob(repository.repositoryNodeId)
+            return latestJob ? MutationStatus(latestJob) : null
+          }
+        ),
+        span({class: `triage-pill triage-${item.annotation?.triageState ?? 'unclassified'}`},
+          item.annotation?.triageState ?? 'unclassified'
+        )
       )
     )
   )
@@ -2816,7 +2817,7 @@ function tryFocusTarget(element: HTMLElement | null): boolean {
 
 function captureFocusLifecycle(element: HTMLElement | null): FocusLifecycle {
   const ownerDocument = element?.ownerDocument ?? document
-  const elementShell = element?.closest<HTMLElement>('.archive-app-shell') ?? null
+  const elementShell = element?.closest<HTMLElement>('.app-shell') ?? null
   const elementPage = element?.closest<HTMLElement>('.library-page') ?? null
   const dashboardRoot = mountedDashboardRoot !== null &&
     (element === null || mountedDashboardRoot.contains(element))
@@ -3575,7 +3576,7 @@ function updateRepositoryQuery(update: () => void): void {
 
 function captureDashboardPosition(): DashboardPosition | null {
   const active = document.activeElement as HTMLElement | null
-  const activeScope = active?.closest<HTMLElement>('.archive-app-shell') ?? null
+  const activeScope = active?.closest<HTMLElement>('.app-shell') ?? null
   const page = active?.closest<HTMLElement>('.library-page') ??
     activeScope?.querySelector<HTMLElement>('.library-page') ??
     mountedDashboardRoot?.querySelector<HTMLElement>('.library-page') ??
@@ -3585,7 +3586,7 @@ function captureDashboardPosition(): DashboardPosition | null {
   if (page === null) return null
   const lifecycle = libraryPageLifecycles.get(page)
   if (lifecycle === undefined) return null
-  const scope = page.closest<HTMLElement>('.archive-app-shell') ?? page
+  const scope = page.closest<HTMLElement>('.app-shell') ?? page
   const list = page.querySelector<HTMLElement>('.repository-list')
   const focusedRow = active?.closest<HTMLElement>('.repository-row') ?? null
   const rows = list
@@ -3684,7 +3685,7 @@ function restoreDashboardPosition(
 
   if (position.focusedViewKey) {
     const navigationItems = [
-      ...position.scope.querySelectorAll<HTMLElement>('.archive-directory .nav-item')
+      ...position.scope.querySelectorAll<HTMLElement>('.list-sidebar .nav-item')
     ]
     const navigationTarget =
       navigationItems.find(
@@ -4086,7 +4087,7 @@ function resetDashboardUiState(): void {
   searchText = van.state('')
   sort = van.state<RepositorySort>('starred-at')
   ascending = van.state(false)
-  resultMode = van.state<ResultMode>('list')
+  resultMode = van.state<ResultMode>('cards')
   visibleResultCount = van.state(resultBatchSize)
   language = van.state<string | null>(null)
   hideArchived = van.state(true)
