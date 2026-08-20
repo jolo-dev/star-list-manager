@@ -611,6 +611,10 @@ h1 {
   gap: 8px;
 }
 
+.native-list-header-title {
+  min-width: 0;
+}
+
 .native-list-header-editor {
   margin-bottom: 12px;
 }
@@ -912,7 +916,7 @@ h1 {
   font-size: var(--type-data-size);
 }
 
-.repository-row.repository-card p {
+.repository-row.repository-card .repository-description {
   min-width: 0;
   margin: 0;
   color: var(--text-secondary);
@@ -933,8 +937,10 @@ h1 {
 
 .repository-card-footer {
   display: flex;
+  min-width: 0;
   align-items: flex-end;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -1017,7 +1023,7 @@ h1 {
   line-height: 1.3;
 }
 
-.repository-row p {
+.repository-row .repository-description {
   display: -webkit-box;
   margin: 8px 0 0;
   overflow: hidden;
@@ -1047,10 +1053,18 @@ h1 {
 
 .repository-meta {
   display: grid;
+  min-width: 0;
   justify-items: end;
   gap: 4px;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+.repository-owner,
+.repository-card-facts > span,
+.repository-meta > span,
+.confirmation-list li {
+  overflow-wrap: anywhere;
 }
 
 .job-error,

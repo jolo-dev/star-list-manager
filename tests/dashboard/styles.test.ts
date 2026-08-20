@@ -243,23 +243,53 @@ test('styles all operational, state, settings, and safety surfaces', () => {
   ]) {
     expect(ruleFor(styles, selector), selector).not.toBe('')
   }
-  expect(ruleFor(styles, '.repository-inspection-dialog')).toMatch(/max-height:\s*calc\(100dvh - 48px\)/)
-  expect(ruleFor(styles, '.repository-inspection-dialog')).toMatch(/overflow-y:\s*auto/)
-  expect(ruleFor(styles, '.confirmation-dialog')).toMatch(/overflow-y:\s*auto/)
+  const inspectionDialog = ruleFor(styles, '.repository-inspection-dialog')
+  const confirmationDialog = ruleFor(styles, '.confirmation-dialog')
+  expect(inspectionDialog).toMatch(/max-height:\s*calc\(100dvh - 48px\)/)
+  expect(inspectionDialog).toMatch(/overflow-y:\s*auto/)
+  expect(confirmationDialog).toMatch(/max-height:\s*min\(760px,\s*calc\(100dvh - 40px\)\)/)
+  expect(confirmationDialog).toMatch(/overflow-y:\s*auto/)
 })
 
 test('wraps user content and preserves mobile controls and reflow', () => {
   for (const selector of [
     '.nav-label',
+    '.native-list-name',
     '.native-list-choices label > span:not(.no-op-label)',
     '.repository-row h2',
+    '.repository-owner',
+    '.repository-card-facts > span',
+    '.repository-meta > span',
+    '.confirmation-list li',
     '.inspector-heading h2',
     '.account-login'
   ]) {
     expect(ruleFor(styles, selector), selector).toMatch(/overflow-wrap:\s*anywhere/)
+    expect(ruleFor(styles, selector), selector).not.toMatch(/(?:text-overflow:\s*ellipsis|overflow:\s*(?:hidden|clip))/)
   }
-  expect(styles).not.toMatch(/(?:html|body)[^{}]*\{[^{}]*overflow-x:\s*hidden/)
-  expect(ruleFor(styles, '.repository-row-main')).toMatch(/min-width:\s*0/)
+  for (const selector of [
+    '.repository-card-reference',
+    '.repository-card-footer',
+    '.repository-card-facts',
+    '.repository-row-main',
+    '.archive-record-summary',
+    '.archive-record-facts',
+    '.repository-meta',
+    '.native-list-header-title'
+  ]) {
+    expect(ruleFor(styles, selector), selector).toMatch(/min-width:\s*0/)
+  }
+  expect(ruleFor(styles, '.repository-card-footer')).toMatch(/flex-wrap:\s*wrap/)
+  expect(styles).not.toMatch(/(?:html|body)[^{}]*\{[^{}]*overflow-x:\s*(?:hidden|clip)/)
+
+  const rowDescription = exactRuleFor(styles, ['.repository-row .repository-description'])
+  const cardDescription = exactRuleFor(styles, ['.repository-row.repository-card .repository-description'])
+  expect(rowDescription).toMatch(/display:\s*-webkit-box/)
+  expect(rowDescription).toMatch(/overflow:\s*hidden/)
+  expect(rowDescription).toMatch(/-webkit-box-orient:\s*vertical/)
+  expect(rowDescription).toMatch(/-webkit-line-clamp:\s*2/)
+  expect(cardDescription).toMatch(/-webkit-line-clamp:\s*3/)
+  expect(exactRuleFor(styles, ['.repository-row p'])).not.toMatch(/(?:overflow:\s*hidden|-webkit-line-clamp)/)
 
   const mobile = extractMedia(styles, '(max-width: 700px)')
   expect(ruleFor(mobile, '.app-frame')).toMatch(/grid-template-columns:\s*1fr/)

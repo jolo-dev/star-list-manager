@@ -1820,7 +1820,10 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
             span({class: 'repository-owner'}, repository.ownerLogin),
             h2(repository.name)
           ),
-          p(repository.description ?? 'No description provided.')
+          p(
+            {class: 'repository-description'},
+            repository.description ?? 'No description provided.'
+          )
         ),
         div(
           {class: 'archive-record-facts'},
@@ -1876,7 +1879,10 @@ function RepositoryCard(item: LibraryRepository, selected: LibraryRepository | n
           h2(repository.name)
         )
       ),
-      p(repository.description ?? 'No description provided.'),
+      p(
+        {class: 'repository-description'},
+        repository.description ?? 'No description provided.'
+      ),
       div(
         {class: 'repository-card-footer'},
         div(

@@ -635,6 +635,91 @@ test('renders accessible List navigation and repository results for the ready li
   expect(root.querySelector('.repository-row')).not.toBeNull()
 })
 
+test('preserves long repository and List names with sparse facts and status semantics', async () => {
+  const ready = readyDashboardState()
+  const owner = `owner-${'a'.repeat(96)}`
+  const name = `repository-${'b'.repeat(128)}`
+  const listName = `List ${'c'.repeat(160)}`
+  const repository = repositoryRecord('42', 'R_long', `${owner}/${name}`)
+  const activeJob = {
+    ...mutationJob('42', 'queued', 901),
+    repositoryNodeId: repository.repositoryNodeId,
+    ownerLogin: repository.ownerLogin,
+    repositoryName: repository.name
+  }
+  const root = await mountReadyDashboard({
+    ...ready,
+    library: {
+      ...ready.library!,
+      repositories: [repository],
+      nativeLists: [nativeList('L_long', listName)],
+      annotations: []
+    },
+    mutations: {batches: [], jobs: [activeJob], history: []}
+  })
+  const browserWindow = window as unknown as Window
+  const card = root.querySelector<HTMLButtonElement>('.repository-card')
+  const cardFacts = [...(card?.querySelectorAll<HTMLElement>('.repository-card-facts > span') ?? [])]
+  const longListButton = [...root.querySelectorAll<HTMLButtonElement>('.list-navigation .nav-item')]
+    .find((button) => button.querySelector('.nav-label')?.textContent === listName) ?? null
+  const unlistButton = [...root.querySelectorAll<HTMLButtonElement>('.list-navigation .nav-item')]
+    .find((button) => button.querySelector('.nav-label')?.textContent === 'Unlist') ?? null
+
+  expect(card?.querySelector('.repository-owner')?.textContent).toBe(owner)
+  expect(card?.querySelector('h2')?.textContent).toBe(name)
+  expect(accessibleText(card)).toContain(owner)
+  expect(accessibleText(card)).toContain(name)
+  expect(card?.querySelector('p')?.textContent).toBe('No description provided.')
+  expect(cardFacts.map((fact) => fact.textContent)).toEqual([
+    expect.stringMatching(/^Starred /),
+    'Queued'
+  ])
+  expect(cardFacts.every((fact) => (fact.textContent?.trim().length ?? 0) > 0)).toBe(true)
+  expect(card?.querySelector('.repository-card-facts .mutation-status')?.textContent).toBe('Queued')
+  expect(card?.querySelector('.repository-card-footer > .triage-pill')?.textContent).toBe('unclassified')
+
+  expect(longListButton?.querySelector('.nav-label')?.textContent).toBe(listName)
+  expect(longListButton?.querySelector('.list-count')?.textContent).toBe('0')
+  expect(accessibleText(longListButton)).toContain(listName)
+  expect(accessibleText(longListButton)).toMatch(/0$/)
+  expect(longListButton?.getAttribute('aria-current')).not.toBe('page')
+  expect(unlistButton?.getAttribute('aria-current')).toBe('page')
+
+  await selectResultMode(root, 'list', browserWindow)
+  const row = root.querySelector<HTMLButtonElement>('.repository-row')
+  const rowFacts = [...(row?.querySelectorAll<HTMLElement>('.repository-meta > span') ?? [])]
+  expect(row?.querySelector('.repository-owner')?.textContent).toBe(owner)
+  expect(row?.querySelector('h2')?.textContent).toBe(name)
+  expect(accessibleText(row)).toContain(owner)
+  expect(accessibleText(row)).toContain(name)
+  expect(row?.querySelector('p')?.textContent).toBe('No description provided.')
+  expect(rowFacts.map((fact) => fact.textContent)).toEqual([
+    expect.stringMatching(/^Starred /),
+    'Queued'
+  ])
+  expect(rowFacts.every((fact) => (fact.textContent?.trim().length ?? 0) > 0)).toBe(true)
+  expect(row?.querySelector('.repository-meta .mutation-status')?.textContent).toBe('Queued')
+
+  row?.click()
+  await nextTurn(browserWindow)
+  expect(root.querySelector('.inspector-description')?.textContent).toBe(
+    'No description provided.'
+  )
+
+  longListButton?.click()
+  await browserWindow.happyDOM.whenAsyncComplete()
+  expect(longListButton?.getAttribute('aria-current')).toBe('page')
+  expect(longListButton?.querySelector('.nav-label')?.textContent).toBe(listName)
+  expect(longListButton?.querySelector('.list-count')?.textContent).toBe('0')
+})
+
+test('omits the account indicator entirely when no identity is available', async () => {
+  const root = await mountReadyDashboard({...readyDashboardState(), identity: null})
+
+  expect(root.querySelectorAll('.account-indicator')).toHaveLength(0)
+  expect(root.querySelector('.app-header')?.textContent).toContain('Star List Manager')
+})
+
 test('renders real List navigation and repository records without changing Library controls', async () => {
   const ready = readyDashboardState()
   const secondRepository = repositoryRecord('42', 'R_two', 'octocat/two')
@@ -5014,7 +5099,7 @@ test('uses accessible local List and Cards modes while preserving real card sele
   expect(card?.classList.contains('repository-card')).toBe(true)
   expect([...(card?.children ?? [])].map((child) => child.className)).toEqual([
     'repository-card-heading',
-    '',
+    'repository-description',
     'repository-card-footer'
   ])
   expect(card?.textContent).toContain('octocat')
@@ -5668,6 +5753,17 @@ function accessibleDialogName(dialog: Element | null): string | null {
   return labelledBy
     ? dialog.querySelector(`[id="${labelledBy}"]`)?.textContent ?? null
     : dialog.getAttribute('aria-label')
+}
+
+function accessibleText(element: Element | null): string {
+  if (element === null || element.getAttribute('aria-hidden') === 'true') return ''
+  const ariaLabel = element.getAttribute('aria-label')
+  if (ariaLabel !== null) return ariaLabel
+  return [...element.childNodes]
+    .map((node) => node.nodeType === 1 ? accessibleText(node as Element) : node.textContent ?? '')
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function directHeaderControl(container: Element | null, selector: string): Element | null {
