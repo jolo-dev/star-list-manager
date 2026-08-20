@@ -28,6 +28,15 @@ test('mounts one main landmark without a broad application live region', async (
     'utf8'
   )
   expect(indexHtml).toContain('<meta name="color-scheme" content="light dark" />')
+  expect(indexHtml).toContain('THESIS:')
+  expect(indexHtml).toContain('OWN-WORLD:')
+  expect(indexHtml).toContain('STORY:')
+  expect(indexHtml).toContain('FIRST VIEWPORT:')
+  expect(indexHtml).toContain('FORM:')
+  expect(indexHtml).toContain('seed 82166ef0')
+  expect(indexHtml).toContain(
+    'FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md'
+  )
   expect(indexHtml).toContain('<div id="app"></div>')
   expect(indexHtml).not.toMatch(/<main id="app"/)
   expect(indexHtml).not.toMatch(/id="app"[^>]*aria-live/)
