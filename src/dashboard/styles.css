@@ -377,8 +377,9 @@ details.nav-group {
 }
 
 .nav-item[aria-current="page"] .list-count {
-  color: var(--text-primary);
-  background: var(--surface);
+  color: var(--text-nav-count-active);
+  background: transparent;
+  border-color: var(--border-current);
 }
 
 .nav-label {
@@ -434,15 +435,6 @@ details.nav-group {
 
 .library-heading {
   min-width: 0;
-}
-
-.library-view-context,
-.archive-collection-kicker,
-.eyebrow {
-  margin: 0 0 8px;
-  color: var(--text-secondary);
-  font-size: 0.8125rem;
-  font-weight: 600;
 }
 
 h1 {
@@ -617,6 +609,18 @@ h1 {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.native-list-header-editor {
+  margin-bottom: 12px;
+}
+
+.native-list-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
 }
 
 .native-list-rename-editor {
@@ -830,7 +834,7 @@ h1 {
 .repository-row.repository-card {
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   width: 100%;
   min-width: 0;
   gap: 14px;
@@ -1173,9 +1177,9 @@ h1 {
 }
 
 .state-copy,
-.state-panel > p:not(.eyebrow),
+.state-panel > p,
 .operations-intro,
-.write-auth-card > p:not(.eyebrow) {
+.write-auth-card > p {
   max-width: var(--measure-prose);
   color: var(--text-secondary);
   font-size: var(--type-reading-size);
@@ -1420,7 +1424,7 @@ h1 {
   line-height: 1.15;
 }
 
-.confirmation-dialog > p:not(.eyebrow) {
+.confirmation-dialog > p {
   max-width: var(--measure-prose);
   color: var(--text-secondary);
   line-height: var(--type-leading-reading);
@@ -1471,6 +1475,14 @@ h1 {
 .github-link:focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
+}
+
+.inspector-owner {
+  display: inline-block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
 }
 
 .inspector-description,
@@ -2247,6 +2259,15 @@ textarea:disabled {
 
   a {
     color: LinkText !important;
+  }
+
+  button:disabled,
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    color: GrayText !important;
+    background: ButtonFace !important;
+    border-color: GrayText !important;
   }
 }
 

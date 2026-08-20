@@ -116,6 +116,9 @@ test('styles list navigation with a dark current state and count pills only', ()
   expect(current).toMatch(/background:\s*var\(--surface-nav-active\)/)
   expect(current).toMatch(/border-color:\s*var\(--border-current\)/)
   expect(count).toMatch(/border-radius:\s*999px/)
+  expect(exactRuleFor(styles, ['.nav-item[aria-current="page"] .list-count'])).toMatch(
+    /color:\s*var\(--text-nav-count-active\)/
+  )
   expect(ruleFor(styles, '.list-marker')).not.toBe('')
   for (const selector of ['.list-sidebar', '.library-header', '.results-panel', '.settings-page']) {
     expect(ruleFor(styles, selector), selector).not.toMatch(/border-radius:\s*999px/)
@@ -132,7 +135,8 @@ test('lays repository cards out three, two, then one column', () => {
   expect(shell).toMatch(/box-shadow:\s*var\(--shadow-card\)/)
   expect(card).toMatch(/display:\s*grid/)
   expect(card).toMatch(/grid-template-columns:\s*1fr/)
-  expect(card).toMatch(/grid-template-rows:\s*auto minmax\(0,\s*1fr\) auto auto/)
+  expect(card).toMatch(/grid-template-rows:\s*auto minmax\(0,\s*1fr\) auto/)
+  expect(card).not.toMatch(/grid-template-rows:[^;]*auto auto/)
   expect(card).toMatch(/min-width:\s*0/)
   expect(card).toMatch(/padding:\s*22px/)
   expect(card).toMatch(/transition:[^;]*transform/)
@@ -298,6 +302,18 @@ test('maps forced colors after components with explicit selected, focus, status,
   expect(controls).toMatch(/background:\s*ButtonFace\s*!important/)
   expect(controls).toMatch(/color:\s*ButtonText\s*!important/)
   expect(controls).toMatch(/border-color:\s*ButtonText\s*!important/)
+
+  const disabledControls = exactRuleFor(forced, [
+    'button:disabled',
+    'input:disabled',
+    'select:disabled',
+    'textarea:disabled'
+  ])
+  expect(disabledControls).toMatch(/color:\s*GrayText\s*!important/)
+  expect(disabledControls).toMatch(/background:\s*ButtonFace\s*!important/)
+  expect(disabledControls).toMatch(/border-color:\s*GrayText\s*!important/)
+  expect(cascadeWinner(forced, forced, 'button', 'button:disabled', 'color')).toBe('forced')
+  expect(cascadeWinner(styles, forced, '.danger-action', 'button:disabled', 'color')).toBe('forced')
 
   const focusSelectors = [
     'button:focus-visible', 'input:focus-visible', 'select:focus-visible', 'textarea:focus-visible',

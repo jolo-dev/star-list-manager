@@ -738,7 +738,8 @@ test('renders real List navigation and repository records without changing Libra
 
     currentList?.click()
     await browserWindow.happyDOM.whenAsyncComplete()
-    expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Current List')
+    expect(currentNavigationLabel(root)).toBe('Current List')
+    expect(root.querySelector('.library-header .eyebrow, .library-header .archive-collection-kicker')).toBeNull()
   } finally {
     if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
     else Object.assign(globalThis, {chrome: previousChrome})
@@ -899,11 +900,15 @@ test('keeps Operations and Settings reachable through utility navigation', async
   utilityButton('Operations')?.click()
   await browserWindow.happyDOM.whenAsyncComplete()
   expect(root.querySelector('.operations-page h1')?.textContent).toBe('Operations')
+  expect(root.querySelector('.operations-page .archive-document-header .eyebrow')).toBeNull()
+  expect(root.querySelector('.operations-page .archive-document-header')?.textContent ?? '').not.toContain('Connected account only')
   expect(utilityButton('Operations')?.getAttribute('aria-current')).toBe('page')
 
   utilityButton('Settings')?.click()
   await browserWindow.happyDOM.whenAsyncComplete()
   expect(root.querySelector('.settings-page h1')?.textContent).toBe('Settings')
+  expect(root.querySelector('.settings-page .archive-document-header .eyebrow')).toBeNull()
+  expect(root.querySelector('.settings-page .archive-document-header')?.textContent ?? '').not.toContain('Local account controls')
   expect(utilityButton('Settings')?.getAttribute('aria-current')).toBe('page')
 })
 
@@ -914,7 +919,8 @@ test('selects Unlist as the active ready view with a population heading', async 
 
   expect(active?.textContent).toContain('Unlist')
   expect(root.querySelector('.library-header h1')?.textContent).toBe('Starred repositories')
-  expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Unlist')
+  expect(currentNavigationLabel(root)).toBe('Unlist')
+  expect(root.querySelector('.library-header .eyebrow, .library-header .archive-collection-kicker')).toBeNull()
 })
 
 test('hides completed unstars from default Unlist and retains explicit unstarred history', async () => {
@@ -1038,12 +1044,12 @@ test('resets a rendered ready dashboard to Unlist after another native List beca
 
   currentList.dispatchEvent(new window.MouseEvent('click', {bubbles: true}) as unknown as Event)
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
-  expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Current List')
+  expect(currentNavigationLabel(root)).toBe('Current List')
   expect(root.querySelector('.library-header h1')?.textContent).toBe('Starred repositories')
 
   const {renderLibraryState} = await import('../../src/dashboard/scripts')
   const library = renderLibraryState(readyDashboardState())
-  expect(library.querySelector('.library-header .eyebrow')?.textContent).toBe('Unlist')
+  expect(library.querySelector('.library-header .eyebrow, .library-header .archive-collection-kicker')).toBeNull()
   expect(library.querySelector('.library-header h1')?.textContent).toBe('Starred repositories')
 })
 
@@ -1158,7 +1164,7 @@ test('returns sidebar selection to Unlist after disconnect and complete-data rem
       new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event
     )
     await browserWindow.happyDOM.whenAsyncComplete()
-    expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Current List')
+    expect(currentNavigationLabel(root)).toBe('Current List')
 
     const messages: string[] = []
     const previousChrome = (globalThis as {chrome?: unknown}).chrome
@@ -1246,7 +1252,7 @@ test('keeps Star state within the selected population and renders exact headings
   expect(starStateControl()).not.toBeNull()
 
   try {
-    expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Current List')
+    expect(currentNavigationLabel(root)).toBe('Current List')
     expect(root.querySelector('.library-header h1')?.textContent).toBe('Starred repositories')
     expect(currentListControl()?.getAttribute('aria-current')).toBe('page')
 
@@ -1257,7 +1263,7 @@ test('keeps Star state within the selected population and renders exact headings
     ] as const) {
       await setStarState(value)
       expect(root.querySelector('.library-header h1')?.textContent).toBe(title)
-      expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Current List')
+      expect(currentNavigationLabel(root)).toBe('Current List')
       expect(currentListControl()?.getAttribute('aria-current')).toBe('page')
     }
   } finally {
@@ -1597,7 +1603,8 @@ test('keeps one library page while switching between Unlist and a native List', 
   currentList.click()
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
   expect(root.querySelector('.library-page')).toBe(page)
-  expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Current List')
+  expect(currentNavigationLabel(root)).toBe('Current List')
+  expect(root.querySelector('.native-list-name')?.textContent).toBe('Current List')
   expect(root.querySelector('.native-list-header-editor')).not.toBeNull()
   expect(currentList.getAttribute('aria-current')).toBe('page')
 
@@ -1607,7 +1614,8 @@ test('keeps one library page while switching between Unlist and a native List', 
   unlist.click()
   await (window as unknown as Window).happyDOM.whenAsyncComplete()
   expect(root.querySelector('.library-page')).toBe(page)
-  expect(root.querySelector('.library-header .eyebrow')?.textContent).toBe('Unlist')
+  expect(currentNavigationLabel(root)).toBe('Unlist')
+  expect(root.querySelector('.native-list-name')).toBeNull()
   expect(unlist.getAttribute('aria-current')).toBe('page')
 })
 
@@ -3427,7 +3435,8 @@ test('mounts existing native List controls separately from local tags', async ()
 test('shows a native List header Edit control only when rename readiness is ready', async () => {
   const {root, cleanup} = await mountNativeListRenameDashboard(renameReadyDashboardState())
   try {
-    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Current List')
+    expect(nativeListHeader(root)?.querySelector('.native-list-name')?.textContent).toBe('Current List')
+    expect(nativeListHeader(root)?.querySelector('.eyebrow, .archive-collection-kicker')).toBeNull()
     expect(renameEditButton(root)).not.toBeNull()
 
     const {root: unavailable, cleanup: unavailableCleanup} = await mountNativeListRenameDashboard(
@@ -3470,7 +3479,7 @@ test('opens a focused, labelled native List header editor and Cancel or Escape s
 
     editor?.querySelector<HTMLButtonElement>('.secondary-action')?.click()
     await nextTurn(browserWindow)
-    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Current List')
+    expect(nativeListHeader(root)?.querySelector('.native-list-name')?.textContent).toBe('Current List')
     expect((browserWindow.document.activeElement as unknown) === renameEditButton(root)).toBe(true)
     expect(messages).toBe(0)
 
@@ -3483,7 +3492,7 @@ test('opens a focused, labelled native List header editor and Cancel or Escape s
       new browserWindow.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}) as unknown as Event
     )
     await nextTurn(browserWindow)
-    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Current List')
+    expect(nativeListHeader(root)?.querySelector('.native-list-name')?.textContent).toBe('Current List')
     expect((browserWindow.document.activeElement as unknown) === renameEditButton(root)).toBe(true)
     expect(messages).toBe(0)
   } finally {
@@ -3592,13 +3601,13 @@ test('does not apply a stale native List rename response after the active accoun
     submitNativeListRename(browserWindow, root)
     nativeListHeader(root)?.querySelector<HTMLButtonElement>('.refresh-button')?.click()
     await nextTurn(browserWindow)
-    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Account B List')
+    expect(nativeListHeader(root)?.querySelector('.native-list-name')?.textContent).toBe('Account B List')
 
     renameResponse.resolve()
     await nextTurn(browserWindow)
     expect(staleResponseDelivered).toBe(true)
     await nextTurn(browserWindow)
-    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Account B List')
+    expect(nativeListHeader(root)?.querySelector('.native-list-name')?.textContent).toBe('Account B List')
   } finally {
     renameResponse.resolve()
     cleanup()
@@ -3675,7 +3684,7 @@ test('sends one valid native List header rename and renders only verified return
     expect(nativeListHeader(root)?.textContent).toContain('Current List')
     pending.resolve()
     await nextTurn(browserWindow)
-    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Verified Name')
+    expect(nativeListHeader(root)?.querySelector('.native-list-name')?.textContent).toBe('Verified Name')
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
       'Other List',
@@ -3790,7 +3799,7 @@ test('applies divergent native List state while retaining the sanitized rename r
     submitNativeListRename(browserWindow, root)
     await nextTurn(browserWindow)
 
-    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Observed List')
+    expect(nativeListHeader(root)?.querySelector('.native-list-name')?.textContent).toBe('Observed List')
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
       'Observed List',
@@ -3834,7 +3843,8 @@ test('removes a missing native List editor and shows its sanitized rename result
     submitNativeListRename(browserWindow, root)
     await nextTurn(browserWindow)
 
-    expect(nativeListHeader(root)?.querySelector('.eyebrow')?.textContent).toBe('Unlist')
+    expect(currentNavigationLabel(root)).toBe('Unlist')
+    expect(nativeListHeader(root)?.querySelector('.native-list-name')).toBeNull()
     expect(nativeListHeader(root)?.querySelector('form.native-list-rename-editor')).toBeNull()
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
@@ -4051,7 +4061,7 @@ test('leads native List confirmations with the affected outcome and safe next ac
   const outcome = confirmation.querySelector('.membership-outcome')
   const refreshed = confirmation.querySelector('.membership-refreshed-notice')
 
-  expect(scope?.textContent).toBe('Preview scope: 2 repositories.')
+  expect(scope?.textContent).toBe('Refreshed confirmation required. Preview scope: 2 repositories.')
   expect(outcome?.textContent).toBe(
     '1 repository will move between GitHub Lists. Review the current and resulting complete List sets below, then confirm the refreshed preview to queue the preserved original intent.'
   )
@@ -5002,6 +5012,11 @@ test('uses accessible local List and Cards modes while preserving real card sele
   ) ?? null
   expect(cards?.getAttribute('aria-label')).toBe('Repositories')
   expect(card?.classList.contains('repository-card')).toBe(true)
+  expect([...(card?.children ?? [])].map((child) => child.className)).toEqual([
+    'repository-card-heading',
+    '',
+    'repository-card-footer'
+  ])
   expect(card?.textContent).toContain('octocat')
   expect(card?.textContent).toContain('two')
   expect(card?.textContent).toContain('A real repository description.')
@@ -5556,6 +5571,10 @@ async function mountNativeListRenameDashboard(
       else Object.assign(globalThis, {chrome: previousChrome})
     }
   }
+}
+
+function currentNavigationLabel(root: Element): string | null {
+  return root.querySelector('.list-navigation .nav-item[aria-current="page"] .nav-label')?.textContent ?? null
 }
 
 function nativeListHeader(root: Element): HTMLElement | null {

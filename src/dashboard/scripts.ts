@@ -672,7 +672,7 @@ function LibraryHeader(
     {class: 'library-header'},
     div(
       {class: 'library-heading'},
-      () => LibraryViewContext(),
+      () => NativeListHeaderControls(),
       h1(() => populationTitle(starState.val)),
       p(
         {class: 'result-count', role: 'status'},
@@ -819,46 +819,25 @@ function LibraryHeader(
   )
 }
 
-function LibraryViewContext() {
-  const currentNativeList = () => {
-    const view = activeView.val
-    return view.kind === 'list'
-      ? publishedLibrary.val?.nativeLists.find(
-          (list) => list.listNodeId === view.listNodeId
-        ) ?? null
-      : null
-  }
-  const hasEditor = () =>
-    currentNativeList() !== null &&
-    publishedNativeListRename.val?.readiness === 'ready'
+function NativeListHeaderControls() {
   return div(
-    {class: 'library-view-context'},
-    p(
-      {class: 'archive-collection-kicker'},
-      () => {
-        const view = activeView.val
-        return view.kind === 'unlist'
-          ? 'Collection · Unlist'
-          : `Collection · ${currentNativeList()?.name ?? 'GitHub List'}`
-      }
-    ),
-    p(
-      {class: 'eyebrow', hidden: hasEditor},
-      () => {
-        const view = activeView.val
-        if (view.kind === 'unlist') return 'Unlist'
-        return currentNativeList()?.name ?? 'GitHub List'
-      }
-    ),
+    {class: 'native-list-header-controls'},
     () => {
-      const nativeList = currentNativeList()
-      if (!nativeList || !hasEditor()) return ''
+      const view = activeView.val
+      const nativeList = view.kind === 'list'
+        ? publishedLibrary.val?.nativeLists.find(
+            (list) => list.listNodeId === view.listNodeId
+          ) ?? null
+        : null
+      if (nativeList === null || publishedNativeListRename.val?.readiness !== 'ready') {
+        return ''
+      }
       const editing = () => editingNativeListId.val === nativeList.listNodeId
       return div(
         {class: 'native-list-header-editor'},
         div(
           {class: 'native-list-header-title', hidden: editing},
-          p({class: 'eyebrow'}, nativeList.name),
+          span({class: 'native-list-name'}, nativeList.name),
           div(
             {class: 'native-list-header-actions'},
             button(
@@ -1385,15 +1364,12 @@ function MembershipConfirmation(
       },
       header(
         {class: 'archive-dialog-header'},
-        p(
-          {class: 'eyebrow'},
-          preview.refreshedFromJobId
-            ? 'Refreshed confirmation required'
-            : 'Remote GitHub List change'
-        ),
         h2({id: 'membership-confirmation-title'}, `Review List memberships for ${repositoryCount} ${repositoryNoun}`)
       ),
-      p({class: 'membership-preview-scope'}, `Preview scope: ${repositoryCount} ${repositoryNoun}.`),
+      p(
+        {class: 'membership-preview-scope'},
+        `${preview.refreshedFromJobId ? 'Refreshed confirmation required. ' : ''}Preview scope: ${repositoryCount} ${repositoryNoun}.`
+      ),
       p(
         {class: 'membership-outcome'},
         changed.length === 0
@@ -1509,7 +1485,6 @@ function UnstarConfirmation(
       },
       header(
         {class: 'archive-dialog-header'},
-        p({class: 'eyebrow'}, 'Remote GitHub account change'),
         h2(
           {id: 'unstar-confirmation-title'},
           `Remove ${targets.length} ${targets.length === 1 ? 'star' : 'stars'} from GitHub?`
@@ -1591,7 +1566,6 @@ function OperationsState(state: AppState) {
     {class: 'operations-page archive-document'},
     header(
       {class: 'archive-document-header'},
-      p({class: 'eyebrow'}, 'Connected account only'),
       h1('Operations'),
       p(
         {class: 'operations-intro'},
@@ -1646,11 +1620,9 @@ function MutationBatchCard(
     div(
       {class: 'batch-heading'},
       div(
-        p(
-          {class: 'eyebrow'},
-          `${batch.origin === 'bulk' ? 'Bulk' : 'Single'} ${batch.mutationKind === 'native-list-membership' ? 'List membership' : 'unstar'}`
-        ),
-        h3(`${batch.summary.total} ${batch.summary.total === 1 ? 'repository' : 'repositories'}`)
+        h3(
+          `${batch.origin === 'bulk' ? 'Bulk' : 'Single'} ${batch.mutationKind === 'native-list-membership' ? 'List membership' : 'unstar'} · ${batch.summary.total} ${batch.summary.total === 1 ? 'repository' : 'repositories'}`
+        )
       ),
       span({class: 'batch-status'}, formatBatchStatus(batch.status))
     ),
@@ -2043,7 +2015,10 @@ function RepositoryInspector(item: LibraryRepository) {
     },
     header(
       {class: 'inspector-heading archive-dialog-header'},
-      div(p({class: 'eyebrow'}, repository.ownerLogin), h2({id: 'repository-inspection-title'}, repository.name)),
+      div(
+        h2({id: 'repository-inspection-title'}, repository.name),
+        span({class: 'inspector-owner'}, repository.ownerLogin)
+      ),
       div(
         {class: 'inspector-actions'},
         githubUrl
@@ -2216,7 +2191,6 @@ function SettingsState(state: AppState) {
     {class: 'settings-page archive-document'},
     header(
       {class: 'archive-document-header'},
-      p({class: 'eyebrow'}, 'Local account controls'),
       h1('Settings')
     ),
     section(
@@ -2270,7 +2244,6 @@ function WriteAuthorizationCard(state: AppState) {
   if (write.previewVisible) {
     return section(
       {class: 'settings-card write-auth-card'},
-      p({class: 'eyebrow'}, 'Optional write access'),
       h2('Review GitHub write authorization'),
       p(
         'GitHub requires public_repo for Starring changes and user for UpdateUserListsForItem. public_repo grants broader public-repository write access, while user grants broader profile authority than Star List Manager uses.'
@@ -2312,7 +2285,6 @@ function WriteAuthorizationCard(state: AppState) {
   if (write.readiness === 'pending') {
     return section(
       {class: 'settings-card write-auth-card'},
-      p({class: 'eyebrow'}, 'Optional write access'),
       h2('Approve GitHub write access'),
       p(
         'Open GitHub, enter this code, and approve the disclosed public_repo and user authorization.'
@@ -2349,7 +2321,6 @@ function WriteAuthorizationCard(state: AppState) {
   if (write.readiness === 'ready') {
     return section(
       {class: 'settings-card write-auth-card'},
-      p({class: 'eyebrow'}, 'Optional write access'),
       h2('GitHub write credential is ready'),
       p(
         write.membershipReady
@@ -2374,7 +2345,6 @@ function WriteAuthorizationCard(state: AppState) {
 
   return section(
     {class: 'settings-card write-auth-card'},
-    p({class: 'eyebrow'}, 'Optional write access'),
     h2('Confirmed GitHub changes'),
     p(
       'Read-only synchronization remains available without this authorization. Enable it only for confirmed Starring requests and, after separate capability proof, structured native List membership changes.'
@@ -2552,7 +2522,6 @@ function EmptyLibraryState() {
     {class: 'state-panel archive-state-document'},
     header(
       {class: 'archive-document-header'},
-      p({class: 'eyebrow'}, 'Empty library'),
       h2('No public stars found')
     ),
     p('Star a public repository on GitHub, then refresh this dashboard.')
@@ -2565,7 +2534,6 @@ function LoadingState(copy: string) {
     {class: 'state-panel archive-state-document', 'aria-busy': 'true'},
     header(
       {class: 'archive-document-header'},
-      p({class: 'eyebrow'}, 'Opening library'),
       h2('Preparing your dashboard')
     ),
     p(copy),
@@ -2578,7 +2546,6 @@ function FirstRunState(returningUser: boolean, error: string | null) {
     {class: 'state-panel archive-state-document'},
     header(
       {class: 'archive-document-header'},
-      p({class: 'eyebrow'}, returningUser ? 'Signed out' : 'First run'),
       h2(returningUser ? 'Reconnect your GitHub library' : 'Turn stars into a working library')
     ),
     p('Connect GitHub to import public stars and native Lists. Notes, tags, favorites, and revisit dates remain local.'),
@@ -2598,7 +2565,6 @@ function AuthorizationPendingState(state: AppState) {
     {class: 'state-panel archive-state-document'},
     header(
       {class: 'archive-document-header'},
-      p({class: 'eyebrow'}, 'GitHub authorization'),
       h2('Approve this device')
     ),
     p('Open GitHub, enter the code below, and approve read-only access.'),
@@ -2616,7 +2582,6 @@ function AuthorizationResultState(title: string, copy: string) {
     {class: 'state-panel archive-state-document'},
     header(
       {class: 'archive-document-header'},
-      p({class: 'eyebrow'}, 'Sign-in incomplete'),
       h2(title)
     ),
     p(copy),
