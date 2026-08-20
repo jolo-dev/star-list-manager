@@ -827,8 +827,9 @@ h1 {
   border-radius: var(--radius-control);
 }
 
-.repository-card {
+.repository-row.repository-card {
   display: grid;
+  grid-template-columns: 1fr;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   width: 100%;
   min-width: 0;
@@ -841,17 +842,18 @@ h1 {
   transition: background-color 140ms ease-out, transform 140ms ease-out;
 }
 
-.repository-card:hover {
+.repository-row.repository-card:hover {
   background: var(--surface-muted);
   transform: translateY(-2px);
 }
 
-.repository-card:focus-visible {
+.repository-row.repository-card:focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: -3px;
 }
 
-.repository-card.is-selected {
+.repository-row.repository-card.is-selected {
+  background: var(--surface-noop);
   outline: 3px solid var(--border-selected);
   outline-offset: -3px;
 }
@@ -891,7 +893,7 @@ h1 {
   top: 10px;
 }
 
-.repository-card-heading h2 {
+.repository-row.repository-card .repository-card-heading h2 {
   margin: 3px 0 0;
   font-size: 1.25rem;
   font-weight: 680;
@@ -906,7 +908,7 @@ h1 {
   font-size: var(--type-data-size);
 }
 
-.repository-card p {
+.repository-row.repository-card p {
   min-width: 0;
   margin: 0;
   color: var(--text-secondary);
@@ -2085,7 +2087,7 @@ textarea:disabled {
     gap: 12px;
   }
 
-  .repository-card {
+  .repository-row.repository-card {
     min-height: 44px;
     padding: 20px;
   }
@@ -2141,6 +2143,7 @@ textarea:disabled {
     min-height: 44px;
   }
 
+  .result-mode-controls button,
   .triage-actions button,
   .favorite-button,
   .github-unstar-action .danger-action,
@@ -2197,6 +2200,11 @@ textarea:disabled {
     background: Highlight !important;
     border-color: Highlight !important;
     forced-color-adjust: none;
+  }
+
+  .repository-row.is-selected *,
+  .repository-card.is-selected * {
+    color: HighlightText !important;
   }
 
   button,

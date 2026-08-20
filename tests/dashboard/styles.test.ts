@@ -125,13 +125,18 @@ test('styles list navigation with a dark current state and count pills only', ()
 test('lays repository cards out three, two, then one column', () => {
   const grid = exactRuleFor(styles, ['.repository-card-grid'])
   const shell = exactRuleFor(styles, ['.repository-card-shell'])
-  const card = exactRuleFor(styles, ['.repository-card'])
+  const card = exactRuleFor(styles, ['.repository-row.repository-card'])
   expect(grid).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
   expect(shell).toMatch(/border:\s*1px solid var\(--border-subtle\)/)
   expect(shell).toMatch(/border-radius:\s*var\(--radius-card\)/)
   expect(shell).toMatch(/box-shadow:\s*var\(--shadow-card\)/)
+  expect(card).toMatch(/display:\s*grid/)
+  expect(card).toMatch(/grid-template-columns:\s*1fr/)
   expect(card).toMatch(/grid-template-rows:\s*auto minmax\(0,\s*1fr\) auto auto/)
   expect(card).toMatch(/min-width:\s*0/)
+  expect(card).toMatch(/padding:\s*22px/)
+  expect(card).toMatch(/transition:[^;]*transform/)
+  expect(compareSpecificity(specificity('.repository-row.repository-card'), specificity('.repository-row'))).toBeGreaterThan(0)
 
   const tablet = extractMedia(styles, '(max-width: 1024px)')
   const mobile = extractMedia(styles, '(max-width: 700px)')
@@ -139,14 +144,16 @@ test('lays repository cards out three, two, then one column', () => {
   expect(ruleFor(mobile, '.repository-card-grid')).toMatch(/grid-template-columns:\s*1fr/)
 })
 
-test('keeps card hover and focus light rather than inverting the whole card', () => {
-  const hover = exactRuleFor(styles, ['.repository-card:hover'])
-  const focus = exactRuleFor(styles, ['.repository-card:focus-visible'])
-  const selected = exactRuleFor(styles, ['.repository-card.is-selected'])
+test('keeps the real compound card hover, focus, and selection light and intact', () => {
+  const hover = exactRuleFor(styles, ['.repository-row.repository-card:hover'])
+  const focus = exactRuleFor(styles, ['.repository-row.repository-card:focus-visible'])
+  const selected = exactRuleFor(styles, ['.repository-row.repository-card.is-selected'])
   expect(hover).toMatch(/background:\s*var\(--surface-muted\)/)
+  expect(hover).toMatch(/transform:\s*translateY\(-2px\)/)
   expect(hover).not.toMatch(/(?:surface-inverse|action-primary)/)
   expect(hover).not.toMatch(/color:/)
   expect(focus).toMatch(/outline:\s*3px solid var\(--focus-ring\)/)
+  expect(selected).toMatch(/background:\s*var\(--surface-noop\)/)
   expect(selected).toMatch(/outline:\s*3px solid var\(--border-selected\)/)
   expect(styles).not.toMatch(/\.repository-card:hover[^{}]*\{[^{}]*(?:#000|surface-inverse|text-inverse)/i)
 })
@@ -256,7 +263,7 @@ test('wraps user content and preserves mobile controls and reflow', () => {
   expect(ruleFor(mobile, '.list-sidebar')).toMatch(/max-height:\s*none/)
   expect(ruleFor(mobile, '.selection-control')).toMatch(/min-inline-size:\s*44px/)
   expect(ruleFor(mobile, '.selection-control')).toMatch(/min-block-size:\s*44px/)
-  for (const selector of ['.nav-item', '.nav-group > summary', '.primary-action,', '.triage-actions button,', '.native-list-choices label,']) {
+  for (const selector of ['.nav-item', '.nav-group > summary', '.primary-action,', '.triage-actions button,', '.native-list-choices label,', '.result-mode-controls button']) {
     expect(ruleFor(mobile, selector), selector).toMatch(/min-height:\s*44px/)
   }
   expect(ruleFor(mobile, '.library-actions input,')).toMatch(/font-size:\s*16px/)
@@ -281,6 +288,11 @@ test('maps forced colors after components with explicit selected, focus, status,
   expect(selected).toMatch(/border-color:\s*Highlight\s*!important/)
   expect(selected).toMatch(/forced-color-adjust:\s*none/)
   expect(exactRuleFor(forced, ['.repository-card.is-selected'])).toMatch(/background:\s*Highlight\s*!important/)
+  const selectedDescendants = exactRuleFor(forced, [
+    '.repository-row.is-selected *',
+    '.repository-card.is-selected *'
+  ])
+  expect(selectedDescendants).toMatch(/color:\s*HighlightText\s*!important/)
 
   const controls = exactRuleFor(forced, ['button', 'input', 'select', 'textarea', '.file-action'])
   expect(controls).toMatch(/background:\s*ButtonFace\s*!important/)
