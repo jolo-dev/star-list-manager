@@ -76,6 +76,9 @@ const {
   textarea,
   ul
 } = van.tags
+const svgTags = van.tags('http://www.w3.org/2000/svg')
+const svg = svgTags.svg!
+const svgPath = svgTags.path!
 
 const emptyState: AppState = {
   phase: 'loading',
@@ -346,7 +349,22 @@ function AppHeader() {
     {class: 'app-header'},
     div(
       {class: 'app-brand'},
-      span({class: 'brand-mark', 'aria-hidden': 'true'}, '★'),
+      span(
+        {class: 'brand-mark', 'aria-hidden': 'true'},
+        svg(
+          {
+            viewBox: '0 0 24 24',
+            width: 16,
+            height: 16,
+            'aria-hidden': 'true',
+            focusable: 'false'
+          },
+          svgPath({
+            d: 'M12 2.75 14.85 8.53 21.23 9.46 16.62 13.95 17.71 20.3 12 17.3 6.29 20.3 7.38 13.95 2.77 9.46 9.15 8.53Z',
+            fill: 'currentColor'
+          })
+        )
+      ),
       span({class: 'brand-wordmark'}, 'Star List Manager')
     ),
     nav(
@@ -629,7 +647,6 @@ function ReadyLibraryState(
 function LibraryResults(results: DerivedRepositoryResults) {
   const query = currentQuery()
   const visibleResults = results.visible
-  const selected = selectCurrentRepository(visibleResults)
   const mode = resultMode.val
   const inspected = inspectedRepositoryNodeId.val
     ? results.all.find(
@@ -652,9 +669,7 @@ function LibraryResults(results: DerivedRepositoryResults) {
                   handleResultKey(event, visibleResults)
               },
               ...visibleResults.map((item) =>
-                mode === 'cards'
-                  ? RepositoryCard(item, selected)
-                  : RepositoryRow(item, selected)
+                mode === 'cards' ? RepositoryCard(item) : RepositoryRow(item)
               )
             ),
         ProgressiveResultControl(results.count, visibleResults.length)
@@ -1790,12 +1805,10 @@ function MutationStatus(job: MutationJobRecord) {
   )
 }
 
-function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | null) {
+function RepositoryRow(item: LibraryRepository) {
   const repository = item.repository
   const active = () =>
-    selectedRepositoryNodeId.val === repository.repositoryNodeId ||
-    (selectedRepositoryNodeId.val === null &&
-      selected?.repository.repositoryNodeId === repository.repositoryNodeId)
+    selectedRepositoryNodeId.val === repository.repositoryNodeId
   return li(
     {class: 'repository-row-shell'},
     RepositorySelectionControl(repository),
@@ -1846,12 +1859,10 @@ function RepositoryRow(item: LibraryRepository, selected: LibraryRepository | nu
   )
 }
 
-function RepositoryCard(item: LibraryRepository, selected: LibraryRepository | null) {
+function RepositoryCard(item: LibraryRepository) {
   const repository = item.repository
   const active = () =>
-    selectedRepositoryNodeId.val === repository.repositoryNodeId ||
-    (selectedRepositoryNodeId.val === null &&
-      selected?.repository.repositoryNodeId === repository.repositoryNodeId)
+    selectedRepositoryNodeId.val === repository.repositoryNodeId
   return li(
     {class: 'repository-card-shell'},
     RepositorySelectionControl(repository),
@@ -2615,16 +2626,6 @@ function currentQuery(): RepositoryQuery {
     sort: sort.val,
     ascending: ascending.val
   }
-}
-
-function selectCurrentRepository(
-  results: readonly LibraryRepository[]
-): LibraryRepository | null {
-  const selected = results.find(
-    (item) => item.repository.repositoryNodeId === selectedRepositoryNodeId.val
-  )
-  if (selected) return selected
-  return results[0] ?? null
 }
 
 function handleResultKey(

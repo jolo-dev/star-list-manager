@@ -58,7 +58,8 @@ const repositories = [
     'repository-name-that-remains-valid-at-the-github-boundary-and-must-wrap-without-clipping-any-content',
     'This intentionally long but valid repository description exercises wrapping across narrow cards without hiding its meaning, status, language, starred date, or local triage state at responsive boundaries.',
     'JavaScript',
-    ['responsive-design', 'long-content']
+    ['responsive-design', 'long-content'],
+    '2026-08-19T09:30:00Z'
   ),
   repository(
     'R_queue',
@@ -169,6 +170,20 @@ if (currentList === undefined) {
 }
 currentList.click()
 await browserWindow.happyDOM.whenAsyncComplete()
+const longRepository = repositories.find(
+  (repositoryRecord) => repositoryRecord.repositoryNodeId === 'R_long'
+)
+if (longRepository === undefined) {
+  throw new Error('Dashboard review fixture is missing the long-content repository.')
+}
+const longRepositorySelection = host.querySelector(
+  `input[aria-label="Select ${longRepository.fullName} for unstar"]`
+) as unknown as HTMLInputElement | null
+if (longRepositorySelection === null || longRepositorySelection.disabled) {
+  throw new Error('Dashboard review fixture long-content selection must be eligible.')
+}
+longRepositorySelection.click()
+await browserWindow.happyDOM.whenAsyncComplete()
 
 for (const selector of ['.app-shell', '.app-header', '.list-sidebar']) {
   if (host.querySelector(selector) === null) {
@@ -177,6 +192,20 @@ for (const selector of ['.app-shell', '.app-header', '.list-sidebar']) {
 }
 if (!host.textContent?.includes('Star List Manager')) {
   throw new Error('Dashboard review fixture is missing the Star List Manager wordmark.')
+}
+const firstCard = host.querySelector('.repository-card') as unknown as HTMLButtonElement | null
+if (firstCard?.dataset.repositoryNodeId !== 'R_long') {
+  throw new Error('Dashboard review fixture must expose the long-content card first.')
+}
+const selectionBar = host.querySelector('.selection-bar') as unknown as HTMLElement | null
+if (selectionBar === null) {
+  throw new Error('Dashboard review fixture is missing the selected-repository safety bar.')
+}
+if (selectionBar.querySelector<HTMLButtonElement>('.danger-action')?.disabled !== true) {
+  throw new Error('Dashboard review fixture destructive action must remain disabled.')
+}
+if (selectionBar.querySelector('.write-readiness-notice') === null) {
+  throw new Error('Dashboard review fixture is missing write-readiness guidance.')
 }
 
 const styles = await readFile(new URL('../src/dashboard/styles.css', import.meta.url), 'utf8')
@@ -212,7 +241,8 @@ function repository(
   name: string,
   description: string,
   primaryLanguage: string,
-  topics: readonly string[]
+  topics: readonly string[],
+  starredAt = '2026-07-14T09:30:00Z'
 ): RepositoryRecord {
   return {
     githubUserId: accountId,
@@ -224,7 +254,7 @@ function repository(
     description,
     topics,
     primaryLanguage,
-    starredAt: '2026-07-14T09:30:00Z',
+    starredAt,
     pushedAt: '2026-08-18T16:45:00Z',
     archived: false,
     disabled: false,

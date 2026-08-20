@@ -195,7 +195,12 @@ p {
   color: var(--action-primary-text);
   background: var(--action-primary);
   border-radius: 9px;
-  font-size: 14px;
+}
+
+.brand-mark svg {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 .brand-wordmark {
@@ -459,11 +464,12 @@ h1 {
 }
 
 .library-actions {
-  display: flex;
-  min-width: min(100%, 420px);
-  align-items: flex-end;
-  justify-content: flex-end;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) auto auto;
+  width: min(100%, 560px);
+  min-width: 0;
+  align-items: end;
+  justify-content: end;
   gap: 10px;
 }
 
@@ -1017,6 +1023,7 @@ h1 {
   min-width: 0;
   margin: 2px 0 0;
   overflow-wrap: anywhere;
+  font-family: var(--font-prose);
   font-size: 1.0625rem;
   font-weight: 680;
   letter-spacing: -0.02em;
@@ -1949,7 +1956,9 @@ textarea:disabled {
   }
 
   .library-actions {
+    display: flex;
     justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .search-field input {

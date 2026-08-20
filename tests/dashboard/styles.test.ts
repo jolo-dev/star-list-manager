@@ -95,6 +95,20 @@ test('builds a sticky 64px material header with an opaque fallback', () => {
   expect(declarationsFor(dark, ':root')).toMatch(/--header-material:\s*rgb\(/)
 })
 
+test('keeps desktop library actions in Search, Refresh, Status order on one baseline', () => {
+  const actions = exactRuleFor(styles, ['.library-actions'])
+  expect(actions).toMatch(/display:\s*grid/)
+  expect(actions).toMatch(
+    /grid-template-columns:\s*minmax\([^;]+\) auto auto/
+  )
+  expect(actions).toMatch(/align-items:\s*end/)
+  expect(actions).not.toMatch(/flex-wrap/)
+
+  const stacked = extractMedia(styles, '(max-width: 1180px)')
+  expect(ruleFor(stacked, '.library-actions')).toMatch(/display:\s*flex/)
+  expect(ruleFor(stacked, '.library-actions')).toMatch(/flex-wrap:\s*wrap/)
+})
+
 test('uses a centered desktop frame and a sticky My Lists rail', () => {
   const frame = exactRuleFor(styles, ['.app-frame'])
   const sidebar = exactRuleFor(styles, ['.list-sidebar'])
@@ -224,9 +238,15 @@ test('uses semantic control, placeholder, disabled, and danger roles', () => {
 test('keeps prose readable and compact metadata technical', () => {
   expect(ruleFor(styles, '.state-copy,')).toMatch(/max-width:\s*var\(--measure-prose\)/)
   expect(ruleFor(styles, '.state-copy,')).toMatch(/font-size:\s*var\(--type-reading-size\)/)
+  const repositoryTitle = exactRuleFor(styles, ['.repository-row h2'])
+  expect(repositoryTitle).toMatch(/font-family:\s*var\(--font-prose\)/)
   const data = exactRuleFor(styles, ['.repository-owner', '.repository-meta', '.batch-status', '.operation-history-list span'])
   expect(data).toMatch(/font-family:\s*var\(--font-technical\)/)
   expect(data).toMatch(/font-size:\s*var\(--type-data-size\)/)
+  expect(ruleFor(styles, '.repository-card-facts')).toMatch(
+    /font-family:\s*var\(--font-technical\)/
+  )
+  expect(ruleFor(styles, '.list-count')).toMatch(/font-family:\s*var\(--font-technical\)/)
   const operationalCopy = exactRuleFor(styles, ['.job-error', '.operation-history-list p', '.membership-job-detail'])
   expect(operationalCopy).toMatch(/font-family:\s*var\(--font-prose\)/)
   expect(operationalCopy).toMatch(/max-width:\s*var\(--measure-prose\)/)

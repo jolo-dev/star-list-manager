@@ -106,6 +106,9 @@ test('renders the Star List Manager shell with real primary navigation', async (
   expect(shell).not.toBeNull()
   expect(header).not.toBeNull()
   expect(header?.querySelector('.brand-wordmark')?.textContent).toBe('Star List Manager')
+  const brandMark = header?.querySelector<HTMLElement>('.brand-mark') ?? null
+  expect(brandMark?.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+  expect(brandMark?.textContent).toBe('')
   expect(root.querySelector('.archive-wordmark')).toBeNull()
   expect(frame?.closest('.app-shell')).toBe(shell)
   expect(sidebar?.closest('.app-frame')).toBe(frame)
@@ -2880,6 +2883,47 @@ test('uses a labelled repository button list and moves focus with arrow keys', a
   ) ?? null
   expect((browserWindow.document.activeElement as unknown) === focusedSecond).toBe(true)
   expect(focusedSecond?.classList.contains('is-selected')).toBe(true)
+})
+
+test('reserves card selection styling for an explicit keyboard current result', async () => {
+  const ready = readyDashboardState()
+  const second = repositoryRecord('42', 'R_two', 'github/two')
+  const root = await mountReadyDashboard({
+    ...ready,
+    library: {
+      ...ready.library!,
+      repositories: [...ready.library!.repositories, second]
+    }
+  })
+  const browserWindow = window as unknown as Window
+  const [firstCard, secondCard] = [
+    ...root.querySelectorAll<HTMLButtonElement>('.repository-card')
+  ]
+
+  expect(firstCard?.classList.contains('repository-card')).toBe(true)
+  expect(firstCard?.classList.contains('is-selected')).toBe(false)
+  expect(secondCard?.classList.contains('is-selected')).toBe(false)
+  if (firstCard === undefined || secondCard === undefined) {
+    throw new Error('Repository cards are required.')
+  }
+  const firstRepositoryNodeId = firstCard.dataset.repositoryNodeId
+  const secondRepositoryNodeId = secondCard.dataset.repositoryNodeId
+
+  firstCard.focus()
+  firstCard.dispatchEvent(
+    new browserWindow.KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}) as unknown as Event
+  )
+  await nextTurn(browserWindow)
+
+  const currentFirstCard = root.querySelector<HTMLButtonElement>(
+    `[data-repository-node-id="${firstRepositoryNodeId}"]`
+  )
+  const currentSecondCard = root.querySelector<HTMLButtonElement>(
+    `[data-repository-node-id="${secondRepositoryNodeId}"]`
+  )
+  expect((browserWindow.document.activeElement as unknown) === currentSecondCard).toBe(true)
+  expect(currentFirstCard?.classList.contains('is-selected')).toBe(false)
+  expect(currentSecondCard?.classList.contains('is-selected')).toBe(true)
 })
 
 test('opens repository inspection in a modal only after a row is activated', async () => {
