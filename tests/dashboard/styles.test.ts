@@ -95,14 +95,31 @@ test('builds a sticky 64px material header with an opaque fallback', () => {
   expect(declarationsFor(dark, ':root')).toMatch(/--header-material:\s*rgb\(/)
 })
 
-test('keeps desktop library actions in Search, Refresh, Status order on one baseline', () => {
-  const actions = exactRuleFor(styles, ['.library-actions'])
+test('flattens the desktop toolbar into one four-control row only above 1180px', () => {
+  const container = exactRuleFor(styles, ['.archive-filter-container'])
+  expect(container).toMatch(/display:\s*grid/)
+
+  const desktop = extractMedia(styles, '(min-width: 1181px)')
+  const actions = exactRuleFor(desktop, ['.library-actions'])
   expect(actions).toMatch(/display:\s*grid/)
   expect(actions).toMatch(
-    /grid-template-columns:\s*minmax\([^;]+\) auto auto/
+    /grid-template-columns:\s*minmax\([^;]+\) auto auto auto/
   )
   expect(actions).toMatch(/align-items:\s*end/)
   expect(actions).not.toMatch(/flex-wrap/)
+  expect(exactRuleFor(desktop, ['.archive-filter-container'])).toMatch(
+    /display:\s*contents/
+  )
+  expect(ruleFor(desktop, '.archive-filter-heading')).toMatch(/position:\s*absolute/)
+  expect(ruleFor(desktop, '.advanced-filters')).toMatch(/margin-top:\s*0/)
+  for (const selector of [
+    '.search-field input,',
+    '.refresh-button,',
+    '.view-options > summary,',
+    '.advanced-filters summary'
+  ]) {
+    expect(ruleFor(desktop, selector), selector).toMatch(/min-height:\s*44px/)
+  }
 
   const stacked = extractMedia(styles, '(max-width: 1180px)')
   expect(ruleFor(stacked, '.library-actions')).toMatch(/display:\s*flex/)
