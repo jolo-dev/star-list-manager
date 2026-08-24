@@ -1,0 +1,778 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-24T15:56:49Z",
+  "title": "Design System: Star List Manager",
+  "extensions": {
+    "colorMeta": {
+      "cool-canvas": {
+        "role": "neutral",
+        "displayName": "Cool Canvas",
+        "canonical": "#f8fafc",
+        "tonalRamp": [
+          "oklch(15.000000% 0.003412665 247.857544)",
+          "oklch(26.428571% 0.003412665 247.857544)",
+          "oklch(37.857143% 0.003412665 247.857544)",
+          "oklch(49.285714% 0.003412665 247.857544)",
+          "oklch(60.714286% 0.003412665 247.857544)",
+          "oklch(72.142857% 0.003412665 247.857544)",
+          "oklch(83.571429% 0.003412665 247.857544)",
+          "oklch(95.000000% 0.003412665 247.857544)"
+        ]
+      },
+      "paper-white": {
+        "role": "neutral",
+        "displayName": "Paper White",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15.000000% 0.000000000 0.000000)",
+          "oklch(26.428571% 0.000000000 0.000000)",
+          "oklch(37.857143% 0.000000000 0.000000)",
+          "oklch(49.285714% 0.000000000 0.000000)",
+          "oklch(60.714286% 0.000000000 0.000000)",
+          "oklch(72.142857% 0.000000000 0.000000)",
+          "oklch(83.571429% 0.000000000 0.000000)",
+          "oklch(95.000000% 0.000000000 0.000000)"
+        ]
+      },
+      "soft-slate-surface": {
+        "role": "neutral",
+        "displayName": "Soft Slate Surface",
+        "canonical": "#f1f5f9",
+        "tonalRamp": [
+          "oklch(15.000000% 0.006853583 247.895567)",
+          "oklch(26.428571% 0.006853583 247.895567)",
+          "oklch(37.857143% 0.006853583 247.895567)",
+          "oklch(49.285714% 0.006853583 247.895567)",
+          "oklch(60.714286% 0.006853583 247.895567)",
+          "oklch(72.142857% 0.006853583 247.895567)",
+          "oklch(83.571429% 0.006853583 247.895567)",
+          "oklch(95.000000% 0.006853583 247.895567)"
+        ]
+      },
+      "selected-slate-surface": {
+        "role": "neutral",
+        "displayName": "Selected Slate Surface",
+        "canonical": "#e2e8f0",
+        "tonalRamp": [
+          "oklch(15.000000% 0.012618741 255.507846)",
+          "oklch(26.428571% 0.012618741 255.507846)",
+          "oklch(37.857143% 0.012618741 255.507846)",
+          "oklch(49.285714% 0.012618741 255.507846)",
+          "oklch(60.714286% 0.012618741 255.507846)",
+          "oklch(72.142857% 0.012618741 255.507846)",
+          "oklch(83.571429% 0.012618741 255.507846)",
+          "oklch(95.000000% 0.012618741 255.507846)"
+        ]
+      },
+      "ink": {
+        "role": "primary",
+        "displayName": "Dark Library Ink",
+        "canonical": "#0f172a",
+        "tonalRamp": [
+          "oklch(15.000000% 0.039824319 265.754874)",
+          "oklch(26.428571% 0.039824319 265.754874)",
+          "oklch(37.857143% 0.039824319 265.754874)",
+          "oklch(49.285714% 0.039824319 265.754874)",
+          "oklch(60.714286% 0.039824319 265.754874)",
+          "oklch(72.142857% 0.039824319 265.754874)",
+          "oklch(83.571429% 0.039824319 265.754874)",
+          "oklch(95.000000% 0.039824319 265.754874)"
+        ]
+      },
+      "noop-ink": {
+        "role": "neutral",
+        "displayName": "No-op Ink",
+        "canonical": "#334155",
+        "tonalRamp": [
+          "oklch(15.000000% 0.039156442 257.286951)",
+          "oklch(26.428571% 0.039156442 257.286951)",
+          "oklch(37.857143% 0.039156442 257.286951)",
+          "oklch(49.285714% 0.039156442 257.286951)",
+          "oklch(60.714286% 0.039156442 257.286951)",
+          "oklch(72.142857% 0.039156442 257.286951)",
+          "oklch(83.571429% 0.039156442 257.286951)",
+          "oklch(95.000000% 0.039156442 257.286951)"
+        ]
+      },
+      "secondary-slate": {
+        "role": "neutral",
+        "displayName": "Secondary Slate",
+        "canonical": "#475569",
+        "tonalRamp": [
+          "oklch(15.000000% 0.037446660 257.280836)",
+          "oklch(26.428571% 0.037446660 257.280836)",
+          "oklch(37.857143% 0.037446660 257.280836)",
+          "oklch(49.285714% 0.037446660 257.280836)",
+          "oklch(60.714286% 0.037446660 257.280836)",
+          "oklch(72.142857% 0.037446660 257.280836)",
+          "oklch(83.571429% 0.037446660 257.280836)",
+          "oklch(95.000000% 0.037446660 257.280836)"
+        ]
+      },
+      "control-slate": {
+        "role": "neutral",
+        "displayName": "Control Slate",
+        "canonical": "#64748b",
+        "tonalRamp": [
+          "oklch(15.000000% 0.040717023 257.416613)",
+          "oklch(26.428571% 0.040717023 257.416613)",
+          "oklch(37.857143% 0.040717023 257.416613)",
+          "oklch(49.285714% 0.040717023 257.416613)",
+          "oklch(60.714286% 0.040717023 257.416613)",
+          "oklch(72.142857% 0.040717023 257.416613)",
+          "oklch(83.571429% 0.040717023 257.416613)",
+          "oklch(95.000000% 0.040717023 257.416613)"
+        ]
+      },
+      "subtle-slate": {
+        "role": "neutral",
+        "displayName": "Subtle Slate",
+        "canonical": "#cbd5e1",
+        "tonalRamp": [
+          "oklch(15.000000% 0.019847678 252.894302)",
+          "oklch(26.428571% 0.019847678 252.894302)",
+          "oklch(37.857143% 0.019847678 252.894302)",
+          "oklch(49.285714% 0.019847678 252.894302)",
+          "oklch(60.714286% 0.019847678 252.894302)",
+          "oklch(72.142857% 0.019847678 252.894302)",
+          "oklch(83.571429% 0.019847678 252.894302)",
+          "oklch(95.000000% 0.019847678 252.894302)"
+        ]
+      },
+      "selection-blue": {
+        "role": "secondary",
+        "displayName": "Selection Blue",
+        "canonical": "#2563eb",
+        "tonalRamp": [
+          "oklch(15.000000% 0.215207748 262.880917)",
+          "oklch(26.428571% 0.215207748 262.880917)",
+          "oklch(37.857143% 0.215207748 262.880917)",
+          "oklch(49.285714% 0.215207748 262.880917)",
+          "oklch(60.714286% 0.215207748 262.880917)",
+          "oklch(72.142857% 0.215207748 262.880917)",
+          "oklch(83.571429% 0.215207748 262.880917)",
+          "oklch(95.000000% 0.215207748 262.880917)"
+        ]
+      },
+      "success-surface": {
+        "role": "tertiary",
+        "displayName": "Success Surface",
+        "canonical": "#ecfdf5",
+        "tonalRamp": [
+          "oklch(15.000000% 0.020679654 166.112854)",
+          "oklch(26.428571% 0.020679654 166.112854)",
+          "oklch(37.857143% 0.020679654 166.112854)",
+          "oklch(49.285714% 0.020679654 166.112854)",
+          "oklch(60.714286% 0.020679654 166.112854)",
+          "oklch(72.142857% 0.020679654 166.112854)",
+          "oklch(83.571429% 0.020679654 166.112854)",
+          "oklch(95.000000% 0.020679654 166.112854)"
+        ]
+      },
+      "success-ink": {
+        "role": "tertiary",
+        "displayName": "Success Ink",
+        "canonical": "#166534",
+        "tonalRamp": [
+          "oklch(15.000000% 0.108320572 151.327679)",
+          "oklch(26.428571% 0.108320572 151.327679)",
+          "oklch(37.857143% 0.108320572 151.327679)",
+          "oklch(49.285714% 0.108320572 151.327679)",
+          "oklch(60.714286% 0.108320572 151.327679)",
+          "oklch(72.142857% 0.108320572 151.327679)",
+          "oklch(83.571429% 0.108320572 151.327679)",
+          "oklch(95.000000% 0.108320572 151.327679)"
+        ]
+      },
+      "success-border": {
+        "role": "tertiary",
+        "displayName": "Success Border",
+        "canonical": "#15803d",
+        "tonalRamp": [
+          "oklch(15.000000% 0.137102542 150.069279)",
+          "oklch(26.428571% 0.137102542 150.069279)",
+          "oklch(37.857143% 0.137102542 150.069279)",
+          "oklch(49.285714% 0.137102542 150.069279)",
+          "oklch(60.714286% 0.137102542 150.069279)",
+          "oklch(72.142857% 0.137102542 150.069279)",
+          "oklch(83.571429% 0.137102542 150.069279)",
+          "oklch(95.000000% 0.137102542 150.069279)"
+        ]
+      },
+      "warning-surface": {
+        "role": "tertiary",
+        "displayName": "Warning Surface",
+        "canonical": "#fff7ed",
+        "tonalRamp": [
+          "oklch(15.000000% 0.015771619 73.684078)",
+          "oklch(26.428571% 0.015771619 73.684078)",
+          "oklch(37.857143% 0.015771619 73.684078)",
+          "oklch(49.285714% 0.015771619 73.684078)",
+          "oklch(60.714286% 0.015771619 73.684078)",
+          "oklch(72.142857% 0.015771619 73.684078)",
+          "oklch(83.571429% 0.015771619 73.684078)",
+          "oklch(95.000000% 0.015771619 73.684078)"
+        ]
+      },
+      "warning-ink": {
+        "role": "tertiary",
+        "displayName": "Warning Ink",
+        "canonical": "#9a3412",
+        "tonalRamp": [
+          "oklch(15.000000% 0.143047305 37.303511)",
+          "oklch(26.428571% 0.143047305 37.303511)",
+          "oklch(37.857143% 0.143047305 37.303511)",
+          "oklch(49.285714% 0.143047305 37.303511)",
+          "oklch(60.714286% 0.143047305 37.303511)",
+          "oklch(72.142857% 0.143047305 37.303511)",
+          "oklch(83.571429% 0.143047305 37.303511)",
+          "oklch(95.000000% 0.143047305 37.303511)"
+        ]
+      },
+      "warning-border": {
+        "role": "tertiary",
+        "displayName": "Warning Border",
+        "canonical": "#c2410c",
+        "tonalRamp": [
+          "oklch(15.000000% 0.173864773 38.402216)",
+          "oklch(26.428571% 0.173864773 38.402216)",
+          "oklch(37.857143% 0.173864773 38.402216)",
+          "oklch(49.285714% 0.173864773 38.402216)",
+          "oklch(60.714286% 0.173864773 38.402216)",
+          "oklch(72.142857% 0.173864773 38.402216)",
+          "oklch(83.571429% 0.173864773 38.402216)",
+          "oklch(95.000000% 0.173864773 38.402216)"
+        ]
+      },
+      "danger-surface": {
+        "role": "tertiary",
+        "displayName": "Danger Surface",
+        "canonical": "#fef2f2",
+        "tonalRamp": [
+          "oklch(15.000000% 0.012946901 17.379699)",
+          "oklch(26.428571% 0.012946901 17.379699)",
+          "oklch(37.857143% 0.012946901 17.379699)",
+          "oklch(49.285714% 0.012946901 17.379699)",
+          "oklch(60.714286% 0.012946901 17.379699)",
+          "oklch(72.142857% 0.012946901 17.379699)",
+          "oklch(83.571429% 0.012946901 17.379699)",
+          "oklch(95.000000% 0.012946901 17.379699)"
+        ]
+      },
+      "danger-ink": {
+        "role": "tertiary",
+        "displayName": "Danger Ink",
+        "canonical": "#991b1b",
+        "tonalRamp": [
+          "oklch(15.000000% 0.161321132 26.899440)",
+          "oklch(26.428571% 0.161321132 26.899440)",
+          "oklch(37.857143% 0.161321132 26.899440)",
+          "oklch(49.285714% 0.161321132 26.899440)",
+          "oklch(60.714286% 0.161321132 26.899440)",
+          "oklch(72.142857% 0.161321132 26.899440)",
+          "oklch(83.571429% 0.161321132 26.899440)",
+          "oklch(95.000000% 0.161321132 26.899440)"
+        ]
+      },
+      "danger-action": {
+        "role": "tertiary",
+        "displayName": "Danger Action",
+        "canonical": "#b91c1c",
+        "tonalRamp": [
+          "oklch(15.000000% 0.190493419 27.518103)",
+          "oklch(26.428571% 0.190493419 27.518103)",
+          "oklch(37.857143% 0.190493419 27.518103)",
+          "oklch(49.285714% 0.190493419 27.518103)",
+          "oklch(60.714286% 0.190493419 27.518103)",
+          "oklch(72.142857% 0.190493419 27.518103)",
+          "oklch(83.571429% 0.190493419 27.518103)",
+          "oklch(95.000000% 0.190493419 27.518103)"
+        ]
+      },
+      "night-canvas": {
+        "role": "neutral",
+        "displayName": "Night Canvas",
+        "canonical": "#0b1120",
+        "tonalRamp": [
+          "oklch(15.000000% 0.032458136 266.624841)",
+          "oklch(26.428571% 0.032458136 266.624841)",
+          "oklch(37.857143% 0.032458136 266.624841)",
+          "oklch(49.285714% 0.032458136 266.624841)",
+          "oklch(60.714286% 0.032458136 266.624841)",
+          "oklch(72.142857% 0.032458136 266.624841)",
+          "oklch(83.571429% 0.032458136 266.624841)",
+          "oklch(95.000000% 0.032458136 266.624841)"
+        ]
+      },
+      "night-surface": {
+        "role": "neutral",
+        "displayName": "Night Surface",
+        "canonical": "#111827",
+        "tonalRamp": [
+          "oklch(15.000000% 0.031762605 264.664526)",
+          "oklch(26.428571% 0.031762605 264.664526)",
+          "oklch(37.857143% 0.031762605 264.664526)",
+          "oklch(49.285714% 0.031762605 264.664526)",
+          "oklch(60.714286% 0.031762605 264.664526)",
+          "oklch(72.142857% 0.031762605 264.664526)",
+          "oklch(83.571429% 0.031762605 264.664526)",
+          "oklch(95.000000% 0.031762605 264.664526)"
+        ]
+      },
+      "night-raised": {
+        "role": "neutral",
+        "displayName": "Night Raised Surface",
+        "canonical": "#1e293b",
+        "tonalRamp": [
+          "oklch(15.000000% 0.036848115 260.030984)",
+          "oklch(26.428571% 0.036848115 260.030984)",
+          "oklch(37.857143% 0.036848115 260.030984)",
+          "oklch(49.285714% 0.036848115 260.030984)",
+          "oklch(60.714286% 0.036848115 260.030984)",
+          "oklch(72.142857% 0.036848115 260.030984)",
+          "oklch(83.571429% 0.036848115 260.030984)",
+          "oklch(95.000000% 0.036848115 260.030984)"
+        ]
+      },
+      "night-ink": {
+        "role": "primary",
+        "displayName": "Night Ink",
+        "canonical": "#f8fafc",
+        "tonalRamp": [
+          "oklch(15.000000% 0.003412665 247.857544)",
+          "oklch(26.428571% 0.003412665 247.857544)",
+          "oklch(37.857143% 0.003412665 247.857544)",
+          "oklch(49.285714% 0.003412665 247.857544)",
+          "oklch(60.714286% 0.003412665 247.857544)",
+          "oklch(72.142857% 0.003412665 247.857544)",
+          "oklch(83.571429% 0.003412665 247.857544)",
+          "oklch(95.000000% 0.003412665 247.857544)"
+        ]
+      },
+      "night-secondary": {
+        "role": "neutral",
+        "displayName": "Night Secondary Text",
+        "canonical": "#cbd5e1",
+        "tonalRamp": [
+          "oklch(15.000000% 0.019847678 252.894302)",
+          "oklch(26.428571% 0.019847678 252.894302)",
+          "oklch(37.857143% 0.019847678 252.894302)",
+          "oklch(49.285714% 0.019847678 252.894302)",
+          "oklch(60.714286% 0.019847678 252.894302)",
+          "oklch(72.142857% 0.019847678 252.894302)",
+          "oklch(83.571429% 0.019847678 252.894302)",
+          "oklch(95.000000% 0.019847678 252.894302)"
+        ]
+      },
+      "night-border": {
+        "role": "neutral",
+        "displayName": "Night Border",
+        "canonical": "#475569",
+        "tonalRamp": [
+          "oklch(15.000000% 0.037446660 257.280836)",
+          "oklch(26.428571% 0.037446660 257.280836)",
+          "oklch(37.857143% 0.037446660 257.280836)",
+          "oklch(49.285714% 0.037446660 257.280836)",
+          "oklch(60.714286% 0.037446660 257.280836)",
+          "oklch(72.142857% 0.037446660 257.280836)",
+          "oklch(83.571429% 0.037446660 257.280836)",
+          "oklch(95.000000% 0.037446660 257.280836)"
+        ]
+      },
+      "night-control": {
+        "role": "neutral",
+        "displayName": "Night Control Border",
+        "canonical": "#94a3b8",
+        "tonalRamp": [
+          "oklch(15.000000% 0.035114392 256.787816)",
+          "oklch(26.428571% 0.035114392 256.787816)",
+          "oklch(37.857143% 0.035114392 256.787816)",
+          "oklch(49.285714% 0.035114392 256.787816)",
+          "oklch(60.714286% 0.035114392 256.787816)",
+          "oklch(72.142857% 0.035114392 256.787816)",
+          "oklch(83.571429% 0.035114392 256.787816)",
+          "oklch(95.000000% 0.035114392 256.787816)"
+        ]
+      },
+      "night-selection-blue": {
+        "role": "secondary",
+        "displayName": "Night Selection Blue",
+        "canonical": "#3b82f6",
+        "tonalRamp": [
+          "oklch(15.000000% 0.188014712 259.814527)",
+          "oklch(26.428571% 0.188014712 259.814527)",
+          "oklch(37.857143% 0.188014712 259.814527)",
+          "oklch(49.285714% 0.188014712 259.814527)",
+          "oklch(60.714286% 0.188014712 259.814527)",
+          "oklch(72.142857% 0.188014712 259.814527)",
+          "oklch(83.571429% 0.188014712 259.814527)",
+          "oklch(95.000000% 0.188014712 259.814527)"
+        ]
+      },
+      "night-success-surface": {
+        "role": "tertiary",
+        "displayName": "Night Success Surface",
+        "canonical": "#052e16",
+        "tonalRamp": [
+          "oklch(15.000000% 0.062847827 152.934252)",
+          "oklch(26.428571% 0.062847827 152.934252)",
+          "oklch(37.857143% 0.062847827 152.934252)",
+          "oklch(49.285714% 0.062847827 152.934252)",
+          "oklch(60.714286% 0.062847827 152.934252)",
+          "oklch(72.142857% 0.062847827 152.934252)",
+          "oklch(83.571429% 0.062847827 152.934252)",
+          "oklch(95.000000% 0.062847827 152.934252)"
+        ]
+      },
+      "night-success-ink": {
+        "role": "tertiary",
+        "displayName": "Night Success Ink",
+        "canonical": "#bbf7d0",
+        "tonalRamp": [
+          "oklch(15.000000% 0.080550237 155.994680)",
+          "oklch(26.428571% 0.080550237 155.994680)",
+          "oklch(37.857143% 0.080550237 155.994680)",
+          "oklch(49.285714% 0.080550237 155.994680)",
+          "oklch(60.714286% 0.080550237 155.994680)",
+          "oklch(72.142857% 0.080550237 155.994680)",
+          "oklch(83.571429% 0.080550237 155.994680)",
+          "oklch(95.000000% 0.080550237 155.994680)"
+        ]
+      },
+      "night-success-border": {
+        "role": "tertiary",
+        "displayName": "Night Success Border",
+        "canonical": "#4ade80",
+        "tonalRamp": [
+          "oklch(15.000000% 0.182060385 151.711031)",
+          "oklch(26.428571% 0.182060385 151.711031)",
+          "oklch(37.857143% 0.182060385 151.711031)",
+          "oklch(49.285714% 0.182060385 151.711031)",
+          "oklch(60.714286% 0.182060385 151.711031)",
+          "oklch(72.142857% 0.182060385 151.711031)",
+          "oklch(83.571429% 0.182060385 151.711031)",
+          "oklch(95.000000% 0.182060385 151.711031)"
+        ]
+      },
+      "night-warning-surface": {
+        "role": "tertiary",
+        "displayName": "Night Warning Surface",
+        "canonical": "#431407",
+        "tonalRamp": [
+          "oklch(15.000000% 0.076220212 36.258537)",
+          "oklch(26.428571% 0.076220212 36.258537)",
+          "oklch(37.857143% 0.076220212 36.258537)",
+          "oklch(49.285714% 0.076220212 36.258537)",
+          "oklch(60.714286% 0.076220212 36.258537)",
+          "oklch(72.142857% 0.076220212 36.258537)",
+          "oklch(83.571429% 0.076220212 36.258537)",
+          "oklch(95.000000% 0.076220212 36.258537)"
+        ]
+      },
+      "night-warning-ink": {
+        "role": "tertiary",
+        "displayName": "Night Warning Ink",
+        "canonical": "#fef08a",
+        "tonalRamp": [
+          "oklch(15.000000% 0.124303249 101.539857)",
+          "oklch(26.428571% 0.124303249 101.539857)",
+          "oklch(37.857143% 0.124303249 101.539857)",
+          "oklch(49.285714% 0.124303249 101.539857)",
+          "oklch(60.714286% 0.124303249 101.539857)",
+          "oklch(72.142857% 0.124303249 101.539857)",
+          "oklch(83.571429% 0.124303249 101.539857)",
+          "oklch(95.000000% 0.124303249 101.539857)"
+        ]
+      },
+      "night-warning-border": {
+        "role": "tertiary",
+        "displayName": "Night Warning Border",
+        "canonical": "#fb923c",
+        "tonalRamp": [
+          "oklch(15.000000% 0.159037465 55.934415)",
+          "oklch(26.428571% 0.159037465 55.934415)",
+          "oklch(37.857143% 0.159037465 55.934415)",
+          "oklch(49.285714% 0.159037465 55.934415)",
+          "oklch(60.714286% 0.159037465 55.934415)",
+          "oklch(72.142857% 0.159037465 55.934415)",
+          "oklch(83.571429% 0.159037465 55.934415)",
+          "oklch(95.000000% 0.159037465 55.934415)"
+        ]
+      },
+      "night-danger-surface": {
+        "role": "tertiary",
+        "displayName": "Night Danger Surface",
+        "canonical": "#450a0a",
+        "tonalRamp": [
+          "oklch(15.000000% 0.088559416 26.041801)",
+          "oklch(26.428571% 0.088559416 26.041801)",
+          "oklch(37.857143% 0.088559416 26.041801)",
+          "oklch(49.285714% 0.088559416 26.041801)",
+          "oklch(60.714286% 0.088559416 26.041801)",
+          "oklch(72.142857% 0.088559416 26.041801)",
+          "oklch(83.571429% 0.088559416 26.041801)",
+          "oklch(95.000000% 0.088559416 26.041801)"
+        ]
+      },
+      "night-danger-ink": {
+        "role": "tertiary",
+        "displayName": "Night Danger Ink",
+        "canonical": "#fecaca",
+        "tonalRamp": [
+          "oklch(15.000000% 0.059257752 18.334069)",
+          "oklch(26.428571% 0.059257752 18.334069)",
+          "oklch(37.857143% 0.059257752 18.334069)",
+          "oklch(49.285714% 0.059257752 18.334069)",
+          "oklch(60.714286% 0.059257752 18.334069)",
+          "oklch(72.142857% 0.059257752 18.334069)",
+          "oklch(83.571429% 0.059257752 18.334069)",
+          "oklch(95.000000% 0.059257752 18.334069)"
+        ]
+      },
+      "night-danger-border": {
+        "role": "tertiary",
+        "displayName": "Night Danger Border",
+        "canonical": "#f87171",
+        "tonalRamp": [
+          "oklch(15.000000% 0.166147917 22.216224)",
+          "oklch(26.428571% 0.166147917 22.216224)",
+          "oklch(37.857143% 0.166147917 22.216224)",
+          "oklch(49.285714% 0.166147917 22.216224)",
+          "oklch(60.714286% 0.166147917 22.216224)",
+          "oklch(72.142857% 0.166147917 22.216224)",
+          "oklch(83.571429% 0.166147917 22.216224)",
+          "oklch(95.000000% 0.166147917 22.216224)"
+        ]
+      },
+      "night-danger-action": {
+        "role": "tertiary",
+        "displayName": "Night Danger Action",
+        "canonical": "#dc2626",
+        "tonalRamp": [
+          "oklch(15.000000% 0.215156734 27.325049)",
+          "oklch(26.428571% 0.215156734 27.325049)",
+          "oklch(37.857143% 0.215156734 27.325049)",
+          "oklch(49.285714% 0.215156734 27.325049)",
+          "oklch(60.714286% 0.215156734 27.325049)",
+          "oklch(72.142857% 0.215156734 27.325049)",
+          "oklch(83.571429% 0.215156734 27.325049)",
+          "oklch(95.000000% 0.215156734 27.325049)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Library and destination headings."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "State-panel and dialog headings."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Repository-card titles and important subsections."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Descriptions, instructions, and safety copy."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Compact control labels and filter headings."
+      },
+      "metadata": {
+        "displayName": "Metadata",
+        "purpose": "Owners, counts, dates, language, and operation data."
+      }
+    },
+    "shadows": [
+      {
+        "name": "ambient-card-light",
+        "value": "0 4px 20px rgb(15 23 42 / 8%)",
+        "purpose": "The single elevation role for repository cards, dialogs, and floating option panels in light mode."
+      },
+      {
+        "name": "ambient-card-dark",
+        "value": "0 4px 20px rgb(0 0 0 / 24%)",
+        "purpose": "The same ambient-card role remapped for dark surfaces."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-transition",
+        "value": "140ms ease-out",
+        "purpose": "Hover, border, color, and compact lift feedback."
+      },
+      {
+        "name": "dashboard-entry",
+        "value": "220ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "One restrained entry rhythm for the rail, library heading, and repository cards."
+      },
+      {
+        "name": "loading-shimmer",
+        "value": "1.4s ease-in-out",
+        "purpose": "Loading-state skeleton feedback only; suppressed under reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "toolbar-wide",
+        "value": "1181px"
+      },
+      {
+        "name": "toolbar-wrap",
+        "value": "1180px"
+      },
+      {
+        "name": "card-two-column",
+        "value": "1024px"
+      },
+      {
+        "name": "filter-two-column",
+        "value": "768px"
+      },
+      {
+        "name": "mobile-stack",
+        "value": "700px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single dark action voice for an available primary action.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Refresh</button>",
+      "css": ".ds-btn-primary { min-height: 40px; padding: 8px 13px; color: var(--action-primary-text, #fff); background: var(--action-primary, #0f172a); border: 1px solid var(--action-primary, #0f172a); border-radius: var(--radius-control, 8px); font-family: var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); font-size: .875rem; font-weight: 650; transition: transform 140ms ease-out; } .ds-btn-primary:hover:not(:disabled) { transform: translateY(-1px); } .ds-btn-primary:focus-visible { outline: 3px solid var(--focus-ring, #2563eb); outline-offset: 2px; } .ds-btn-primary:disabled { color: var(--text-disabled, #475569); background: var(--surface-disabled, #e2e8f0); border-color: var(--border-disabled, #64748b); cursor: not-allowed; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A bordered surface action for options, cancellation, closing, or clearing.",
+      "html": "<button class=\"ds-btn-secondary\" type=\"button\">View options</button>",
+      "css": ".ds-btn-secondary { min-height: 40px; padding: 8px 13px; color: var(--text-primary, #0f172a); background: var(--surface, #fff); border: 1px solid var(--border-control, #64748b); border-radius: var(--radius-control, 8px); font-family: var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); font-size: .875rem; font-weight: 650; transition: background-color 140ms ease-out, border-color 140ms ease-out; } .ds-btn-secondary:hover:not(:disabled) { background: var(--surface-muted, #f1f5f9); border-color: var(--text-primary, #0f172a); } .ds-btn-secondary:focus-visible { outline: 3px solid var(--focus-ring, #2563eb); outline-offset: 2px; } .ds-btn-secondary:disabled { color: var(--text-disabled, #475569); background: var(--surface-disabled, #e2e8f0); border-color: var(--border-disabled, #64748b); cursor: not-allowed; }"
+    },
+    {
+      "name": "Danger Review Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "A destructive review action that remains distinct from final confirmation.",
+      "html": "<button class=\"ds-btn-danger\" type=\"button\">Review unstar</button>",
+      "css": ".ds-btn-danger { min-height: 40px; padding: 8px 13px; color: var(--action-danger-text, #b91c1c); background: var(--action-danger, #fff); border: 1px solid var(--border-danger, #b91c1c); border-radius: var(--radius-control, 8px); font-family: var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); font-size: .875rem; font-weight: 650; transition: background-color 140ms ease-out, color 140ms ease-out; } .ds-btn-danger:hover:not(:disabled) { color: var(--action-danger-hover-text, #fff); background: var(--action-danger-hover, #b91c1c); } .ds-btn-danger:focus-visible { outline: 3px solid var(--focus-ring, #2563eb); outline-offset: 2px; } .ds-btn-danger:disabled { color: var(--text-disabled, #475569); background: var(--surface-disabled, #e2e8f0); border-color: var(--border-disabled, #64748b); cursor: not-allowed; }"
+    },
+    {
+      "name": "Library Search",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A visibly labeled search field whose scope stays inside Library.",
+      "html": "<label class=\"ds-search\"><span class=\"ds-search-label\">Search</span><input class=\"ds-search-input\" type=\"search\" placeholder=\"Search stars, notes, Lists…\"></label>",
+      "css": ".ds-search { display: grid; gap: 6px; color: var(--text-secondary, #475569); font-family: var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); font-size: .75rem; font-weight: 600; } .ds-search-input { width: 320px; min-height: 40px; padding: 8px 11px; color: var(--text-primary, #0f172a); background: var(--surface, #fff); border: 1px solid var(--border-control, #64748b); border-radius: var(--radius-control, 8px); font: 600 .875rem var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); } .ds-search-input:hover { border-color: var(--text-primary, #0f172a); } .ds-search-input:focus-visible { outline: 3px solid var(--focus-ring, #2563eb); outline-offset: 2px; } .ds-search-input:disabled { color: var(--text-disabled, #475569); background: var(--surface-disabled, #e2e8f0); border-color: var(--border-disabled, #64748b); cursor: not-allowed; }"
+    },
+    {
+      "name": "Global Navigation",
+      "kind": "nav",
+      "refersTo": "app-header",
+      "description": "The sticky brand, three real global destinations, and accessible account indicator.",
+      "html": "<header class=\"ds-app-header\"><div class=\"ds-app-brand\"><span class=\"ds-brand-mark\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M12 2.75 14.85 8.53 21.23 9.46 16.62 13.95 17.71 20.3 12 17.3 6.29 20.3 7.38 13.95 2.77 9.46 9.15 8.53Z\" fill=\"currentColor\"></path></svg></span><span class=\"ds-brand-wordmark\">Star List Manager</span></div><nav class=\"ds-global-nav\" aria-label=\"Primary navigation\"><button class=\"ds-global-nav-item\" type=\"button\" aria-current=\"page\">Library</button><button class=\"ds-global-nav-item\" type=\"button\">Operations</button><button class=\"ds-global-nav-item\" type=\"button\">Settings</button></nav><span class=\"ds-account-indicator\" aria-label=\"Connected as review-librarian\" title=\"Connected as review-librarian\">R</span></header>",
+      "css": ".ds-app-header { position: sticky; top: 0; display: grid; grid-template-columns: 1fr auto 1fr; min-height: 64px; align-items: center; gap: 24px; padding: 10px 24px; color: var(--text-primary, #0f172a); background: var(--surface, #fff); background: var(--header-material, rgb(255 255 255 / 88%)); border-bottom: 1px solid var(--border-subtle, #cbd5e1); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); font-family: var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); } .ds-app-brand { display: inline-flex; min-width: 0; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -.02em; } .ds-brand-mark { display: grid; width: 32px; height: 32px; place-items: center; color: var(--action-primary-text, #fff); background: var(--action-primary, #0f172a); border-radius: 9px; } .ds-brand-wordmark { overflow-wrap: anywhere; } .ds-global-nav { display: flex; gap: 4px; align-items: center; } .ds-global-nav-item { min-height: 40px; padding: 8px 12px; color: inherit; background: transparent; border: 1px solid transparent; border-radius: var(--radius-control, 8px); font: 600 .875rem var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); } .ds-global-nav-item:hover { background: var(--surface-muted, #f1f5f9); } .ds-global-nav-item:focus-visible { outline: 3px solid var(--focus-ring, #2563eb); outline-offset: 2px; } .ds-account-indicator { display: grid; width: 36px; height: 36px; justify-self: end; place-items: center; color: var(--action-primary-text, #fff); background: var(--action-primary, #0f172a); border: 1px solid var(--action-primary, #0f172a); border-radius: 50%; font-size: .8125rem; font-weight: 700; }"
+    },
+    {
+      "name": "List Navigation Item",
+      "kind": "nav",
+      "refersTo": "navigation-active",
+      "description": "A real Library collection with a visible active state and live count.",
+      "html": "<nav class=\"ds-list-nav\" aria-label=\"Library\"><button class=\"ds-list-item\" type=\"button\" aria-current=\"page\"><span class=\"ds-list-dot\" aria-hidden=\"true\"></span><span class=\"ds-list-name\">Current List</span><span class=\"ds-list-count\">6</span></button></nav>",
+      "css": ".ds-list-nav { width: 256px; font-family: var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); } .ds-list-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; width: 100%; min-height: 40px; align-items: center; gap: 9px; padding: 7px 9px; color: var(--action-primary-text, #fff); background: var(--surface-nav-active, #0f172a); border: 1px solid var(--border-current, #fff); border-radius: var(--radius-control, 8px); font: 400 .875rem var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); text-align: left; } .ds-list-item:focus-visible { outline: 3px solid var(--focus-ring, #2563eb); outline-offset: 2px; } .ds-list-dot { width: 7px; height: 7px; background: var(--border-selected, #2563eb); border-radius: 50%; } .ds-list-name { overflow-wrap: anywhere; } .ds-list-count { min-width: 24px; padding: 2px 7px; border: 1px solid currentColor; border-radius: 999px; font: .6875rem var(--font-technical, \"Geist Mono\", monospace); text-align: center; }"
+    },
+    {
+      "name": "Verified Status Pill",
+      "kind": "chip",
+      "refersTo": "status-success",
+      "description": "A compact semantic outcome that retains a visible text label and border.",
+      "html": "<span class=\"ds-status-verified\">Verified</span>",
+      "css": ".ds-status-verified { display: inline-flex; min-height: 24px; align-items: center; padding: 3px 8px; color: var(--text-success, #166534); background: var(--surface-success, #ecfdf5); border: 1px solid var(--border-success, #15803d); border-radius: 999px; font: 600 .75rem/1.2 var(--font-technical, \"Geist Mono\", monospace); }"
+    },
+    {
+      "name": "Repository Card",
+      "kind": "card",
+      "refersTo": "repository-card",
+      "description": "The default scannable record for a real repository and its local and remote state.",
+      "html": "<article class=\"ds-repository-shell\"><label class=\"ds-card-select\"><input type=\"checkbox\" aria-label=\"Select owner/repository for unstar\"></label><button class=\"ds-repository-card\" type=\"button\"><span class=\"ds-repository-heading\"><span class=\"ds-repository-reference\"><span class=\"ds-repository-owner\">owner/</span><strong class=\"ds-repository-title\">repository</strong></span></span><span class=\"ds-repository-description\">A useful repository description remains readable and intentionally concise.</span><span class=\"ds-repository-footer\"><span class=\"ds-repository-meta\">TypeScript · Starred Aug 20, 2026</span><span class=\"ds-repository-triage\">Reviewed</span></span></button></article>",
+      "css": ".ds-repository-shell { position: relative; display: flex; min-width: 0; overflow: clip; color: var(--text-primary, #0f172a); background: var(--surface, #fff); border: 1px solid var(--border-subtle, #cbd5e1); border-radius: var(--radius-card, 16px); box-shadow: var(--shadow-card, 0 4px 20px rgb(15 23 42 / 8%)); } .ds-card-select { position: absolute; z-index: 1; top: 10px; right: 10px; display: grid; min-width: 44px; min-height: 44px; place-items: center; background: var(--surface-muted, #f1f5f9); border: 1px solid var(--border-subtle, #cbd5e1); border-radius: var(--radius-control, 8px); } .ds-card-select:focus-within { outline: 3px solid var(--focus-ring, #2563eb); outline-offset: 2px; } .ds-repository-card { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; width: 100%; min-width: 0; gap: 14px; padding: 22px; color: inherit; background: var(--surface, #fff); border: 0; font-family: var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); text-align: left; transition: background-color 140ms ease-out, transform 140ms ease-out; } .ds-repository-card:hover { background: var(--surface-muted, #f1f5f9); transform: translateY(-2px); } .ds-repository-card:focus-visible { outline: 3px solid var(--focus-ring, #2563eb); outline-offset: -3px; } .ds-repository-heading { display: flex; min-width: 0; padding-right: 48px; } .ds-repository-reference { min-width: 0; color: var(--text-secondary, #475569); font: .75rem/1.5 var(--font-technical, \"Geist Mono\", monospace); } .ds-repository-title { display: block; margin-top: 3px; overflow-wrap: anywhere; color: var(--text-primary, #0f172a); font: 680 1.25rem/1.2 var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); letter-spacing: -.025em; } .ds-repository-description { color: var(--text-secondary, #475569); line-height: 1.55; } .ds-repository-footer { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 10px; } .ds-repository-meta { color: var(--text-secondary, #475569); font: .75rem/1.5 var(--font-technical, \"Geist Mono\", monospace); } .ds-repository-triage { display: inline-flex; min-height: 24px; align-items: center; padding: 3px 8px; color: var(--text-success, #166534); background: var(--surface-success, #ecfdf5); border: 1px solid var(--border-success, #15803d); border-radius: 999px; font: 600 .75rem/1.2 var(--font-technical, \"Geist Mono\", monospace); }"
+    },
+    {
+      "name": "Remote Change Dialog",
+      "kind": "custom",
+      "refersTo": "dialog",
+      "description": "A modal review surface that leads with scope and keeps cancellation visually available.",
+      "html": "<section class=\"ds-review-dialog\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"ds-review-title\"><h2 id=\"ds-review-title\">Review remote change</h2><p>This action affects the connected GitHub account only after confirmation and verification.</p><div class=\"ds-review-actions\"><button class=\"ds-review-cancel\" type=\"button\">Cancel</button><button class=\"ds-review-continue\" type=\"button\">Continue review</button></div></section>",
+      "css": ".ds-review-dialog { width: min(620px, 100%); padding: 34px; color: var(--text-primary, #0f172a); background: var(--surface, #fff); border: 1px solid var(--border-subtle, #cbd5e1); border-radius: var(--radius-card, 16px); box-shadow: var(--shadow-card, 0 4px 20px rgb(15 23 42 / 8%)); font-family: var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); } .ds-review-dialog h2 { margin: 0 0 12px; font-size: 1.625rem; line-height: 1.15; } .ds-review-dialog p { color: var(--text-secondary, #475569); line-height: 1.6; } .ds-review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; } .ds-review-cancel, .ds-review-continue { min-height: 40px; padding: 8px 13px; border-radius: var(--radius-control, 8px); font: 650 .875rem var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); } .ds-review-cancel { color: var(--text-primary, #0f172a); background: var(--surface, #fff); border: 1px solid var(--border-control, #64748b); } .ds-review-continue { color: var(--action-primary-text, #fff); background: var(--action-primary, #0f172a); border: 1px solid var(--action-primary, #0f172a); } .ds-review-cancel:hover { background: var(--surface-muted, #f1f5f9); } .ds-review-continue:hover { transform: translateY(-1px); } .ds-review-cancel:focus-visible, .ds-review-continue:focus-visible { outline: 3px solid var(--focus-ring, #2563eb); outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Calm Working Library",
+    "overview": "The Calm Working Library treats a large star collection as a private working collection, not as a developer-tool table or a decorative gallery. Cool white and slate surfaces, locally bundled Geist, softened rectangles, quiet borders, and dark ink actions make real repositories easy to identify, retrieve, and revisit.\n\nQuietness is structural rather than vague: the active collection, Library-scoped search, local annotations, synchronized GitHub state, and write readiness remain explicit. This is the shipped replacement for Archive.Stars brutalism; “Stellar” remains a visual reference and never becomes product identity.",
+    "keyCharacteristics": [
+      "Calm light-first slate material with an explicit dark counterpart.",
+      "A library-first shell with one global account indicator and three real destinations.",
+      "Comfortable repository cards by default, with a dense List alternative.",
+      "Sans prose and titles paired with mono metadata for deliberate scanability.",
+      "Restrained elevation, softened rectangles, and pills reserved for compact states.",
+      "Visible, labeled local-versus-remote and write-readiness semantics.",
+      "Self-contained assets and resilient behavior from 320px upward."
+    ],
+    "rules": [
+      {
+        "name": "The Ink Is Action Rule",
+        "body": "Dark ink is the only general action color. Do not introduce a second decorative brand accent or use semantic colors for ordinary calls to action.",
+        "section": "colors"
+      },
+      {
+        "name": "The Status Is Labeled Rule",
+        "body": "Semantic color always accompanies explicit text and, where applicable, a border, status role, disabled state, or confirmation step; color never carries remote truth by itself.",
+        "section": "colors"
+      },
+      {
+        "name": "The Sans Carries Meaning Rule",
+        "body": "Prose, titles, buttons, labels, warnings, and confirmation copy use Geist Sans so operational meaning never reads like code.",
+        "section": "typography"
+      },
+      {
+        "name": "The Mono Earns Its Place Rule",
+        "body": "Use Geist Mono only when fixed-width scanning improves comprehension; do not make whole cards, dialogs, or navigation mono-forward.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-by-Default Rule",
+        "body": "Borders and tonal surfaces establish ordinary hierarchy; do not add new shadow tiers, nested glass panels, gradients, or decorative depth.",
+        "section": "elevation"
+      },
+      {
+        "name": "The State Before Motion Rule",
+        "body": "Hover lift is optional reinforcement. Focus, selected, disabled, queued, failed, and verified states must remain fully understandable when all motion is removed.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** keep the visible product name **Star List Manager**; treat “Stellar” only as the visual reference that informed this system.",
+      "**Do** render real local repository, List, annotation, sync, and operation state; keep cards as the default and the dense List as a real alternative.",
+      "**Do** keep account identity global and search Library-scoped so the user always knows which collection and account context they are acting in.",
+      "**Do** preserve VanJS, local-first storage, real navigation, dialogs, keyboard result movement, focus trapping/restoration, and existing mutation handlers when extending the visual system.",
+      "**Do** preserve AA contrast, visible 3px focus indicators, explicit dark mode, forced-colors behavior, reduced-motion suppression, 320px layouts, and 44px narrow-screen controls.",
+      "**Do** use Geist Sans for prose and titles, Geist Mono for compact metadata, and package both locally with no runtime design request.",
+      "**Do** keep selection locally inert and reversible; gate remote or destructive review and confirmation actions on account-matched write readiness and capability checks, preview complete remote effects, require confirmation, and display queued and verified outcomes without collapsing unknown states into success.",
+      "**Do** regenerate visual evidence from the deterministic synthetic review generator; keep its static fixture non-shipping, no-network, and clearly labeled as synthetic."
+    ],
+    "donts": [
+      "**Don't** add Explore, create-List, random-repository, profile-menu, toast, fake pagination, or any other capability that the product does not implement.",
+      "**Don't** revive the category-default developer-tool table or Archive.Stars brutalism through hard rectangles, mono-forward prose, dense chrome, or ornamental separators.",
+      "**Don't** use semantic green, orange, red, or blue as decoration, or communicate status with a dot, border, or color alone.",
+      "**Don't** fake mutation capability, enable destructive controls early, imply Undo or re-star, or declare GitHub success before independent remote verification.",
+      "**Don't** introduce remote fonts, icon services, CDN scripts, analytics, gradients, excessive pills, additional shadow tiers, or nested glass surfaces.",
+      "**Don't** change runtime messages, storage schemas, authorization boundaries, queue semantics, or GitHub request behavior as part of visual maintenance."
+    ]
+  }
+}

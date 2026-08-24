@@ -44,7 +44,7 @@
 - Create: surface brief path resolved by the Impeccable helper
 - Test: `tests/dashboard/dom.test.ts:1-35`
 
-- [ ] **Step 1: Add a failing emitted-contract test**
+- [x] **Step 1: Add a failing emitted-contract test**
 
 Extend the first dashboard DOM test to require a direction-contract seed in the source document:
 
@@ -60,7 +60,7 @@ expect(indexHtml).toContain(
 )
 ```
 
-- [ ] **Step 2: Run the focused test and verify it fails**
+- [x] **Step 2: Run the focused test and verify it fails**
 
 Run:
 
@@ -70,7 +70,7 @@ rtk bun test tests/dashboard/dom.test.ts --test-name-pattern "mounts one main la
 
 Expected: FAIL because `src/dashboard/index.html` has no direction contract.
 
-- [ ] **Step 3: Add the contract as the first child of `<body>`**
+- [x] **Step 3: Add the contract as the first child of `<body>`**
 
 Insert an emitted HTML comment before `<noscript>` using five blocks and at most 150 words:
 
@@ -87,7 +87,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 
 Also update `<meta name="theme-color">` from the old archive color to the new light shell token value selected in Task 4.
 
-- [ ] **Step 4: Record the route-level brief**
+- [x] **Step 4: Record the route-level brief**
 
 Resolve and verify the path:
 
@@ -107,7 +107,7 @@ rtk rm .impeccable/surface-brief-body.md
 
 The `read` command may exit 2 before the first write; do not treat it as a source of a write command.
 
-- [ ] **Step 5: Re-run the focused test**
+- [x] **Step 5: Re-run the focused test**
 
 Run:
 
@@ -117,7 +117,7 @@ rtk bun test tests/dashboard/dom.test.ts --test-name-pattern "mounts one main la
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 rtk git add src/dashboard/index.html tests/dashboard/dom.test.ts .impeccable/surfaces/src-dashboard-index-html.md
@@ -132,7 +132,7 @@ rtk git commit -m "docs: lock dashboard redesign direction"
 - Modify: `tests/dashboard/dom.test.ts` (all presentation-coupled selectors and default-mode assumptions, not only the primary shell/card tests)
 - Test: `tests/dashboard/dom.test.ts`
 
-- [ ] **Step 1: Inventory and replace every Archive.Stars-coupled DOM assertion before implementation**
+- [x] **Step 1: Inventory and replace every Archive.Stars-coupled DOM assertion before implementation**
 
 Find the complete migration surface:
 
@@ -167,7 +167,7 @@ Navigate to Operations and Settings and assert the same account indicator remain
 
 For rendered native Lists, assert any `.list-marker` has `aria-hidden="true"` and the button still exposes visible name/count/current state.
 
-- [ ] **Step 2: Change the card-mode test to specify Cards as the initial mode**
+- [x] **Step 2: Change the card-mode test to specify Cards as the initial mode**
 
 Replace the initial assertions with:
 
@@ -179,7 +179,7 @@ expect(root.querySelector('.repository-card-grid')).not.toBeNull()
 
 Then activate List, assert the dense `.repository-list` has no `.repository-card-grid`, switch back to Cards, and retain all existing selection, inspection, real-data, and no-runtime-message assertions.
 
-- [ ] **Step 3: Preserve representative safety-state DOM contracts**
+- [x] **Step 3: Preserve representative safety-state DOM contracts**
 
 Add or strengthen focused assertions using existing fixtures:
 
@@ -193,7 +193,7 @@ expect(root.querySelector('.danger-action')?.getAttribute('disabled')).not.toBeN
 
 Reuse the existing unstar confirmation test to prove a row/selection action does not dispatch before the confirmation action is activated. Do not create a parallel mock mutation path.
 
-- [ ] **Step 4: Run the complete DOM test file and verify it fails for presentation-only reasons**
+- [x] **Step 4: Run the complete DOM test file and verify it fails for presentation-only reasons**
 
 Run:
 
@@ -203,7 +203,7 @@ rtk bun test tests/dashboard/dom.test.ts
 
 Expected: FAIL on missing new classes/wordmark and initial Cards state; existing behavior/safety assertions should continue to pass where unaffected.
 
-- [ ] **Step 5: Commit the red tests**
+- [x] **Step 5: Commit the red tests**
 
 ```bash
 rtk git add tests/dashboard/dom.test.ts
@@ -218,7 +218,7 @@ rtk git commit -m "test: specify Star List Manager dashboard shell"
 - Modify: `src/dashboard/scripts.ts:200-210, 306-405, 624-830, 1828-1944, 4083-4130`
 - Test: `tests/dashboard/dom.test.ts`
 
-- [ ] **Step 1: Switch only the default local presentation state to Cards**
+- [x] **Step 1: Switch only the default local presentation state to Cards**
 
 Change both declarations that initialize/reset result mode:
 
@@ -230,7 +230,7 @@ resultMode = van.state<ResultMode>('cards')
 
 Do not persist the preference or change query data.
 
-- [ ] **Step 2: Rework the application shell and global header**
+- [x] **Step 2: Rework the application shell and global header**
 
 Rename presentation classes while preserving semantics:
 
@@ -257,7 +257,7 @@ function Dashboard(...) {
 
 Keep navigation buttons and `aria-current`; do not convert them to inert anchors.
 
-- [ ] **Step 3: Rework Navigation into the real My Lists sidebar**
+- [x] **Step 3: Rework Navigation into the real My Lists sidebar**
 
 Use `.list-sidebar`, `.list-sidebar-heading`, and `.list-navigation`. Rename the visible heading to `My Lists`, retain the real Unlist/native List ordering and counts, and add only decorative markers:
 
@@ -267,7 +267,7 @@ span({class: `list-marker list-marker-${index % 4}`, 'aria-hidden': 'true'})
 
 The Unlist item may use the existing star/grid mark, but no create control appears.
 
-- [ ] **Step 4: Clarify Library header grouping**
+- [x] **Step 4: Clarify Library header grouping**
 
 Keep `#library-search`, Refresh, View options, advanced filters, rename controls, result count, and status output attached to their current state and handlers. Add presentation wrappers/classes only where needed for the reference hierarchy, for example:
 
@@ -281,7 +281,7 @@ header(
 
 Remove the account indicator from `LibraryHeader` after it has moved to `AppHeader`.
 
-- [ ] **Step 5: Enrich card markup using existing repository facts only**
+- [x] **Step 5: Enrich card markup using existing repository facts only**
 
 Retain the card’s outer button, `data-repository-node-id`, selection control, click handler, triage, mutation state, and description. Add a decorative repository icon tile and structured footer:
 
@@ -302,7 +302,7 @@ div(
 
 Do not add GitHub star counts or “updated ago” because those fields are not in the existing product record.
 
-- [ ] **Step 6: Run the focused DOM suite**
+- [x] **Step 6: Run the focused DOM suite**
 
 Run:
 
@@ -312,7 +312,7 @@ rtk bun test tests/dashboard/dom.test.ts
 
 Expected: PASS. If a test fails on message dispatch, focus restoration, keyboard navigation, selection, or dialog semantics, fix the structural regression before styling.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 rtk git add src/dashboard/scripts.ts tests/dashboard/dom.test.ts
@@ -328,7 +328,7 @@ rtk git commit -m "feat: rebuild dashboard shell around repository library"
 - Replace: `src/dashboard/styles.css`
 - Test: `tests/dashboard/styles.test.ts`
 
-- [ ] **Step 1: Replace Archive.Stars-specific style assertions with failing new-world contracts**
+- [x] **Step 1: Replace Archive.Stars-specific style assertions with failing new-world contracts**
 
 Keep reusable parser, contrast, forced-colors, reduced-motion, modal, target-size, and shimmer tests. Replace old `--archive-*` and square/brutalist assertions with named roles such as:
 
@@ -355,7 +355,7 @@ Assert:
 - pills are reserved for counts/status/tag-like values; page sections are not pill containers.
 - one bounded `dashboard-enter` keyframe supplies a short opacity/translate entry rhythm to the library heading/sidebar/cards with stagger expressed through a CSS custom property or `nth-child`; content remains visible by default and reduced motion suppresses the animation.
 
-- [ ] **Step 2: Run style tests and verify they fail**
+- [x] **Step 2: Run style tests and verify they fail**
 
 Run:
 
@@ -365,7 +365,7 @@ rtk bun test tests/dashboard/styles.test.ts
 
 Expected: FAIL on old Archive.Stars tokens, dimensions, and component treatment.
 
-- [ ] **Step 3: Load the Impeccable craft floor immediately before editing UI**
+- [x] **Step 3: Load the Impeccable craft floor immediately before editing UI**
 
 Read completely:
 
@@ -375,7 +375,7 @@ Read completely:
 
 Apply its bans and quality floor to all following CSS work.
 
-- [ ] **Step 4: Replace the font and token foundation**
+- [x] **Step 4: Replace the font and token foundation**
 
 Bundle local fonts:
 
@@ -391,7 +391,7 @@ Bundle local fonts:
 
 Retain the correct existing Geist Mono file. Define semantic light tokens for cool canvas/surfaces, slate text, borders, controls, focus, status, radii, and one card shadow. Keep every token needed by existing operational/status components so no state falls back to browser defaults.
 
-- [ ] **Step 5: Implement the reference shell and Library composition**
+- [x] **Step 5: Implement the reference shell and Library composition**
 
 Write the CSS in responsibility order:
 
@@ -405,7 +405,7 @@ Write the CSS in responsibility order:
 
 Use a translucent header material (`rgb(... / <alpha>)`, blur, border, and an opaque fallback) and one short orchestrated `dashboard-enter` opacity/translate rhythm across the sidebar, library heading, and cards. Use restrained transitions on border, shadow, color, and transform; avoid animating layout properties. Ensure the no-animation/default state never hides content.
 
-- [ ] **Step 6: Implement dialogs, Operations, Settings, authorization, and safety states in the same world**
+- [x] **Step 6: Implement dialogs, Operations, Settings, authorization, and safety states in the same world**
 
 Restyle existing selectors rather than replacing behavior. Maintain visible borders/backgrounds and text labels for:
 
@@ -416,7 +416,7 @@ Restyle existing selectors rather than replacing behavior. Maintain visible bord
 - inspection and confirmation dialogs;
 - selection bar, membership preview, operation history, Settings cards, and first-run/auth states.
 
-- [ ] **Step 7: Implement responsive, dark, forced-color, and reduced-motion rules**
+- [x] **Step 7: Implement responsive, dark, forced-color, and reduced-motion rules**
 
 Required breakpoints:
 
@@ -427,7 +427,7 @@ Required breakpoints:
 
 Dark mode must define every critical semantic token and a suitable translucent header surface/fallback. Forced-colors rules must explicitly cover current navigation, selected cards/rows, focus, buttons/inputs, status banners, and links. Reduced motion must suppress `dashboard-enter`, hover lift, shimmer, and transition duration; style tests must assert the named entry animation exists and is neutralized inside the reduced-motion media query.
 
-- [ ] **Step 8: Run style and DOM tests**
+- [x] **Step 8: Run style and DOM tests**
 
 Run:
 
@@ -437,7 +437,7 @@ rtk bun test tests/dashboard/styles.test.ts tests/dashboard/dom.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 rtk git add src/dashboard/styles.css tests/dashboard/styles.test.ts
@@ -454,7 +454,7 @@ rtk git commit -m "feat: apply minimal slate dashboard visual system"
 - Modify: `tests/dashboard/dom.test.ts`
 - Modify: `tests/dashboard/styles.test.ts`
 
-- [ ] **Step 1: Add failing edge-case assertions**
+- [x] **Step 1: Add failing edge-case assertions**
 
 Use existing fixtures to cover:
 
@@ -468,7 +468,7 @@ Use existing fixtures to cover:
 
 CSS source assertions should require `min-width: 0`, intentional `overflow-wrap`, bounded line clamp only on descriptions, and non-clipping dialog overflow.
 
-- [ ] **Step 2: Run focused tests and verify any new assertions fail**
+- [x] **Step 2: Run focused tests and verify any new assertions fail**
 
 Run:
 
@@ -478,11 +478,11 @@ rtk bun test tests/dashboard/dom.test.ts tests/dashboard/styles.test.ts
 
 Expected: only newly exposed layout/semantic gaps fail.
 
-- [ ] **Step 3: Apply one bounded hardening patch**
+- [x] **Step 3: Apply one bounded hardening patch**
 
 Fix wrappers, wrapping, disabled/status contrast, and responsive overflow without adding new features or changing business logic.
 
-- [ ] **Step 4: Re-run focused tests**
+- [x] **Step 4: Re-run focused tests**
 
 Run:
 
@@ -492,7 +492,7 @@ rtk bun test tests/dashboard/dom.test.ts tests/dashboard/styles.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add src/dashboard/scripts.ts src/dashboard/styles.css tests/dashboard/dom.test.ts tests/dashboard/styles.test.ts
@@ -507,7 +507,7 @@ rtk git commit -m "fix: harden redesigned dashboard states"
 - Verify all changed files
 - Verify built output under `dist/chrome` and `dist/firefox`
 
-- [ ] **Step 1: Run source and type checks**
+- [x] **Step 1: Run source and type checks**
 
 ```bash
 rtk bun run check:source
@@ -516,7 +516,7 @@ rtk bun run typecheck
 
 Expected: both exit 0.
 
-- [ ] **Step 2: Run the complete test suite**
+- [x] **Step 2: Run the complete test suite**
 
 ```bash
 rtk bun test tests
@@ -524,7 +524,7 @@ rtk bun test tests
 
 Expected: all tests pass with zero failures.
 
-- [ ] **Step 3: Build both extension targets and inspect them**
+- [x] **Step 3: Build both extension targets and inspect them**
 
 ```bash
 rtk env -u NODE_OPTIONS bun run build:chrome
@@ -534,7 +534,7 @@ rtk bun run inspect:build
 
 Expected: both builds and inspection exit 0; no remote design dependency is emitted.
 
-- [ ] **Step 4: Verify the direction contract survived production builds**
+- [x] **Step 4: Verify the direction contract survived production builds**
 
 ```bash
 rtk grep -R "seed 82166ef0" dist/chrome dist/firefox
@@ -542,7 +542,7 @@ rtk grep -R "seed 82166ef0" dist/chrome dist/firefox
 
 Expected: the contract appears in both built dashboard HTML files.
 
-- [ ] **Step 5: Run the combined project check**
+- [x] **Step 5: Run the combined project check**
 
 ```bash
 rtk env -u NODE_OPTIONS bun run check
@@ -550,7 +550,7 @@ rtk env -u NODE_OPTIONS bun run check
 
 Expected: exit 0.
 
-- [ ] **Step 6: Commit any verification-only fixes as one bounded patch**
+- [x] **Step 6: Commit any verification-only fixes as one bounded patch**
 
 If verification required changes, re-run the exact failing command and commit only those fixes:
 
@@ -571,7 +571,7 @@ rtk git commit -m "fix: satisfy dashboard release checks"
 - Create: `.impeccable/review/star-list-manager-mobile.png`
 - Create/update: `DESIGN.md` and the exact Impeccable sidecar emitted by the documenter
 
-- [ ] **Step 1: Create a non-shipping, no-network visual-review fixture generator**
+- [x] **Step 1: Create a non-shipping, no-network visual-review fixture generator**
 
 Create `scripts/generate-dashboard-review.ts`. It must:
 
@@ -590,7 +590,7 @@ rtk bun scripts/generate-dashboard-review.ts
 
 Expected: `.impeccable/review/dashboard-fixture.html` exists, contains `Star List Manager`, and contains no `https://` resource.
 
-- [ ] **Step 2: Open the local fixture and capture desktop/mobile in one inspection batch**
+- [x] **Step 2: Open the local fixture and capture desktop/mobile in one inspection batch**
 
 Open the static file without a server or extension profile:
 
@@ -611,7 +611,7 @@ Save exactly:
 
 Inspect both together against the approved reference and direction contract: first-viewport hierarchy, header translucency/height, sidebar proportion, 3/2/1 card behavior, real control density, long text, focus, representative status/destructive state clarity, and no horizontal clipping. Interaction and mutation safety remain covered by DOM tests; the static fixture is visual evidence only.
 
-- [ ] **Step 3: Apply one batched correction and confirm once**
+- [x] **Step 3: Apply one batched correction and confirm once**
 
 Fix all material issues from the first inspection in one patch. Regenerate the static fixture from current code before reloading and recapturing both viewports once:
 
@@ -626,7 +626,7 @@ terminal-browser action -- screenshot .impeccable/review/star-list-manager-mobil
 
 Stop in-thread polishing after this confirmation round.
 
-- [ ] **Step 4: Run the Impeccable detector once**
+- [x] **Step 4: Run the Impeccable detector once**
 
 ```bash
 rtk node /Users/jolo/.pi/agent/skills/impeccable/scripts/detect.mjs --json src/dashboard/index.html src/dashboard/scripts.ts src/dashboard/styles.css
@@ -645,7 +645,7 @@ terminal-browser action -- screenshot .impeccable/review/star-list-manager-mobil
 
 Record remaining detector findings for the independent reviewer.
 
-- [ ] **Step 5: Dispatch the shipped finish reviewer fresh**
+- [x] **Step 5: Dispatch the shipped finish reviewer fresh**
 
 Spawn `impeccable-finish-reviewer` with:
 
@@ -670,11 +670,11 @@ terminal-browser action -- screenshot .impeccable/review/star-list-manager-mobil
 
 Resume the same reviewer with the current screenshots for disposition. Follow the two-round ceiling from Impeccable.
 
-- [ ] **Step 6: Dispatch the shipped documenter**
+- [x] **Step 6: Dispatch the shipped documenter**
 
 Spawn `impeccable-documenter` with project root, artifact path, direction contract, `PRODUCT.md`, `/Users/jolo/.pi/agent/skills/impeccable/reference/document.md`, and the dashboard boundary. Verify it writes `DESIGN.md` and the sidecar from the built implementation.
 
-- [ ] **Step 7: Run final evidence checks**
+- [x] **Step 7: Run final evidence checks**
 
 ```bash
 rtk git diff --check
@@ -684,7 +684,7 @@ rtk env -u NODE_OPTIONS bun run check
 
 Expected: no whitespace errors; only intended review/documentation artifacts are uncommitted before the final commit; complete check exits 0.
 
-- [ ] **Step 8: Commit finish artifacts and documentation**
+- [x] **Step 8: Commit finish artifacts and documentation**
 
 Remove the temporary fixture before staging:
 
@@ -699,6 +699,6 @@ rtk git add src/dashboard/index.html src/dashboard/scripts.ts src/dashboard/styl
 rtk git commit -m "docs: record redesigned dashboard system"
 ```
 
-- [ ] **Step 9: Report the final reviewer verdict exactly**
+- [x] **Step 9: Report the final reviewer verdict exactly**
 
 Include changed files, commands run, screenshot paths, detector residuals, the reviewer’s disposition/table, and any open material findings. Do not describe an open-material-finding verdict as a pass.
