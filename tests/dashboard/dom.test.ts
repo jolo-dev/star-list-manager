@@ -5391,7 +5391,7 @@ test('restores focus to an available result when search removes the inspected re
   library.remove()
 })
 
-test('keeps inline GitHub List creation visible with an empty synchronized catalog', async () => {
+test('keeps rail GitHub List creation accessible with an empty synchronized catalog', async () => {
   const state = membershipReadyDashboardState()
   const root = await mountReadyDashboard({
     ...state,
@@ -5428,11 +5428,9 @@ test('requires an explicit visibility and renders a read-only create preview bef
       library: {...state.library!, nativeLists: []}
     })
     const browserWindow = window as unknown as Window
-    const management = [...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-      .find((button) => button.textContent === 'Manage GitHub Lists')
-    management?.click()
-    await nextTurn(browserWindow)
-    const create = root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+    const create = root.querySelector<HTMLButtonElement>(
+      '.list-sidebar-heading-row [data-native-list-create-invoker]'
+    )
     expect(create?.disabled).toBe(false)
     create?.dispatchEvent(new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event)
     await nextTurn(browserWindow)
@@ -5444,6 +5442,7 @@ test('requires an explicit visibility and renders a read-only create preview bef
     expect(dialogHost?.parentElement).toBe(shell)
     expect(frame?.nextElementSibling).toBe(dialogHost)
     expect(dialogHost).not.toBe(frame)
+    expect(root.querySelectorAll('.native-list-lifecycle-confirmation')).toHaveLength(1)
     expect(dialog?.getAttribute('role')).toBe('dialog')
     expect(name?.labels?.[0]?.textContent).toBe('List name')
     expect(dialog?.querySelectorAll('input[type="radio"]:checked')).toHaveLength(0)
@@ -5476,7 +5475,10 @@ test('requires an explicit visibility and renders a read-only create preview bef
     await nextTurn(browserWindow)
     expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
     expect(messages).toHaveLength(1)
-    expect((browserWindow.document.activeElement as unknown) === root.querySelector('[data-native-list-create-invoker]')).toBe(true)
+    expect(
+      (browserWindow.document.activeElement as unknown) ===
+        root.querySelector('.list-sidebar-heading-row [data-native-list-create-invoker]')
+    ).toBe(true)
   } finally {
     if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
     else Object.assign(globalThis, {chrome: previousChrome})
@@ -5513,10 +5515,9 @@ test('keeps lifecycle preview errors actionable in the dialog with linked focus'
   try {
     const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}, library: {...state.library!, nativeLists: []}})
     const browserWindow = window as unknown as Window
-    ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-      .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
-    await nextTurn(browserWindow)
-    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.click()
+    root.querySelector<HTMLButtonElement>(
+      '.list-sidebar-heading-row [data-native-list-create-invoker]'
+    )?.click()
     await nextTurn(browserWindow)
     const name = root.querySelector<HTMLInputElement>('#native-list-create-name')
     const privateChoice = root.querySelector<HTMLInputElement>('input[value="private"]')
@@ -5557,10 +5558,9 @@ test('requires an exact populated List name before deletion confirmation can dis
   try {
     const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}})
     const browserWindow = window as unknown as Window
-    ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-      .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
-    await nextTurn(browserWindow)
-    root.querySelector<HTMLButtonElement>('[data-native-list-delete-invoker="L_current"]')?.click()
+    root.querySelector<HTMLButtonElement>(
+      '.list-sidebar [data-native-list-delete-invoker="L_current"]'
+    )?.click()
     await nextTurn(browserWindow)
     const dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
     const confirmation = dialog?.querySelector<HTMLInputElement>('#native-list-delete-confirmation')
@@ -5629,10 +5629,9 @@ test('shows lifecycle confirmation pending state until a deferred confirm recove
   try {
     const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}, library: {...state.library!, nativeLists: []}})
     const browserWindow = window as unknown as Window
-    ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-      .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
-    await nextTurn(browserWindow)
-    const invoker = root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+    const invoker = root.querySelector<HTMLButtonElement>(
+      '.list-sidebar-heading-row [data-native-list-create-invoker]'
+    )
     invoker?.click()
     await nextTurn(browserWindow)
     const name = root.querySelector<HTMLInputElement>('#native-list-create-name')
@@ -5651,8 +5650,11 @@ test('shows lifecycle confirmation pending state until a deferred confirm recove
     expect(dialog?.textContent).toContain('Queueing…')
     expect(dialog?.querySelector<HTMLButtonElement>('.primary-action')?.disabled).toBe(true)
     expect(dialog?.querySelector<HTMLButtonElement>('.dialog-cancel')?.disabled).toBe(true)
-    expect(root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.disabled).toBe(true)
-    expect(root.querySelector<HTMLButtonElement>('[data-native-list-management-focus="refresh"]')?.disabled).toBe(true)
+    expect(
+      root.querySelector<HTMLButtonElement>(
+        '.list-sidebar-heading-row [data-native-list-create-invoker]'
+      )?.disabled
+    ).toBe(true)
     expect(messages.map((message) => message.type)).toEqual([
       'preview-native-list-create',
       'confirm-native-list-create'
@@ -5661,8 +5663,10 @@ test('shows lifecycle confirmation pending state until a deferred confirm recove
     confirmation.resolve()
     await nextTurn(browserWindow)
     expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
-    expect(root.textContent).toContain('Latest operation: Verified')
-    expect((browserWindow.document.activeElement as unknown) === root.querySelector('[data-native-list-create-invoker]')).toBe(true)
+    expect(
+      (browserWindow.document.activeElement as unknown) ===
+        root.querySelector('.list-sidebar-heading-row [data-native-list-create-invoker]')
+    ).toBe(true)
   } finally {
     confirmation.resolve()
     if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
@@ -5687,10 +5691,9 @@ test('locks membership and rename editing while lifecycle confirmation is pendin
   try {
     const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListRename: {readiness: 'ready'}, nativeListLifecycle: {readiness: 'ready', operation: null}})
     const browserWindow = window as unknown as Window
-    ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-      .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
-    await nextTurn(browserWindow)
-    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.click()
+    root.querySelector<HTMLButtonElement>(
+      '.list-sidebar-heading-row [data-native-list-create-invoker]'
+    )?.click()
     await nextTurn(browserWindow)
     const name = root.querySelector<HTMLInputElement>('#native-list-create-name')
     const privateChoice = root.querySelector<HTMLInputElement>('input[value="private"]')
@@ -5731,11 +5734,9 @@ test('uses a stronger populated List deletion confirmation and sends no mutation
   try {
     const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}})
     const browserWindow = window as unknown as Window
-    const management = [...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-      .find((button) => button.textContent === 'Manage GitHub Lists')
-    management?.click()
-    await nextTurn(browserWindow)
-    const review = root.querySelector<HTMLButtonElement>('[data-native-list-delete-invoker="L_current"]')
+    const review = root.querySelector<HTMLButtonElement>(
+      '.list-sidebar [data-native-list-delete-invoker="L_current"]'
+    )
     review?.click()
     await nextTurn(browserWindow)
     const dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation.is-destructive')
@@ -5749,7 +5750,10 @@ test('uses a stronger populated List deletion confirmation and sends no mutation
     await nextTurn(browserWindow)
     expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
     expect(messages).toEqual([{type: 'preview-native-list-delete', listNodeId: 'L_current'}])
-    expect((browserWindow.document.activeElement as unknown) === root.querySelector('[data-native-list-delete-invoker="L_current"]')).toBe(true)
+    expect(
+      (browserWindow.document.activeElement as unknown) ===
+        root.querySelector('.list-sidebar [data-native-list-delete-invoker="L_current"]')
+    ).toBe(true)
   } finally {
     if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
     else Object.assign(globalThis, {chrome: previousChrome})
@@ -5795,10 +5799,9 @@ test('uses the standard exact-name confirmation for an empty GitHub List', async
   try {
     const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}})
     const browserWindow = window as unknown as Window
-    ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-      .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
-    await nextTurn(browserWindow)
-    root.querySelector<HTMLButtonElement>('[data-native-list-delete-invoker="L_current"]')?.click()
+    root.querySelector<HTMLButtonElement>(
+      '.list-sidebar [data-native-list-delete-invoker="L_current"]'
+    )?.click()
     await nextTurn(browserWindow)
     const dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
     expect(dialog?.textContent).toContain('This empty GitHub List has no reported repositories.')
@@ -5823,16 +5826,15 @@ test('traps Tab focus and restores the lifecycle dialog invoker on Escape', asyn
     library: {...state.library!, nativeLists: []}
   })
   const browserWindow = window as unknown as Window
-  ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-    .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
-  await nextTurn(browserWindow)
-  const invoker = root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+  const invoker = root.querySelector<HTMLButtonElement>(
+    '.list-sidebar-heading-row [data-native-list-create-invoker]'
+  )
   invoker?.click()
   await nextTurn(browserWindow)
   const dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
   const name = dialog?.querySelector<HTMLInputElement>('#native-list-create-name')
   const cancel = dialog?.querySelector<HTMLButtonElement>('.dialog-cancel')
-  if (!dialog || !name || !cancel) throw new Error('Lifecycle dialog controls required.')
+  if (!invoker || !dialog || !name || !cancel) throw new Error('Lifecycle dialog controls required.')
   cancel.focus()
   cancel.dispatchEvent(new browserWindow.KeyboardEvent('keydown', {key: 'Tab', bubbles: true}) as unknown as Event)
   expect((browserWindow.document.activeElement as unknown) === name).toBe(true)
@@ -5842,6 +5844,47 @@ test('traps Tab focus and restores the lifecycle dialog invoker on Escape', asyn
   await nextTurn(browserWindow)
   expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
   expect((browserWindow.document.activeElement as unknown) === invoker).toBe(true)
+
+  invoker.click()
+  await nextTurn(browserWindow)
+  const reopenedDialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
+  invoker.disabled = true
+  reopenedDialog?.dispatchEvent(
+    new browserWindow.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}) as unknown as Event
+  )
+  await nextTurn(browserWindow)
+  const unlist = root.querySelector<HTMLButtonElement>('[data-view-kind="unlist"]')
+  expect((browserWindow.document.activeElement as unknown) === unlist).toBe(true)
+})
+
+test('restores a failed deletion preview to the enabled rail invoker', async () => {
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    if (message.type === 'preview-native-list-delete') {
+      return {ok: false, error: {category: 'network', message: 'Deletion preview unavailable.', retryable: true}}
+    }
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+  try {
+    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}})
+    const browserWindow = window as unknown as Window
+    const originalInvoker = root.querySelector<HTMLButtonElement>(
+      '.list-sidebar [data-native-list-delete-invoker="L_current"]'
+    )
+    originalInvoker?.click()
+    await nextTurn(browserWindow)
+    const enabledInvoker = root.querySelector<HTMLButtonElement>(
+      '.list-sidebar [data-native-list-delete-invoker="L_current"]'
+    )
+    expect(enabledInvoker).not.toBe(originalInvoker)
+    expect(enabledInvoker?.disabled).toBe(false)
+    expect((browserWindow.document.activeElement as unknown) === enabledInvoker).toBe(true)
+    expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
 })
 
 test('updates the retained List management workspace from applied lifecycle state', async () => {
@@ -6001,10 +6044,9 @@ test('rejects a stale lifecycle preview after the active account changes', async
   try {
     const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}, library: {...state.library!, nativeLists: []}})
     const browserWindow = window as unknown as Window
-    ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-      .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
-    await nextTurn(browserWindow)
-    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.click()
+    root.querySelector<HTMLButtonElement>(
+      '.list-sidebar-heading-row [data-native-list-create-invoker]'
+    )?.click()
     await nextTurn(browserWindow)
     const name = root.querySelector<HTMLInputElement>('#native-list-create-name')
     if (name === null) throw new Error('Create name required.')

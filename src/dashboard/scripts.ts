@@ -2952,12 +2952,18 @@ function setNativeListLifecycleError(message: string | null): void {
 }
 
 function focusNativeListLifecycleErrorTarget(): void {
-  window.setTimeout(() => {
-    const dialog = document.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
+  const invoker = nativeListLifecycleInvoker
+  const lifecycle = captureFocusLifecycle(invoker?.element ?? null)
+  const ownerWindow = lifecycle.ownerDocument.defaultView ?? window
+  ownerWindow.setTimeout(() => {
+    if (!isFocusLifecycleCurrent(lifecycle)) return
+    const dialog = lifecycle.ownerDocument.querySelector<HTMLElement>(
+      '.native-list-lifecycle-confirmation'
+    )
     const target = dialog?.querySelector<HTMLElement>(
       '#native-list-create-name, #native-list-delete-confirmation, .dialog-cancel:not(:disabled)'
     ) ?? null
-    if (target && isDashboardFocusTargetVisible(target)) target.focus()
+    if (!tryFocusTarget(target)) focusNativeListLifecycleFallback(invoker, lifecycle)
   }, 0)
 }
 
@@ -2968,12 +2974,30 @@ function cancelNativeListLifecycleDialog(restoreFocus = false): void {
   nativeListLifecycleError.val = null
   nativeListLifecycleInvoker = null
   renderNativeListLifecycleDialog()
-  if (restoreFocus) {
-    const target = invoker?.element.isConnected
-      ? invoker.element
-      : mountedDashboardRoot?.querySelector<HTMLElement>('[data-native-list-create-invoker], [data-native-list-delete-invoker]') ?? null
-    target?.focus()
-    restoreNativeListLifecycleFocus(invoker)
+  if (restoreFocus) restoreNativeListLifecycleFocus(invoker)
+}
+
+function focusNativeListLifecycleFallback(
+  invoker: DialogInvoker | null,
+  lifecycle: FocusLifecycle
+): void {
+  const searchRoot = lifecycle.dashboardRoot ?? lifecycle.scope ?? lifecycle.ownerDocument
+  const listNodeId = invoker?.element.dataset.nativeListDeleteInvoker
+  const replacementInvoker = listNodeId
+    ? [...searchRoot.querySelectorAll<HTMLElement>('[data-native-list-delete-invoker]')]
+        .find((element) => element.dataset.nativeListDeleteInvoker === listNodeId) ?? null
+    : invoker?.element.matches('[data-native-list-create-invoker]')
+      ? searchRoot.querySelector<HTMLElement>('[data-native-list-create-invoker]')
+      : null
+  const railInvokers = [
+    ...searchRoot.querySelectorAll<HTMLElement>(
+      '.list-sidebar-heading-row [data-native-list-create-invoker], .list-sidebar [data-native-list-delete-invoker]'
+    )
+  ]
+  const unlist = searchRoot.querySelector<HTMLElement>('[data-view-kind="unlist"]')
+  const candidates = [invoker?.element ?? null, replacementInvoker, ...railInvokers, unlist]
+  for (const candidate of candidates) {
+    if (tryFocusTarget(candidate)) return
   }
 }
 
@@ -2982,18 +3006,7 @@ function restoreNativeListLifecycleFocus(invoker: DialogInvoker | null): void {
   const ownerWindow = lifecycle.ownerDocument.defaultView ?? window
   ownerWindow.setTimeout(() => {
     if (!isFocusLifecycleCurrent(lifecycle)) return
-    const listNodeId = invoker?.element.dataset.nativeListDeleteInvoker
-    const fallback = listNodeId
-      ? [...lifecycle.ownerDocument.querySelectorAll<HTMLElement>(
-          '[data-native-list-delete-invoker]'
-        )].find((element) => element.dataset.nativeListDeleteInvoker === listNodeId) ?? null
-      : lifecycle.ownerDocument.querySelector<HTMLElement>(
-          '[data-native-list-create-invoker]'
-        )
-    const target = isDashboardFocusTargetVisible(invoker?.element ?? null)
-      ? invoker?.element ?? null
-      : fallback
-    if (target && target.isConnected) target.focus()
+    focusNativeListLifecycleFallback(invoker, lifecycle)
   }, 0)
 }
 
