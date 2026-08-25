@@ -147,10 +147,10 @@ async function finishDeleteAndObserve(
     const finalCatalog = await readCatalog(dependencies, expectedGitHubUserId)
     requireCatalog(finalCatalog)
     if (finalCatalog.some((entry) => entry.listNodeId === listNodeId)) {
-      throw probeFailure('cleanup-required', cleanupMessage, true)
+      throw cleanupRequiredFailure(listNodeId)
     }
   } catch {
-    throw probeFailure('cleanup-required', cleanupMessage, true)
+    throw cleanupRequiredFailure(listNodeId)
   }
 
   if (primaryFailure) throw primaryFailure
@@ -255,8 +255,11 @@ function safeFailure(error: unknown): OAuthListLifecycleProbeFailure {
     : probeFailure('mutation-failed', 'The disposable List lifecycle probe failed safely.')
 }
 
-function cleanupRequiredFailure(): OAuthListLifecycleProbeFailure {
-  return probeFailure('cleanup-required', cleanupMessage, true)
+function cleanupRequiredFailure(listNodeId?: string): OAuthListLifecycleProbeFailure {
+  const stableIdGuidance = listNodeId
+    ? ` Inspect and delete only the stable List ID ${listNodeId}.`
+    : ''
+  return probeFailure('cleanup-required', `${cleanupMessage}${stableIdGuidance}`, true)
 }
 
 function probeFailure(

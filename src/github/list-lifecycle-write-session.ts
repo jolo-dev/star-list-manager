@@ -174,7 +174,12 @@ export class ListLifecycleWriteSession {
     try { value = await response.json() } catch {
       throw failure('malformed-response', 'validation', 'GitHub returned malformed JSON for the native List request.', false)
     }
-    const reason = graphqlFailureReason(value)
+    let reason: ReturnType<typeof graphqlFailureReason>
+    try {
+      reason = graphqlFailureReason(value)
+    } catch {
+      throw failure('malformed-response', 'validation', 'GitHub returned a malformed native List response.', false)
+    }
     if (reason) throw graphqlFailure(reason)
     return value
   }

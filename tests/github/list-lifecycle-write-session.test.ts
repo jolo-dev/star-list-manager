@@ -100,6 +100,22 @@ describe('native List lifecycle write session', () => {
     )
   })
 
+  test('maps valid JSON values with no GraphQL object shape to typed malformed-response failures', async () => {
+    for (const body of [null, [], 'scalar']) {
+      const fetch = async () => new Response(JSON.stringify(body))
+      const create = await expectFailure(
+        sessionFor(fetch).createList({expectedGitHubUserId: '42', name: 'Ideas', visibility: 'private'}),
+        'malformed-response'
+      )
+      const remove = await expectFailure(
+        sessionFor(fetch).deleteList({expectedGitHubUserId: '42', listNodeId: 'UL_one'}),
+        'malformed-response'
+      )
+      expect(JSON.stringify(sanitizeError(create))).not.toContain(token)
+      expect(JSON.stringify(sanitizeError(remove))).not.toContain(token)
+    }
+  })
+
   test('sanitizes ambiguous and rejected remote failures without retaining token material', async () => {
     for (const fetch of [
       async () => { throw new Error(token) },

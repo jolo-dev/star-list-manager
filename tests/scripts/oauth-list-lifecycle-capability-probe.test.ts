@@ -167,6 +167,7 @@ describe('OAuth native List lifecycle capability probe', () => {
     expect(deletes).toEqual(['L_created'])
     expect(error.cleanupRequired).toBe(true)
     expect(error.message).toContain('CLEANUP REQUIRED')
+    expect(error.message).toContain('L_created')
     expect(error.message).not.toContain('gho_lifecycle_probe_secret')
   })
 
