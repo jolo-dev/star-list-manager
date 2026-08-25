@@ -296,11 +296,59 @@ p {
   max-width: 100%;
 }
 
+.list-sidebar-heading-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .list-sidebar-heading {
-  margin: 0 0 18px;
+  margin: 0;
   font-size: 1.125rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+.native-list-create-button,
+.native-list-remove-button {
+  display: inline-grid;
+  min-width: 40px;
+  min-height: 40px;
+  place-items: center;
+  padding: 6px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  font-size: var(--type-reading-size);
+  font-weight: 650;
+  line-height: 1;
+}
+
+.native-list-create-button:hover:not(:disabled) {
+  background: var(--surface-muted);
+  border-color: var(--text-primary);
+}
+
+.native-list-remove-button {
+  color: var(--text-danger);
+  background: var(--surface-danger);
+  border-color: var(--border-danger);
+}
+
+.native-list-remove-button:hover:not(:disabled) {
+  color: var(--action-danger-hover-text);
+  background: var(--action-danger-hover);
+  border-color: var(--action-danger-hover);
+}
+
+.native-list-create-button:focus-visible,
+.native-list-remove-button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .list-navigation,
@@ -313,6 +361,18 @@ p {
 .nav-list {
   display: grid;
   gap: 4px;
+}
+
+.native-list-nav-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.native-list-nav-row > .nav-item {
+  min-width: 0;
 }
 
 details.nav-group {
@@ -1907,6 +1967,150 @@ textarea:disabled {
   cursor: not-allowed;
 }
 
+.native-list-lifecycle-status {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 9px 10px;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  background: var(--surface-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  font-size: var(--type-warning-size);
+  line-height: 1.5;
+}
+
+.native-list-lifecycle-status p {
+  min-width: 0;
+  margin: 0;
+}
+
+.native-list-lifecycle-actions {
+  display: flex;
+  min-width: 0;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.native-list-lifecycle-actions > button {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.native-list-visibility h3 {
+  margin-bottom: 8px;
+  font-size: 1.125rem;
+}
+
+.native-list-lifecycle-preview > p,
+.native-list-lifecycle-form > p,
+.native-list-visibility > p {
+  max-width: var(--measure-prose);
+  color: var(--text-secondary);
+  line-height: var(--type-leading-reading);
+}
+
+.native-list-lifecycle-preview > strong,
+.native-list-lifecycle-confirmation h2,
+.native-list-lifecycle-confirmation p,
+.native-list-lifecycle-confirmation .danger-action {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.native-list-delete-confirmation {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--type-label-size);
+  font-weight: 600;
+}
+
+.native-list-delete-confirmation input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 11px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+}
+
+.partial-native-list-note {
+  color: var(--text-warning) !important;
+}
+
+.lifecycle-readiness {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--text-warning);
+  background: var(--surface-warning);
+  border: 1px solid var(--border-warning);
+  border-radius: var(--radius-control);
+  font-size: var(--type-warning-size);
+  line-height: 1.5;
+}
+
+.lifecycle-readiness.is-ready {
+  color: var(--text-success);
+  background: var(--surface-success);
+  border-color: var(--border-success);
+}
+
+.native-list-lifecycle-form,
+.native-list-visibility,
+.native-list-lifecycle-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.native-list-lifecycle-form > label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--type-label-size);
+  font-weight: 600;
+}
+
+.native-list-lifecycle-form input[type="text"] {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 11px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+}
+
+.native-list-visibility {
+  padding-top: 4px;
+}
+
+.native-list-visibility label {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  color: var(--text-primary);
+  background: var(--surface-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+
+.native-list-lifecycle-preview.is-populated {
+  padding: 14px;
+  background: var(--surface-danger);
+  border: 1px solid var(--border-danger);
+  border-radius: var(--radius-control);
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --canvas: #0b1120;
@@ -2087,6 +2291,28 @@ textarea:disabled {
     overflow-y: visible;
     border-right: 0;
     border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .native-list-create-button,
+  .native-list-remove-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .native-list-lifecycle-status {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .native-list-lifecycle-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .native-list-lifecycle-actions > button {
+    width: 100%;
+    min-width: 0;
   }
 
   .nav-item {
@@ -2288,6 +2514,14 @@ textarea:disabled {
     border-color: ButtonText !important;
   }
 
+  .native-list-create-button,
+  .native-list-remove-button {
+    color: ButtonText !important;
+    background: ButtonFace !important;
+    border-color: ButtonText !important;
+    forced-color-adjust: none;
+  }
+
   button:focus-visible,
   input:focus-visible,
   select:focus-visible,
@@ -2306,8 +2540,20 @@ textarea:disabled {
     outline-offset: 2px;
   }
 
-  .lifecycle-readiness,
-  .lifecycle-operation {
+  .native-list-create-button:focus-visible,
+  .native-list-remove-button:focus-visible {
+    outline: 3px solid Highlight !important;
+    outline-offset: 2px;
+  }
+
+  .native-list-lifecycle-status {
+    color: CanvasText !important;
+    background: Canvas !important;
+    border-color: CanvasText !important;
+    forced-color-adjust: none;
+  }
+
+  .lifecycle-readiness {
     color: CanvasText !important;
     background: Canvas !important;
     border-color: CanvasText !important;
@@ -2347,197 +2593,5 @@ textarea:disabled {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transform: none !important;
-  }
-}
-
-
-.native-list-management {
-  display: grid;
-  max-width: 900px;
-  gap: 20px;
-}
-
-.native-list-management-content {
-  display: grid;
-  gap: 20px;
-}
-
-.native-list-management-content > .archive-document-header {
-  align-items: flex-start;
-}
-
-.native-list-management-section,
-.lifecycle-operation {
-  min-width: 0;
-  padding: 20px;
-  background: var(--surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-}
-
-.native-list-management-section h2,
-.lifecycle-operation h2,
-.native-list-visibility h3 {
-  margin-bottom: 8px;
-  font-size: 1.125rem;
-}
-
-.native-list-management-section > p,
-.native-list-management-row p,
-.native-list-lifecycle-preview > p,
-.native-list-lifecycle-form > p,
-.native-list-visibility > p,
-.lifecycle-operation > p {
-  max-width: var(--measure-prose);
-  color: var(--text-secondary);
-  line-height: var(--type-leading-reading);
-}
-
-.native-list-management-list {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.native-list-management-row {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 0;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.native-list-management-row:first-child {
-  border-top: 0;
-}
-
-.native-list-management-row > div {
-  min-width: 0;
-}
-
-.native-list-management-row strong,
-.native-list-lifecycle-preview > strong,
-.native-list-lifecycle-confirmation h2,
-.native-list-lifecycle-confirmation p,
-.native-list-lifecycle-confirmation .danger-action {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.native-list-delete-confirmation {
-  display: grid;
-  min-width: 0;
-  gap: 6px;
-  color: var(--text-secondary);
-  font-size: var(--type-label-size);
-  font-weight: 600;
-}
-
-.native-list-delete-confirmation input {
-  width: 100%;
-  min-width: 0;
-  min-height: 40px;
-  padding: 8px 11px;
-  color: var(--text-primary);
-  background: var(--surface);
-  border: 1px solid var(--border-control);
-  border-radius: var(--radius-control);
-}
-
-.partial-native-list-note {
-  color: var(--text-warning) !important;
-}
-
-.lifecycle-readiness {
-  margin: 0;
-  padding: 10px 12px;
-  color: var(--text-warning);
-  background: var(--surface-warning);
-  border: 1px solid var(--border-warning);
-  border-radius: var(--radius-control);
-  font-size: var(--type-warning-size);
-  line-height: 1.5;
-}
-
-.lifecycle-readiness.is-ready,
-.lifecycle-operation.status-succeeded,
-.lifecycle-operation.status-already-deleted {
-  color: var(--text-success);
-  background: var(--surface-success);
-  border-color: var(--border-success);
-}
-
-.lifecycle-operation.status-blocked-unknown,
-.lifecycle-operation.status-failed {
-  color: var(--text-danger);
-  background: var(--surface-danger);
-  border-color: var(--border-danger);
-}
-
-.native-list-lifecycle-form,
-.native-list-visibility,
-.native-list-lifecycle-preview {
-  display: grid;
-  gap: 12px;
-}
-
-.native-list-lifecycle-form > label {
-  display: grid;
-  gap: 6px;
-  color: var(--text-secondary);
-  font-size: var(--type-label-size);
-  font-weight: 600;
-}
-
-.native-list-lifecycle-form input[type="text"] {
-  width: 100%;
-  min-height: 40px;
-  padding: 8px 11px;
-  color: var(--text-primary);
-  background: var(--surface);
-  border: 1px solid var(--border-control);
-  border-radius: var(--radius-control);
-}
-
-.native-list-visibility {
-  padding-top: 4px;
-}
-
-.native-list-visibility label {
-  display: flex;
-  min-height: 40px;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 9px;
-  color: var(--text-primary);
-  background: var(--surface-muted);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-}
-
-.native-list-lifecycle-preview.is-populated {
-  padding: 14px;
-  background: var(--surface-danger);
-  border: 1px solid var(--border-danger);
-  border-radius: var(--radius-control);
-}
-
-@media (max-width: 700px) {
-  .native-list-management-content > .archive-document-header,
-  .native-list-management-row {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .native-list-management .refresh-button,
-  .native-list-management-row .danger-action,
-  .native-list-management-section .primary-action {
-    width: 100%;
-    min-height: 44px;
   }
 }

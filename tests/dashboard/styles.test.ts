@@ -343,18 +343,127 @@ test('wraps user content and preserves mobile controls and reflow', () => {
   expect(ruleFor(mobile, '.dialog-backdrop')).toMatch(/place-items:\s*end center/)
 })
 
-test('keeps retained native List management content in the existing operating rhythm', () => {
-  const content = exactRuleFor(styles, ['.native-list-management-content'])
-  expect(content).toMatch(/display:\s*grid/)
-  expect(content).toMatch(/gap:\s*20px/)
+test('places compact native List lifecycle controls in the My Lists rail', () => {
+  const headingRow = exactRuleFor(styles, ['.list-sidebar-heading-row'])
+  expect(headingRow).toMatch(/display:\s*grid/)
+  expect(headingRow).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\) auto/)
+  expect(headingRow).toMatch(/min-width:\s*0/)
+  expect(headingRow).toMatch(/align-items:\s*center/)
+  expect(headingRow).toMatch(/margin-bottom:\s*12px/)
+  expect(exactRuleFor(styles, ['.list-sidebar-heading'])).toMatch(/margin:\s*0/)
+
+  const navigationRow = exactRuleFor(styles, ['.native-list-nav-row'])
+  expect(navigationRow).toMatch(/display:\s*grid/)
+  expect(navigationRow).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\) auto/)
+  expect(navigationRow).toMatch(/min-width:\s*0/)
+  expect(navigationRow).toMatch(/align-items:\s*center/)
+  expect(navigationRow).toMatch(/gap:\s*4px/)
+  expect(exactRuleFor(styles, ['.native-list-nav-row > .nav-item'])).toMatch(/min-width:\s*0/)
+  expect(exactRuleFor(styles, ['.nav-item[aria-current="page"]'])).not.toBe('')
+  expect(styles).not.toMatch(/\.native-list-nav-row\s*\[?aria-current/)
+
+  const controls = exactRuleFor(styles, [
+    '.native-list-create-button',
+    '.native-list-remove-button'
+  ])
+  expect(controls).toMatch(/min-width:\s*40px/)
+  expect(controls).toMatch(/min-height:\s*40px/)
+  expect(controls).toMatch(/border:\s*1px solid var\(--border-control\)/)
+  expect(controls).toMatch(/border-radius:\s*var\(--radius-control\)/)
+
+  const remove = exactRuleFor(styles, ['.native-list-remove-button'])
+  expect(remove).toMatch(/color:\s*var\(--text-danger\)/)
+  expect(remove).toMatch(/background:\s*var\(--surface-danger\)/)
+  expect(remove).toMatch(/border-color:\s*var\(--border-danger\)/)
+  expect(exactRuleFor(styles, ['.native-list-create-button:hover:not(:disabled)'])).toMatch(/border-color:\s*var\(--text-primary\)/)
+  expect(exactRuleFor(styles, ['.native-list-remove-button:hover:not(:disabled)'])).toMatch(/background:\s*var\(--action-danger-hover\)/)
+  expect(exactRuleFor(styles, [
+    '.native-list-create-button:focus-visible',
+    '.native-list-remove-button:focus-visible'
+  ])).toMatch(/outline:\s*3px solid var\(--focus-ring\)/)
+  const disabled = exactRuleFor(styles, ['button:disabled', 'input:disabled', 'select:disabled', 'textarea:disabled'])
+  expect(disabled).toMatch(/border-color:\s*var\(--border-disabled\)/)
+  expect(disabled).not.toMatch(/opacity:/)
 })
 
-test('keeps native List management headers, long names, and destructive labels safe', () => {
-  expect(exactRuleFor(styles, ['.native-list-management-content > .archive-document-header'])).toMatch(/align-items:\s*flex-start/)
-  expect(ruleFor(styles, '.native-list-management-row strong,')).toMatch(/overflow-wrap:\s*anywhere/)
+test('keeps rail lifecycle status and long List names readable within the rail', () => {
+  const status = exactRuleFor(styles, ['.native-list-lifecycle-status'])
+  expect(status).toMatch(/display:\s*grid/)
+  expect(status).toMatch(/min-width:\s*0/)
+  expect(status).toMatch(/gap:\s*8px/)
+  expect(status).toMatch(/background:\s*var\(--surface-muted\)/)
+  expect(status).toMatch(/border:\s*1px solid var\(--border-subtle\)/)
+  expect(status).toMatch(/border-radius:\s*var\(--radius-control\)/)
+  expect(status).toMatch(/overflow-wrap:\s*anywhere/)
+  expect(exactRuleFor(styles, ['.native-list-lifecycle-status p'])).toMatch(/margin:\s*0/)
+
+  const actions = exactRuleFor(styles, ['.native-list-lifecycle-actions'])
+  expect(actions).toMatch(/display:\s*flex/)
+  expect(actions).toMatch(/flex-wrap:\s*wrap/)
+  expect(actions).toMatch(/min-width:\s*0/)
+  expect(exactRuleFor(styles, ['.native-list-lifecycle-actions > button'])).toMatch(/max-width:\s*100%/)
+
+  expect(exactRuleFor(styles, ['.native-list-nav-row'])).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\) auto/)
+  expect(exactRuleFor(styles, ['.native-list-nav-row > .nav-item'])).toMatch(/min-width:\s*0/)
+  expect(ruleFor(styles, '.nav-label')).toMatch(/overflow-wrap:\s*anywhere/)
   expect(ruleFor(styles, '.native-list-lifecycle-confirmation h2')).toMatch(/overflow-wrap:\s*anywhere/)
   expect(ruleFor(styles, '.native-list-lifecycle-confirmation .danger-action')).toMatch(/overflow-wrap:\s*anywhere/)
   expect(ruleFor(styles, '.native-list-delete-confirmation')).toMatch(/min-width:\s*0/)
+})
+
+test('reflows rail lifecycle controls safely at 320px and maps forced colors explicitly', () => {
+  const mobile = extractMedia(styles, '(max-width: 700px)')
+  const mobileControls = exactRuleFor(mobile, [
+    '.native-list-create-button',
+    '.native-list-remove-button'
+  ])
+  expect(mobileControls).toMatch(/min-width:\s*44px/)
+  expect(mobileControls).toMatch(/min-height:\s*44px/)
+  expect(exactRuleFor(mobile, ['.native-list-lifecycle-status'])).toMatch(/max-width:\s*100%/)
+  const mobileActions = exactRuleFor(mobile, ['.native-list-lifecycle-actions'])
+  expect(mobileActions).toMatch(/display:\s*grid/)
+  expect(mobileActions).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/)
+  expect(mobileActions).toMatch(/width:\s*100%/)
+  const mobileActionButtons = exactRuleFor(mobile, ['.native-list-lifecycle-actions > button'])
+  expect(mobileActionButtons).toMatch(/width:\s*100%/)
+  expect(mobileActionButtons).toMatch(/min-width:\s*0/)
+
+  const forced = extractMedia(styles, '(forced-colors: active)')
+  const forcedControls = exactRuleFor(forced, [
+    '.native-list-create-button',
+    '.native-list-remove-button'
+  ])
+  expect(forcedControls).toMatch(/color:\s*ButtonText\s*!important/)
+  expect(forcedControls).toMatch(/background:\s*ButtonFace\s*!important/)
+  expect(forcedControls).toMatch(/border-color:\s*ButtonText\s*!important/)
+  expect(forcedControls).toMatch(/forced-color-adjust:\s*none/)
+  const forcedFocus = exactRuleFor(forced, [
+    '.native-list-create-button:focus-visible',
+    '.native-list-remove-button:focus-visible'
+  ])
+  expect(forcedFocus).toMatch(/outline:\s*3px solid Highlight\s*!important/)
+  const forcedStatus = exactRuleFor(forced, ['.native-list-lifecycle-status'])
+  expect(forcedStatus).toMatch(/color:\s*CanvasText\s*!important/)
+  expect(forcedStatus).toMatch(/background:\s*Canvas\s*!important/)
+  expect(forcedStatus).toMatch(/border-color:\s*CanvasText\s*!important/)
+  expect(forcedStatus).toMatch(/forced-color-adjust:\s*none/)
+
+  const reduced = extractMedia(styles, '(prefers-reduced-motion: reduce)')
+  expect(reduced).toMatch(/transition-duration:\s*0\.01ms\s*!important/)
+})
+
+test('removes obsolete native List management page and operation selectors', () => {
+  const selectors = parseRules(styles).flatMap((rule) => rule.selectors)
+  for (const obsolete of [
+    '.native-list-management',
+    '.native-list-management-section',
+    '.native-list-management-row',
+    '.native-list-management-list',
+    '.native-list-management-content',
+    '.lifecycle-operation'
+  ]) {
+    expect(selectors.some((selector) => selector.includes(obsolete)), obsolete).toBe(false)
+  }
 })
 
 test('uses transform-only bounded skeleton shimmer', () => {
