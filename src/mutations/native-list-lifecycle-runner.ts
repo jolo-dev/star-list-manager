@@ -79,6 +79,8 @@ export class NativeListLifecycleRunner {
   }
 
   async #preflight(operation: NativeListLifecycleOperationRecord): Promise<void> {
+    // Once observation starts, cancellation can no longer race a remote dispatch.
+    operation = await this.#save(operation, {phase: 'preflight'})
     const intent = operation.intent
     if (intent.kind === 'delete') {
       const observation = await this.#catalogOrFail(operation, [intent.listNodeId])

@@ -220,6 +220,40 @@ describe('dashboard message decoding', () => {
     ]) expect(decodeDashboardRequest(value).ok).toBe(false)
   })
 
+  test('accepts exact credential-free lifecycle previews, refresh, cancellation, and status reads', () => {
+    expect(
+      decodeDashboardRequest({
+        type: 'preview-native-list-create',
+        name: '  Ideas  ',
+        visibility: 'public'
+      })
+    ).toEqual({
+      ok: true,
+      value: {type: 'preview-native-list-create', name: 'Ideas', visibility: 'public'}
+    })
+    expect(
+      decodeDashboardRequest({type: 'preview-native-list-delete', listNodeId: 'UL_one'})
+    ).toEqual({
+      ok: true,
+      value: {type: 'preview-native-list-delete', listNodeId: 'UL_one'}
+    })
+    for (const type of [
+      'refresh-native-list-lifecycle',
+      'cancel-native-list-lifecycle',
+      'get-native-list-lifecycle-status'
+    ] as const) {
+      expect(decodeDashboardRequest({type})).toEqual({ok: true, value: {type}})
+      expect(decodeDashboardRequest({type, accessToken: 'secret'}).ok).toBe(false)
+    }
+    for (const value of [
+      {type: 'preview-native-list-create', name: ' ', visibility: 'public'},
+      {type: 'preview-native-list-create', name: 'Ideas', visibility: 'unknown'},
+      {type: 'preview-native-list-create', name: 'Ideas', visibility: 'private', token: 'secret'},
+      {type: 'preview-native-list-delete', listNodeId: ' UL_one'},
+      {type: 'preview-native-list-delete', listNodeId: 'UL_one', authorization: 'secret'}
+    ]) expect(decodeDashboardRequest(value).ok).toBe(false)
+  })
+
   test('validates import preview and apply settings selection', () => {
     expect(
       decodeDashboardRequest({

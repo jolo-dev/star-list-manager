@@ -190,7 +190,7 @@ test('does not mutate on catalog rate limit or account switch at an execution bo
   switched.switchOnOwnerCheck = 2
   await switched.runner.run('42')
   expect(switched.createCalls).toBe(0)
-  expect((await switched.runner.operation('42'))?.phase).toBe('queued')
+  expect((await switched.runner.operation('42'))?.phase).toBe('preflight')
   switched.database.close()
 })
 

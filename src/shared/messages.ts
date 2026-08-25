@@ -203,10 +203,19 @@ export type DashboardRequest =
       readonly visibility: 'public' | 'private'
     }
   | {
+      readonly type: 'preview-native-list-create'
+      readonly name: string
+      readonly visibility: 'public' | 'private'
+    }
+  | {readonly type: 'preview-native-list-delete'; readonly listNodeId: string}
+  | {
       readonly type: 'confirm-native-list-delete'
       readonly listNodeId: string
       readonly confirmationFingerprint: string
     }
+  | {readonly type: 'refresh-native-list-lifecycle'}
+  | {readonly type: 'cancel-native-list-lifecycle'}
+  | {readonly type: 'get-native-list-lifecycle-status'}
   | {readonly type: 'cancel-mutation-job'; readonly jobId: string}
   | {
       readonly type: 'update-annotation'
@@ -250,6 +259,9 @@ export function decodeDashboardRequest(
     case 'disconnect':
     case 'export-data':
     case 'clear-all-data':
+    case 'refresh-native-list-lifecycle':
+    case 'cancel-native-list-lifecycle':
+    case 'get-native-list-lifecycle-status':
       return hasOnlyKeys(value, ['type'])
         ? success({type: value.type})
         : invalidRequest()
@@ -293,6 +305,7 @@ export function decodeDashboardRequest(
           )
         : invalidRequest()
     }
+    case 'preview-native-list-create':
     case 'confirm-native-list-create': {
       const name = typeof value.name === 'string' ? value.name.trim() : ''
       return name.length > 0 &&
@@ -301,10 +314,12 @@ export function decodeDashboardRequest(
         ? success({type: value.type, name, visibility: value.visibility})
         : invalidRequest()
     }
+    case 'preview-native-list-delete':
+      return isStableIdentifier(value.listNodeId) && hasOnlyKeys(value, ['type', 'listNodeId'])
+        ? success({type: value.type, listNodeId: value.listNodeId})
+        : invalidRequest()
     case 'confirm-native-list-delete':
-      return typeof value.listNodeId === 'string' &&
-        value.listNodeId.length > 0 &&
-        value.listNodeId.trim() === value.listNodeId &&
+      return isStableIdentifier(value.listNodeId) &&
         typeof value.confirmationFingerprint === 'string' &&
         value.confirmationFingerprint.length > 0 &&
         hasOnlyKeys(value, ['type', 'listNodeId', 'confirmationFingerprint'])
@@ -464,6 +479,10 @@ function isUniqueNonEmptyStringArray(value: unknown): value is readonly string[]
 
 function isNonBlankString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
+}
+
+function isStableIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.trim() === value
 }
 
 const triageStates: readonly TriageState[] = [

@@ -31,11 +31,11 @@
 
 ## 5. Wire background protocol and state
 
-- [ ] 5.1 Extend `src/shared/messages.ts` with validated lifecycle preview, confirm-create, confirm-delete, refresh, and status messages. Require explicit visibility for create and an exact List ID plus confirmation fingerprint for delete.
-- [ ] 5.2 Wire services and handlers in `src/background.ts`; require the active account and independently proven lifecycle capability before creating an operation.
-- [ ] 5.3 Expose only non-secret lifecycle readiness, sync progress, operation phase, sanitized errors, and refreshed List catalog through the dashboard state.
-- [ ] 5.4 Add message and background tests for malformed input, signed-out access, authorization-required, capability-disabled, account mismatch, cancellation, and no accidental GitHub write during ordinary state reads.
-- [ ] 5.5 Run the targeted background/message test files after identifying them with `bun test tests/<targeted-files>`.
+- [x] 5.1 Extend `src/shared/messages.ts` with validated lifecycle preview, confirm-create, confirm-delete, refresh, and status messages. Require explicit visibility for create and an exact List ID plus confirmation fingerprint for delete.
+- [x] 5.2 Wire services and handlers in `src/background.ts`; require the active account and independently proven lifecycle capability before creating an operation.
+- [x] 5.3 Expose only non-secret lifecycle readiness, sync progress, operation phase, sanitized errors, and refreshed List catalog through the dashboard state.
+- [x] 5.4 Add message and background tests for malformed input, signed-out access, authorization-required, capability-disabled, account mismatch, cancellation, and no accidental GitHub write during ordinary state reads.
+- [x] 5.5 Run the targeted background/message test files after identifying them with `bun test tests/<targeted-files>`.
 
 ## 6. Add accessible List management UI
 

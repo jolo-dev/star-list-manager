@@ -31,12 +31,14 @@ import {
   clearAllLibraryData,
   deleteNativeList,
   getNativeList,
+  getActiveNativeListLifecycleOperation,
   getSyncState,
   listAnnotations,
   listNativeLists,
   listNativeMemberships,
   listRepositories,
-  putNativeList
+  putNativeList,
+  putNativeListLifecycleOperation
 } from './storage/library'
 import {
   cancelQueuedMutationJob,
@@ -65,11 +67,18 @@ import {createNativeListMutationRuntime} from './mutations/native-list-mutation-
 import {NativeListLifecycleRunner} from './mutations/native-list-lifecycle-runner'
 import {nativeListMembershipControlsEnabled} from './github/list-membership-capability'
 import {nativeListRenameControlsEnabled} from './github/list-rename-capability'
+import {nativeListLifecycleControlsEnabled} from './github/list-lifecycle-capability'
+import {releaseNativeListLifecycleCapabilityProof} from './github/list-lifecycle-release-evidence'
 import {NativeListRenameService} from './sync/native-list-rename-service'
 import {
   handleNativeListRename,
   nativeListRenameReadiness
 } from './background-runtime'
+import {
+  handleNativeListLifecycle,
+  nativeListLifecycleReadiness,
+  type NativeListLifecycleRequest
+} from './background-lifecycle-runtime'
 import {releaseNativeListMembershipCapabilityProof} from './github/list-membership-release-evidence'
 import {MutationQueueRunner} from './mutations/runner'
 import {NativeListMembershipObservationService} from './sync/native-list-membership-observation'
@@ -90,6 +99,9 @@ const githubWriteClientId =
   import.meta.env.EXTENSION_PUBLIC_GITHUB_WRITE_CLIENT_ID
 const membershipWriteCapabilityProven = nativeListMembershipControlsEnabled(
   releaseNativeListMembershipCapabilityProof()
+)
+const nativeListLifecycleCapabilityProven = nativeListLifecycleControlsEnabled(
+  releaseNativeListLifecycleCapabilityProof()
 )
 const nativeListRenameCapabilityProven = nativeListRenameControlsEnabled(
   import.meta.env.EXTENSION_PUBLIC_GITHUB_LIST_RENAME_ENABLED === 'true'
@@ -366,6 +378,14 @@ addRuntimeMessageListener(async (message) => {
           capabilityProven: nativeListRenameCapabilityProven,
           getDashboardState: () => getDashboardState(services)
         })
+      case 'preview-native-list-create':
+      case 'preview-native-list-delete':
+      case 'confirm-native-list-create':
+      case 'confirm-native-list-delete':
+      case 'refresh-native-list-lifecycle':
+      case 'cancel-native-list-lifecycle':
+      case 'get-native-list-lifecycle-status':
+        return handleLifecycleRequest(services, request.value)
       case 'cancel-mutation-job': {
         const active = await services.authSession.loadActive()
         if (!active || active.identity.githubUserId !== active.githubUserId) {
@@ -566,9 +586,40 @@ async function createRuntimeServices(): Promise<RuntimeServices> {
   }
 }
 
+function handleLifecycleRequest(
+  services: RuntimeServices,
+  request: NativeListLifecycleRequest
+) {
+  return handleNativeListLifecycle(
+    {
+      authSession: services.authSession,
+      writeAuthController: services.writeAuthController,
+      nativeListSync: services.nativeListSync,
+      lifecycleStorage: {
+        getActive: (githubUserId) =>
+          getActiveNativeListLifecycleOperation(services.database, githubUserId),
+        put: (operation) => putNativeListLifecycleOperation(services.database, operation),
+        listCatalog: (githubUserId) => listNativeLists(services.database, githubUserId)
+      },
+      nativeListLifecycleRunner: services.nativeListLifecycleRunner
+    },
+    request,
+    {
+      capabilityProven: nativeListLifecycleCapabilityProven,
+      getDashboardState: () => getDashboardState(services)
+    }
+  )
+}
+
 function wakeMutationQueue(): void {
   void runtimeServices
-    .then((services) => services.mutationQueue.check())
+    .then(async (services) => {
+      await services.mutationQueue.check()
+      const active = await services.authSession.loadActive()
+      if (active && active.identity.githubUserId === active.githubUserId) {
+        await services.nativeListLifecycleRunner.run(active.githubUserId)
+      }
+    })
     .catch((error: unknown) => {
       console.error('Unable to resume the mutation queue', safeLogMessage(error))
     })
@@ -591,7 +642,6 @@ function wakeMutationQueueNonBlocking(services: RuntimeServices): void {
 
 function wakesMutationQueue(type: string): boolean {
   return (
-    type === 'get-app-state' ||
     type === 'show-write-auth-preview' ||
     type === 'start-write-device-auth' ||
     type === 'cancel-write-device-auth' ||
@@ -627,6 +677,13 @@ async function getDashboardState(services: RuntimeServices): Promise<AppState> {
       writeAuthorization
     )
   }
+  const nativeListLifecycle = {
+    readiness: nativeListLifecycleReadiness(
+      nativeListLifecycleCapabilityProven,
+      writeAuthorization
+    ),
+    operation: null
+  }
   const githubUserId = authState.identity?.githubUserId
   if (!githubUserId) {
     return {
@@ -634,6 +691,7 @@ async function getDashboardState(services: RuntimeServices): Promise<AppState> {
       writeAuthorization,
       nativeListMembership,
       nativeListRename,
+      nativeListLifecycle,
       sync: null,
       nativeListSync: null,
       triageCounts: null,
@@ -651,7 +709,8 @@ async function getDashboardState(services: RuntimeServices): Promise<AppState> {
     annotations,
     mutationBatches,
     mutationJobs,
-    operationHistory
+    operationHistory,
+    lifecycleOperation
   ] = await Promise.all([
     getSyncState(services.database, githubUserId, 'stars'),
     getSyncState(services.database, githubUserId, 'native-lists'),
@@ -662,13 +721,15 @@ async function getDashboardState(services: RuntimeServices): Promise<AppState> {
     listAnnotations(services.database, githubUserId),
     listMutationBatches(services.database, githubUserId),
     listMutationJobs(services.database, githubUserId),
-    listOperationHistory(services.database, githubUserId)
+    listOperationHistory(services.database, githubUserId),
+    services.nativeListLifecycleRunner.operation(githubUserId)
   ])
   return {
     ...authState,
     writeAuthorization,
     nativeListMembership,
     nativeListRename,
+    nativeListLifecycle: {...nativeListLifecycle, operation: lifecycleOperation},
     sync,
     nativeListSync,
     triageCounts,
