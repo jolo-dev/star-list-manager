@@ -115,7 +115,7 @@ describe('native List lifecycle background runtime', () => {
     expect(harness.persisted).toMatchObject([{githubUserId: '42', phase: 'queued', intent: {
       kind: 'delete', listNodeId: 'UL_one', name: 'Ideas', visibility: 'private', reportedItemCount: 2, importStatus: 'partial'
     }}])
-    expect(harness.events).toEqual(['persist', 'run'])
+    expect(harness.events).toEqual(['persist', 'schedule', 'run'])
 
     const conflicted = runtimeServices({activeOperation: createOperation()})
     const conflict = await handleNativeListLifecycle(conflicted.services, {
@@ -240,6 +240,10 @@ function runtimeServices(overrides: Overrides = {}) {
     nativeListLifecycleRunner: {
       run: async () => { events.push('run'); runnerCalls += 1 },
       operation: async () => activeOperation
+    },
+    nativeListLifecycleWake: {
+      schedule: async () => { events.push('schedule') },
+      wake: async () => { events.push('run'); runnerCalls += 1 }
     },
     nativeListMutationLock: lock
   }

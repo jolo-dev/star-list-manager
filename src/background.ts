@@ -66,6 +66,9 @@ import {ListLifecycleWriteSession} from './github/list-lifecycle-write-session'
 import {ListRenameWriteSession} from './github/list-rename-write-session'
 import {createNativeListMutationRuntime} from './mutations/native-list-mutation-runtime'
 import {NativeListLifecycleRunner} from './mutations/native-list-lifecycle-runner'
+import {
+  NativeListLifecycleWake
+} from './background-lifecycle-wake'
 import {NativeListMutationLock} from './mutations/native-list-mutation-lock'
 import {nativeListMembershipControlsEnabled} from './github/list-membership-capability'
 import {nativeListRenameControlsEnabled} from './github/list-rename-capability'
@@ -81,7 +84,6 @@ import {
   nativeListLifecycleReadiness,
   type NativeListLifecycleRequest
 } from './background-lifecycle-runtime'
-import {wakeNativeListLifecycle} from './background-lifecycle-wake'
 import {releaseNativeListMembershipCapabilityProof} from './github/list-membership-release-evidence'
 import {MutationQueueRunner} from './mutations/runner'
 import {NativeListMembershipObservationService} from './sync/native-list-membership-observation'
@@ -89,6 +91,10 @@ import {
   mutationQueueAlarmName,
   registerMutationQueueWakeEvents
 } from './mutations/wake'
+import {
+  nativeListLifecycleAlarmName,
+  registerNativeListLifecycleWakeEvents
+} from './mutations/native-list-lifecycle-wake'
 import {safeLogMessage} from './shared/logging'
 import type {RepositoryRecord} from './domain/types'
 import {
@@ -128,6 +134,10 @@ const membershipPreviewLifetimeMs = 10 * 60 * 1000
 registerMutationQueueWakeEvents(
   {onAlarm: onBrowserAlarm, onStartup: onBrowserStartup},
   wakeMutationQueue
+)
+registerNativeListLifecycleWakeEvents(
+  {onAlarm: onBrowserAlarm, onStartup: onBrowserStartup},
+  wakeNativeListLifecycle
 )
 
 onToolbarClicked(() => openOrFocusDashboard())
@@ -482,6 +492,7 @@ interface RuntimeServices {
   readonly mutationQueue: MutationQueueRunner
   readonly nativeListMutationLock: NativeListMutationLock
   readonly nativeListLifecycleRunner: NativeListLifecycleRunner
+  readonly nativeListLifecycleWake: NativeListLifecycleWake
   readonly membershipObserver: NativeListMembershipObservationService
   readonly nativeListRename: Pick<NativeListRenameService, 'rename'>
 }
@@ -574,6 +585,13 @@ async function createRuntimeServices(): Promise<RuntimeServices> {
   const nativeListMutationLock = nativeListMutationRuntime.lock
   const nativeListRename = nativeListMutationRuntime.nativeListRename
   const nativeListLifecycleRunner = nativeListMutationRuntime.lifecycleRunner
+  const nativeListLifecycleWake = new NativeListLifecycleWake({
+    capabilityProven: nativeListLifecycleCapabilityProven,
+    authSession,
+    nativeListLifecycleRunner,
+    schedule: () => createBrowserAlarm(nativeListLifecycleAlarmName, Date.now()),
+    clear: () => clearBrowserAlarm(nativeListLifecycleAlarmName)
+  })
   const starSync = new StarSyncService({database, observer: restClient})
   const triage = new TriageService({database})
   const portability = new DataPortabilityService(database)
@@ -589,6 +607,7 @@ async function createRuntimeServices(): Promise<RuntimeServices> {
     mutationQueue,
     nativeListMutationLock,
     nativeListLifecycleRunner,
+    nativeListLifecycleWake,
     membershipObserver,
     nativeListRename
   }
@@ -617,6 +636,7 @@ function handleLifecycleRequest(
         listCatalog: (githubUserId) => listNativeLists(services.database, githubUserId)
       },
       nativeListLifecycleRunner: services.nativeListLifecycleRunner,
+      nativeListLifecycleWake: services.nativeListLifecycleWake,
       nativeListMutationLock: services.nativeListMutationLock
     },
     request,
@@ -631,14 +651,17 @@ function wakeMutationQueue(): void {
   void runtimeServices
     .then(async (services) => {
       await services.mutationQueue.check()
-      await wakeNativeListLifecycle({
-        capabilityProven: nativeListLifecycleCapabilityProven,
-        authSession: services.authSession,
-        nativeListLifecycleRunner: services.nativeListLifecycleRunner
-      })
     })
     .catch((error: unknown) => {
       console.error('Unable to resume the mutation queue', safeLogMessage(error))
+    })
+}
+
+function wakeNativeListLifecycle(): void {
+  void runtimeServices
+    .then((services) => services.nativeListLifecycleWake.wake())
+    .catch((error: unknown) => {
+      console.error('Unable to resume native List lifecycle work', safeLogMessage(error))
     })
 }
 

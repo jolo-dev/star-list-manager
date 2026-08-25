@@ -65,6 +65,10 @@ export interface NativeListLifecycleRuntimeServices {
     readonly run: (githubUserId: string) => Promise<void>
     readonly operation: (githubUserId: string) => Promise<NativeListLifecycleOperationRecord | null>
   }
+  readonly nativeListLifecycleWake: {
+    readonly schedule: () => Promise<void>
+    readonly wake: () => Promise<void>
+  }
   readonly nativeListMutationLock: Pick<NativeListMutationLock, 'run'>
 }
 
@@ -175,12 +179,13 @@ async function confirmLifecycle(
     operation = newDeleteOperation(active.githubUserId, preview, timestamp, dependencies.operationId)
   }
 
-  // Persisted queued work is the only state the runner may dispatch.
+  // Persist the immediate durable alarm before direct dispatch can begin.
   if (!(await hasExpectedActiveAccount(services, active))) {
     return failureResponse(accountChanged())
   }
   await services.lifecycleStorage.put(operation)
-  await services.nativeListLifecycleRunner.run(active.githubUserId)
+  await services.nativeListLifecycleWake.schedule()
+  await services.nativeListLifecycleWake.wake()
   return successResponse(await dependencies.getDashboardState())
 }
 
