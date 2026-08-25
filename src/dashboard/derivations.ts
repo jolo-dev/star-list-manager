@@ -9,7 +9,7 @@ import {
 
 export type RepositoryQueryRunner = typeof queryRepositories
 
-export type DashboardWorkspace = AppPhase | 'library' | 'native-list-management' | 'operations' | 'settings'
+export type DashboardWorkspace = AppPhase | 'library' | 'operations' | 'settings'
 
 export interface DashboardSliceFingerprints {
   readonly phase: AppPhase
@@ -76,11 +76,7 @@ export function classifyWorkspace(
   view: LibraryView
 ): DashboardWorkspace {
   if (phase !== 'ready') return phase
-  if (
-    view.kind === 'operations' ||
-    view.kind === 'settings' ||
-    view.kind === 'native-list-management'
-  ) return view.kind
+  if (view.kind === 'operations' || view.kind === 'settings') return view.kind
   return 'library'
 }
 

@@ -469,7 +469,7 @@ test('renders accessible List navigation and repository results for the ready li
   const sidebar = root.querySelector<HTMLElement>('.list-sidebar')
   const navigation = sidebar?.querySelector<HTMLElement>('.list-navigation') ?? null
   const listButtons = [...(navigation?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
-    .filter((button) => button.querySelector('.nav-label') && button.dataset.viewKind !== 'native-list-management')
+    .filter((button) => button.querySelector('.nav-label'))
   const markers = [...root.querySelectorAll<HTMLElement>('.list-marker')]
 
   expect(markers.length).toBeGreaterThan(0)
@@ -806,7 +806,7 @@ test('transitions a cold loading mount through ready utilities and recreates aft
   expect(root.querySelector('.settings-page h1')?.textContent).toBe('Settings')
 })
 
-test('renders only GitHub Lists in the directory before alphabetized imported native Lists', async () => {
+test('renders inline GitHub List lifecycle controls with direct valid list rows', async () => {
   const readyState = readyDashboardState()
   const state: AppState = {
     ...readyState,
@@ -821,20 +821,60 @@ test('renders only GitHub Lists in the directory before alphabetized imported na
   }
   const root = await mountReadyDashboard(state)
   const sidebar = sidebarNavigation(root)
+  const sidebarRoot = sidebar?.closest<HTMLElement>('.list-sidebar') ?? null
   const groups = [...(sidebar?.querySelectorAll('details.nav-group') ?? [])]
   const githubLists = navigationGroup(sidebar, 'GitHub Lists')
+  const navigationList = directNavigationList(githubLists) as HTMLElement | null
+  const heading = sidebarRoot?.querySelector<HTMLElement>('.list-sidebar-heading-row') ?? null
+  const create = heading?.querySelector<HTMLButtonElement>(
+    '[data-native-list-create-invoker]'
+  ) ?? null
 
   expect(groups).toHaveLength(1)
   expect(groups.map((group) => navigationGroupSummary(group)?.textContent)).toEqual(['GitHub Lists'])
   expect(githubLists?.hasAttribute('open')).toBe(true)
   expect(navigationGroup(sidebar, 'Utilities')).toBeNull()
-  expect(navigationLabels(directNavigationList(githubLists))).toEqual([
+  expect(heading?.querySelector('h2')?.textContent).toBe('My Lists')
+  expect(create?.textContent).toBe('+')
+  expect(create?.hidden).toBe(false)
+  expect(create?.getAttribute('aria-label')).toBe('Create GitHub List')
+  expect(navigationList?.id).toBe('native-list-navigation')
+  expect(navigationList?.classList.contains('nav-list')).toBe(true)
+  expect(navigationLabels(navigationList)).toEqual([
     'Unlist',
     'Alpha List',
     'Middle List',
-    'Zulu List',
-    'Manage GitHub Lists'
+    'Zulu List'
   ])
+  expect(root.textContent).not.toContain('Manage GitHub Lists')
+  expect(root.querySelector('[data-native-list-management]')).toBeNull()
+
+  for (const [listNodeId, name] of [
+    ['L_alpha', 'Alpha List'],
+    ['L_middle', 'Middle List'],
+    ['L_zulu', 'Zulu List']
+  ] as const) {
+    const row = navigationList?.querySelector<HTMLElement>(
+      `:scope > li[data-native-list-row="${listNodeId}"]`
+    ) ?? null
+    const navigate = row?.querySelector<HTMLButtonElement>(':scope > .nav-item') ?? null
+    const remove = row?.querySelector<HTMLButtonElement>(
+      `:scope > [data-native-list-delete-invoker="${listNodeId}"]`
+    ) ?? null
+    expect(row?.parentElement).toBe(navigationList)
+    expect(navigate).not.toBeNull()
+    expect(remove).not.toBeNull()
+    expect(navigate?.contains(remove)).toBe(false)
+    expect(remove?.classList.contains('native-list-remove-button')).toBe(true)
+    expect(remove?.textContent).toBe('−')
+    expect(remove?.getAttribute('aria-label')).toBe(`Remove ${name} GitHub List`)
+    expect(navigate?.querySelector('[data-native-list-delete-invoker]')).toBeNull()
+  }
+
+  const unlistNavigation = navigationList?.querySelector<HTMLButtonElement>(
+    ':scope > li > .nav-item[data-view-kind="unlist"]'
+  ) ?? null
+  expect(unlistNavigation?.closest('li')?.querySelector('[data-native-list-delete-invoker]')).toBeNull()
   expect(root.querySelectorAll('[data-view-kind="operations"]')).toHaveLength(1)
   expect(root.querySelectorAll('[data-view-kind="settings"]')).toHaveLength(1)
 })
@@ -1379,7 +1419,7 @@ test('renders GitHub Lists and Unlist without imported native Lists', async () =
   const githubLists = navigationGroup(sidebar, 'GitHub Lists')
 
   expect(githubLists).not.toBeNull()
-  expect(navigationLabels(directNavigationList(githubLists))).toEqual(['Unlist', 'Manage GitHub Lists'])
+  expect(navigationLabels(directNavigationList(githubLists))).toEqual(['Unlist'])
 })
 
 test('keeps a visible Search label beside the prominent Refresh control', async () => {
@@ -3679,8 +3719,7 @@ test('sends one valid native List header rename and renders only verified return
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
       'Other List',
-      'Verified Name',
-      'Manage GitHub Lists'
+      'Verified Name'
     ])
     const restoredEdit = renameEditButton(root)
     expect(restoredEdit?.isConnected).toBe(true)
@@ -3716,8 +3755,7 @@ test('shows a fixed safe message when native List rename dispatch throws', async
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
       'Current List',
-      'Other List',
-      'Manage GitHub Lists'
+      'Other List'
     ])
   } finally {
     cleanup()
@@ -3753,8 +3791,7 @@ test('preserves native List header editor and prior rendered name after a runtim
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
       'Current List',
-      'Other List',
-      'Manage GitHub Lists'
+      'Other List'
     ])
   } finally {
     cleanup()
@@ -3797,8 +3834,7 @@ test('applies divergent native List state while retaining the sanitized rename r
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
       'Observed List',
-      'Other List',
-      'Manage GitHub Lists'
+      'Other List'
     ])
     const retainedEditor = nativeListHeader(root)?.querySelector<HTMLInputElement>('input') ?? null
     expect(retainedEditor?.value).toBe('Desired List')
@@ -3843,8 +3879,7 @@ test('removes a missing native List editor and shows its sanitized rename result
     expect(nativeListHeader(root)?.querySelector('form.native-list-rename-editor')).toBeNull()
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
-      'Other List',
-      'Manage GitHub Lists'
+      'Other List'
     ])
     expect(root.querySelector('.status-banner.is-error')?.textContent).toBe(
       'GitHub no longer reports the renamed native List.'
@@ -5354,7 +5389,7 @@ test('restores focus to an available result when search removes the inspected re
   library.remove()
 })
 
-test('keeps GitHub List management reachable with an empty synchronized catalog', async () => {
+test('keeps inline GitHub List creation visible with an empty synchronized catalog', async () => {
   const state = membershipReadyDashboardState()
   const root = await mountReadyDashboard({
     ...state,
@@ -5362,14 +5397,16 @@ test('keeps GitHub List management reachable with an empty synchronized catalog'
     library: {...state.library!, nativeLists: []}
   })
 
-  const management = [...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-    .find((button) => button.textContent === 'Manage GitHub Lists') ?? null
-  expect(management).not.toBeNull()
-  management?.click()
-  await (window as unknown as Window).happyDOM.whenAsyncComplete()
-  expect(root.querySelector('[data-native-list-management] h1')?.textContent).toBe('Manage GitHub Lists')
-  expect(root.textContent).toContain('Remote native GitHub Lists are separate from local tags and annotations.')
-  expect(root.textContent).toContain('No synchronized GitHub Lists yet.')
+  const create = root.querySelector<HTMLButtonElement>(
+    '.list-sidebar-heading-row [data-native-list-create-invoker]'
+  )
+  expect(create).not.toBeNull()
+  expect(create?.hidden).toBe(false)
+  expect(create?.textContent).toBe('+')
+  expect(create?.getAttribute('aria-label')).toBe('Create GitHub List')
+  expect(root.querySelectorAll('[data-native-list-row]')).toHaveLength(0)
+  expect(root.textContent).not.toContain('Manage GitHub Lists')
+  expect(root.querySelector('[data-native-list-management]')).toBeNull()
 })
 
 test('requires an explicit visibility and renders a read-only create preview before confirmation', async () => {
@@ -5399,6 +5436,12 @@ test('requires an explicit visibility and renders a read-only create preview bef
     await nextTurn(browserWindow)
     let dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
     let name = dialog?.querySelector<HTMLInputElement>('#native-list-create-name')
+    const dialogHost = dialog?.parentElement?.parentElement ?? null
+    const shell = root.querySelector<HTMLElement>('.app-shell')
+    const frame = shell?.querySelector<HTMLElement>(':scope > .app-frame') ?? null
+    expect(dialogHost?.parentElement).toBe(shell)
+    expect(frame?.nextElementSibling).toBe(dialogHost)
+    expect(dialogHost).not.toBe(frame)
     expect(dialog?.getAttribute('role')).toBe('dialog')
     expect(name?.labels?.[0]?.textContent).toBe('List name')
     expect(dialog?.querySelectorAll('input[type="radio"]:checked')).toHaveLength(0)

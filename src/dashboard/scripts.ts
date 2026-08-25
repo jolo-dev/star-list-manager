@@ -18,6 +18,7 @@ import type {
   MutationJobRecord,
   MutationJobStatus,
   NativeListLifecycleOperationRecord,
+  NativeListRecord,
   OperationHistoryRecord,
   RepositorySort,
   RepositoryRecord,
@@ -283,7 +284,6 @@ let activeNativeListLifecycleRequest: {
   readonly context: AppStateRequestContext
 } | null = null
 let nativeListLifecycleDialogHost: HTMLElement | null = null
-let nativeListManagementRevision = van.state(0)
 let unstarDialogInvoker: DialogInvoker | null = null
 let membershipDialogInvoker: DialogInvoker | null = null
 let repositoryDialogInvoker: DialogInvoker | null = null
@@ -378,7 +378,8 @@ function Dashboard(runQuery: RepositoryQueryRunner = queryRepositories) {
           return retainedWorkspace
         }
       )
-    )
+    ),
+    createNativeListLifecycleDialogHost()
   )
 }
 
@@ -433,7 +434,26 @@ function AppHeader() {
 function Navigation() {
   return div(
     {class: 'list-sidebar'},
-    h2({class: 'list-sidebar-heading'}, 'My Lists'),
+    div(
+      {class: 'list-sidebar-heading-row'},
+      h2({class: 'list-sidebar-heading'}, 'My Lists'),
+      () => {
+        const disabled = nativeListLifecycleControlsDisabled()
+        return button(
+          {
+            class: 'native-list-create-button',
+            type: 'button',
+            'aria-label': 'Create GitHub List',
+            'aria-describedby': disabled ? 'native-list-lifecycle-guidance' : null,
+            'data-native-list-create-invoker': 'true',
+            disabled,
+            onclick: (event: MouseEvent) =>
+              openNativeListCreate(event.currentTarget as HTMLElement)
+          },
+          '+'
+        )
+      }
+    ),
     nav(
       {class: 'list-navigation', 'aria-label': 'Library'},
       () => div({class: 'nav-groups'}, ...NavigationGroups())
@@ -450,28 +470,21 @@ function NavigationGroups() {
   const lists = publishedLibrary.val?.nativeLists.toSorted((left, right) =>
     left.name.localeCompare(right.name)
   ) ?? []
-  const directoryEntries = [
-    {title: 'Unlist', view: {kind: 'unlist'} as LibraryView, count: counts.unlist},
-    ...lists.map((nativeList) => ({
-      title: nativeList.name,
-      view: {kind: 'list', listNodeId: nativeList.listNodeId} as LibraryView,
-      count: counts.lists[nativeList.listNodeId] ?? 0
-    }))
-  ]
+  const lifecycleControlsDisabled = nativeListLifecycleControlsDisabled()
   return [
     details(
       {class: 'nav-group', open: true},
       summary('GitHub Lists'),
       ul(
-        {class: 'nav-list nav-list-secondary'},
-        ...directoryEntries.map((entry, index) =>
-          NavItem(entry.title, entry.view, entry.count, '', index)
-        ),
-        NavItem(
-          'Manage GitHub Lists',
-          {kind: 'native-list-management'},
-          null,
-          'native-list-management-nav'
+        {class: 'nav-list nav-list-secondary', id: 'native-list-navigation'},
+        NavItem('Unlist', {kind: 'unlist'}, counts.unlist, '', 0),
+        ...lists.map((nativeList, index) =>
+          NativeListNavigationRow(
+            nativeList,
+            counts.lists[nativeList.listNodeId] ?? 0,
+            index + 1,
+            lifecycleControlsDisabled
+          )
         )
       )
     )
@@ -485,34 +498,91 @@ function NavItem(
   additionalClassName = '',
   index: number | null = null
 ) {
+  return li(NavButton(title, view, count, additionalClassName, index))
+}
+
+function NavButton(
+  title: string,
+  view: LibraryView,
+  count: number | null,
+  additionalClassName = '',
+  index: number | null = null
+) {
+  return button(
+    {
+      class: () =>
+        ['nav-item', additionalClassName, isActiveView(view) ? 'is-active' : '']
+          .filter(Boolean)
+          .join(' '),
+      type: 'button',
+      'aria-current': () => isActiveView(view) ? 'page' : false,
+      'data-view-kind': view.kind,
+      'data-view-key': JSON.stringify(view),
+      onclick: () => {
+        if (enqueueingUnstars.val || confirmingMembership.val) return
+        setActiveView(view)
+        selectedRepositoryNodeId.val = null
+        inspectedRepositoryNodeId.val = null
+        repositoryDialogInvoker = null
+        selectedForUnstar.val = new Set()
+        resetUnstarConfirmation()
+        resetMembershipPreview()
+      }
+    },
+    index === null
+      ? null
+      : span({class: `list-marker list-marker-${index % 4}`, 'aria-hidden': 'true'}),
+    span({class: 'nav-label'}, title),
+    count === null ? null : span({class: 'list-count'}, String(count))
+  )
+}
+
+function NativeListNavigationRow(
+  list: NativeListRecord,
+  count: number,
+  index: number,
+  disabled: boolean
+) {
   return li(
+    {class: 'native-list-nav-row', 'data-native-list-row': list.listNodeId},
+    NavButton(
+      list.name,
+      {kind: 'list', listNodeId: list.listNodeId},
+      count,
+      '',
+      index
+    ),
     button(
       {
-        class: () =>
-          ['nav-item', additionalClassName, isActiveView(view) ? 'is-active' : '']
-            .filter(Boolean)
-            .join(' '),
+        class: 'native-list-remove-button',
         type: 'button',
-        'aria-current': () => isActiveView(view) ? 'page' : false,
-        'data-view-kind': view.kind,
-        'data-view-key': JSON.stringify(view),
-        onclick: () => {
-          if (enqueueingUnstars.val || confirmingMembership.val) return
-          setActiveView(view)
-          selectedRepositoryNodeId.val = null
-          inspectedRepositoryNodeId.val = null
-          repositoryDialogInvoker = null
-          selectedForUnstar.val = new Set()
-          resetUnstarConfirmation()
-          resetMembershipPreview()
-        }
+        'aria-label': `Remove ${list.name} GitHub List`,
+        'aria-describedby': disabled ? 'native-list-lifecycle-guidance' : null,
+        'data-native-list-delete-invoker': list.listNodeId,
+        disabled,
+        onclick: (event: MouseEvent) =>
+          void previewNativeListDelete(
+            list.listNodeId,
+            event.currentTarget as HTMLElement
+          )
       },
-      index === null
-        ? null
-        : span({class: `list-marker list-marker-${index % 4}`, 'aria-hidden': 'true'}),
-      span({class: 'nav-label'}, title),
-      count === null ? null : span({class: 'list-count'}, String(count))
+      '−'
     )
+  )
+}
+
+function nativeListLifecycleControlsDisabled(): boolean {
+  const state = lifecyclePublishedState()
+  const active = activeNativeListLifecycleOperation(state)
+  const membershipActive = hasActiveNativeListMembershipMutation(state)
+  const renameActive = savingNativeListRename.val || activeNativeListRenameRequest !== null
+  const readiness = state.nativeListLifecycle?.readiness ?? 'capability-unproven'
+  return (
+    readiness !== 'ready' ||
+    active !== null ||
+    membershipActive ||
+    renameActive ||
+    nativeListLifecyclePending.val
   )
 }
 
@@ -585,7 +655,6 @@ function createWorkspace(
   kind: DashboardWorkspace,
   runQuery: RepositoryQueryRunner
 ): HTMLElement {
-  if (kind === 'native-list-management') return NativeListManagementState()
   if (kind === 'library') return ReadyLibraryState(runQuery)
   if (kind === 'operations') {
     return PersistentStatePage(
@@ -665,120 +734,6 @@ function lifecyclePublishedState(): AppState {
     library: publishedLibrary.val,
     error: publishedError.val
   }
-}
-
-function NativeListManagementState() {
-  return div(
-    {'class': 'native-list-management', 'data-native-list-management': 'true'},
-    () => {
-      nativeListManagementRevision.val
-      const focusKey = managementFocusKey()
-      const content = NativeListManagementContent(lifecyclePublishedState())
-      if (focusKey) restoreManagementFocus(focusKey)
-      return content
-    },
-    createNativeListLifecycleDialogHost()
-  )
-}
-
-function NativeListManagementContent(state: AppState) {
-  const lists = state.library?.nativeLists.toSorted((left, right) =>
-    left.name.localeCompare(right.name)
-  ) ?? []
-  const active = activeNativeListLifecycleOperation(state)
-  const membershipActive = hasActiveNativeListMembershipMutation(state)
-  const renameActive = savingNativeListRename.val || activeNativeListRenameRequest !== null
-  const conflictingNativeListWork = active !== null || membershipActive || renameActive
-  const readiness = state.nativeListLifecycle?.readiness ?? 'capability-unproven'
-  return div(
-    {class: 'native-list-management-content'},
-    header(
-      {'class': 'archive-document-header'},
-      div(h1('Manage GitHub Lists'), p({class: 'operations-intro'}, 'Remote native GitHub Lists are separate from local tags and annotations.')),
-      button(
-        {
-          class: 'refresh-button',
-          type: 'button',
-          'data-native-list-management-focus': 'refresh',
-          disabled: nativeListLifecyclePending,
-          onclick: () => void refreshNativeListLifecycle()
-        },
-        () => (nativeListLifecyclePending.val ? 'Refreshing…' : 'Refresh GitHub Lists')
-      )
-    ),
-    LifecycleReadinessNotice(state),
-    () => nativeListLifecycleError.val
-      ? p({class: 'inline-error', role: 'alert'}, nativeListLifecycleError.val)
-      : null,
-    state.nativeListLifecycle?.operation
-      ? LifecycleOperationStatus(state.nativeListLifecycle.operation)
-      : null,
-    membershipActive
-      ? p({class: 'lifecycle-readiness', role: 'status'}, 'A native GitHub List membership operation is active. Lifecycle changes remain disabled until it reaches a terminal outcome.')
-      : null,
-    renameActive
-      ? p({class: 'lifecycle-readiness', role: 'status'}, 'A native GitHub List rename request is active. Lifecycle changes remain disabled until it completes.')
-      : null,
-    section(
-      {class: 'native-list-management-section', 'aria-labelledby': 'native-list-create-heading'},
-      h2({id: 'native-list-create-heading'}, 'Create a GitHub List'),
-      p('Choose a name and privacy setting, then review the read-only preview before a GitHub operation can be queued.'),
-      button(
-        {
-          class: 'primary-action', type: 'button',
-          'data-native-list-create-invoker': 'true',
-          'data-native-list-management-focus': 'create',
-          disabled: readiness !== 'ready' || conflictingNativeListWork || nativeListLifecyclePending,
-          onclick: () => openNativeListCreate(document.querySelector<HTMLElement>('[data-native-list-create-invoker]') ?? document.body)
-        },
-        'Create GitHub List'
-      )
-    ),
-    section(
-      {class: 'native-list-management-section', 'aria-labelledby': 'native-list-catalog-heading'},
-      h2({id: 'native-list-catalog-heading'}, 'Synchronized GitHub Lists'),
-      lists.length === 0
-        ? p({class: 'empty-native-lists', role: 'status'}, 'No synchronized GitHub Lists yet. You can still create one when lifecycle writes are ready.')
-        : ul(
-            {class: 'native-list-management-list'},
-            ...lists.map((list) =>
-              li(
-                {class: 'native-list-management-row'},
-                div(
-                  strongText(list.name),
-                  p(`${list.visibility} GitHub List · GitHub reports ${list.reportedItemCount} ${list.reportedItemCount === 1 ? 'repository' : 'repositories'}.`),
-                  list.importStatus === 'partial'
-                    ? p({class: 'partial-native-list-note'}, 'Partial import: the reported GitHub count may exceed locally imported repositories.')
-                    : null
-                ),
-                button({
-                  class: 'danger-action', type: 'button',
-                  'data-native-list-delete-invoker': list.listNodeId,
-                  'data-native-list-management-focus': `delete-${list.listNodeId}`,
-                  disabled: readiness !== 'ready' || conflictingNativeListWork || nativeListLifecyclePending,
-                  onclick: (event: MouseEvent) => void previewNativeListDelete(list.listNodeId, event.currentTarget as HTMLElement)
-                }, 'Review deletion')
-              )
-            )
-          )
-    )
-  )
-}
-
-function managementFocusKey(): string | null {
-  const active = document.activeElement as HTMLElement | null
-  return active?.closest('[data-native-list-management]')
-    ? active.dataset.nativeListManagementFocus ?? null
-    : null
-}
-
-function restoreManagementFocus(key: string): void {
-  window.setTimeout(() => {
-    const target = mountedDashboardRoot?.querySelector<HTMLElement>(
-      `[data-native-list-management-focus="${key}"]`
-    ) ?? null
-    if (isDashboardFocusTargetVisible(target)) target.focus()
-  }, 0)
 }
 
 function createNativeListLifecycleDialogHost(): HTMLElement {
@@ -3000,7 +2955,6 @@ function LifecyclePreview(preview: NativeListLifecyclePreview) {
 
 function setNativeListLifecycleError(message: string | null): void {
   nativeListLifecycleError.val = message
-  nativeListManagementRevision.val += 1
   renderNativeListLifecycleDialog()
   if (message !== null) focusNativeListLifecycleErrorTarget()
 }
@@ -3036,9 +2990,14 @@ function restoreNativeListLifecycleFocus(invoker: DialogInvoker | null): void {
   const ownerWindow = lifecycle.ownerDocument.defaultView ?? window
   ownerWindow.setTimeout(() => {
     if (!isFocusLifecycleCurrent(lifecycle)) return
-    const fallback = lifecycle.ownerDocument.querySelector<HTMLElement>(
-      '[data-native-list-create-invoker]'
-    )
+    const listNodeId = invoker?.element.dataset.nativeListDeleteInvoker
+    const fallback = listNodeId
+      ? [...lifecycle.ownerDocument.querySelectorAll<HTMLElement>(
+          '[data-native-list-delete-invoker]'
+        )].find((element) => element.dataset.nativeListDeleteInvoker === listNodeId) ?? null
+      : lifecycle.ownerDocument.querySelector<HTMLElement>(
+          '[data-native-list-create-invoker]'
+        )
     const target = isDashboardFocusTargetVisible(invoker?.element ?? null)
       ? invoker?.element ?? null
       : fallback
@@ -4605,7 +4564,6 @@ function resetDashboardUiState(): void {
   nativeListDeleteConfirmationName = van.state('')
   nativeListLifecycleVisibility = van.state<'public' | 'private' | null>(null)
   nativeListLifecycleError = van.state<string | null>(null)
-  nativeListManagementRevision = van.state(0)
   nativeListLifecyclePending = van.state(false)
   nativeListLifecycleInvoker = null
   activeNativeListLifecycleRequest = null
