@@ -83,7 +83,21 @@ GitHub native Lists use a public-preview API. Run every membership scenario only
 - [ ] Force a post-write desired-versus-observed mismatch and confirm a verification conflict displays both sets, updates the local mirror to observed GitHub membership, and requires a new preview before retry.
 - [ ] Change membership during List or item pagination and confirm incomplete or non-matching repeated observations block preview, mutation, or verification rather than treating missing data as absence.
 - [ ] Confirm add, remove, move, stale reconfirmation, conflict, restart recovery, and partial bulk outcomes retain tags, notes, favorites, triage state, revisit dates, and review history.
-- [ ] Confirm there are no native List create, delete, or visibility controls. Membership capability proof must not expose rename controls.
+
+## Capability-Gated Native List Lifecycle
+
+Lifecycle create/delete is implemented but release-disabled while its reviewed non-secret release-evidence input is `null`. Run these checks only after separately reviewed lifecycle release evidence is included in an isolated test build; it proves the build and OAuth App, not a user authorization. Use a development-only account and disposable Lists, never include credentials or fixture IDs in results, and leave every item unchecked until manually performed.
+
+- [ ] In an isolated profile with zero imported native Lists, confirm **Manage GitHub Lists** remains reachable, distinguishes GitHub Lists from local tags, shows lifecycle readiness and a manual refresh path, and permits no lifecycle write while release evidence is absent or the account lacks matching `public_repo user` authorization; read-only import remains usable.
+- [ ] In a separately gated isolated profile, create one empty disposable **public** List and one empty disposable **private** List. Confirm the form requires an explicit visibility selection, creates no repository membership, and reports success only after the returned stable ID, requested name, and visibility appear in complete catalog read-back.
+- [ ] Delete a known empty disposable List. Confirm standard confirmation names that List and its visibility, states no undo, sends no repository mutation or unstar, and reports success only after its stable ID is absent from complete catalog read-back.
+- [ ] Delete a populated disposable List. Confirm stronger List-name-specific confirmation displays the latest reported item count, any partial-import warning, and that repositories remain starred but become unlisted; cancel once and confirm no lifecycle operation or request is created before completing the confirmed deletion.
+- [ ] After deletion, confirm local reconciliation removes only the deleted List and its memberships. Confirm every affected repository record and local tags, notes, favorites, triage state, revisit dates, and review history remain.
+- [ ] Change the target List's name, visibility, or reported item count directly on GitHub after opening deletion confirmation. Confirm no delete is sent, current metadata is shown, and a renewed confirmation is required. Confirm an already-absent target reconciles locally without sending delete.
+- [ ] Simulate or force a response-lost create/delete outcome, then suspend and restart the service worker. Confirm the extension refreshes the authoritative catalog, records a sanitized unknown or verification-conflict outcome, and never automatically replays either mutation; require a deliberate fresh user action after inspection.
+- [ ] Switch the active GitHub account while lifecycle work is pending. Confirm no mutation is sent for the wrong account, the operation receives sanitized account-change handling, and account namespaces remain isolated.
+- [ ] Confirm lifecycle creation/deletion and membership writes serialize together: a newly created List becomes a membership destination only after verified synchronization, while a queued membership job referencing a deleted or externally changed List pauses for refreshed preview and confirmation.
+- [ ] Confirm lifecycle capability evidence does not enable guarded rename. In the same isolated build, verify rename remains unavailable unless its separate rename proof and manual gate are applied; verify lifecycle does not rename a List, change an existing List's visibility, or alter descriptions.
 
 ## Guarded Native List Rename
 

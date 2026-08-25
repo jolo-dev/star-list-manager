@@ -48,9 +48,9 @@
 
 ## 7. Update specifications and product documentation
 
-- [ ] 7.1 Run strict OpenSpec validation for `add-native-list-lifecycle` and keep the proposal, delta specs, design, and tasks coherent; defer synchronization into main specs to the archive workflow.
-- [ ] 7.2 Update `README.md`, `STORE.md`, and `PRIVACY.md` to disclose create/delete scope, explicit privacy selection, populated List confirmation, no automatic retry after ambiguity, and that repositories/local annotations are retained.
-- [ ] 7.3 Update `docs/manual-test-checklist.md` with isolated-profile creation, public/private visibility verification, empty and populated deletion, post-delete repository retention, external List change, response-lost recovery, and read-only fallback.
+- [x] 7.1 Run strict OpenSpec validation for `add-native-list-lifecycle` and keep the proposal, delta specs, design, and tasks coherent; defer synchronization into main specs to the archive workflow.
+- [x] 7.2 Update `README.md`, `STORE.md`, and `PRIVACY.md` to disclose create/delete scope, explicit privacy selection, populated List confirmation, no automatic retry after ambiguity, and that repositories/local annotations are retained.
+- [x] 7.3 Update `docs/manual-test-checklist.md` with isolated-profile creation, public/private visibility verification, empty and populated deletion, post-delete repository retention, external List change, response-lost recovery, and read-only fallback.
 
 ## 8. Verify and release safely
 
