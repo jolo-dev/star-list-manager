@@ -694,7 +694,7 @@ function NativeListManagementContent(state: AppState) {
     {class: 'native-list-management-content'},
     header(
       {'class': 'archive-document-header'},
-      div(h1('Manage GitHub Lists'), p({class: 'operations-intro'}, 'Remote native GitHub Lists are separate from local tags and annotations.')), 
+      div(h1('Manage GitHub Lists'), p({class: 'operations-intro'}, 'Remote native GitHub Lists are separate from local tags and annotations.')),
       button(
         {
           class: 'refresh-button',
