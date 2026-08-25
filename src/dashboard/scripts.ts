@@ -678,16 +678,16 @@ function resetLifecycleAuthorizationRecovery(
   recoveredLifecycleAuthorizationFailureFingerprints = new Set()
 }
 
-function observeLifecycleWriteAuthorizationRecovery(state: AppState): void {
+function observeLifecycleWriteAuthorizationRecovery(state: AppState): boolean {
   const accountId = state.identity?.githubUserId ?? null
   if (lifecycleAuthorizationRecoveryAccountId !== accountId) {
     resetLifecycleAuthorizationRecovery(accountId, state.writeAuthorization.readiness)
-    return
+    return false
   }
-  if (
+  const recovered =
     observedLifecycleWriteReadiness !== 'ready' &&
     state.writeAuthorization.readiness === 'ready'
-  ) {
+  if (recovered) {
     // AppState has no credential generation. A same-account non-ready -> ready
     // publication is the sole local recovery proof for the failures visible in
     // that publication; unrelated changes and later fingerprints stay gated.
@@ -696,6 +696,7 @@ function observeLifecycleWriteAuthorizationRecovery(state: AppState): void {
     }
   }
   observedLifecycleWriteReadiness = state.writeAuthorization.readiness
+  return recovered
 }
 
 function nativeListLifecycleGate(state: AppState): NativeListLifecycleGate {
@@ -939,10 +940,15 @@ function NativeListLifecycleStatus(
   const syncFailureFingerprint = nativeListSyncAuthorizationFailureFingerprint(
     state.nativeListSync
   )
+  const operationAuthorizationFailureResolved =
+    isLifecycleAuthorizationFailureResolved(operationFailureFingerprint)
   const baseStatusText = operation
-    ? `Latest operation: ${lifecyclePhaseLabel(operation.phase)}. ${operation.intent.name} · ${operation.intent.kind}. ${lifecycleOperationGuidance(
+    ? `Latest operation: ${lifecyclePhaseLabel(
         operation,
-        isLifecycleAuthorizationFailureResolved(operationFailureFingerprint)
+        operationAuthorizationFailureResolved
+      )}. ${operation.intent.name} · ${operation.intent.kind}. ${lifecycleOperationGuidance(
+        operation,
+        operationAuthorizationFailureResolved
       )}`
     : nativeListSyncStatusText(state)
   const reauthorizationGuidance = lifecycleReauthorizationGuidance(
@@ -1060,13 +1066,13 @@ function lifecycleOperationGuidance(
   operation: NativeListLifecycleOperationRecord,
   authorizationFailureResolved = false
 ): string {
-  if (operation.phase === 'blocked-unknown') {
-    return 'GitHub did not provide a verified outcome. Do not retry automatically; refresh and inspect GitHub before taking another action.'
-  }
   if (isAuthorizationError(operation.lastError)) {
     return authorizationFailureResolved
-      ? `Previous authorization failure was resolved by renewed write authorization. The operation remains ${operation.phase}; refresh and review the current GitHub state before retrying.`
-      : 'Reauthorize GitHub before retrying after this failure.'
+      ? 'Previous authorization failure was resolved by renewed write authorization. However, this contradictory operation record still requires refresh and inspection before the outcome can be trusted.'
+      : 'Reauthorize GitHub before retrying after this failure. Inspect the current List state before taking another action.'
+  }
+  if (operation.phase === 'blocked-unknown') {
+    return 'GitHub did not provide a verified outcome. Do not retry automatically; refresh and inspect GitHub before taking another action.'
   }
   if (operation.phase === 'failed') {
     return 'The operation failed. Inspect the error before retrying.'
@@ -1124,6 +1130,13 @@ function shouldShowNativeListLifecycleRefresh(
   }
   if (hasUnresolvedLifecycleAuthorizationFailure(state)) return false
   const operation = state.nativeListLifecycle?.operation ?? null
+  if (
+    isLifecycleAuthorizationFailureResolved(
+      lifecycleOperationAuthorizationFailureFingerprint(operation)
+    )
+  ) {
+    return true
+  }
   if (operation) {
     return (
       operation.phase === 'blocked-unknown' ||
@@ -1142,8 +1155,16 @@ function shouldShowNativeListLifecycleRefresh(
   )
 }
 
-function lifecyclePhaseLabel(phase: NativeListLifecycleOperationRecord['phase']): string {
-  return ({queued: 'Queued', preflight: 'Preflight', mutating: 'Mutating', verifying: 'Verifying', succeeded: 'Verified', 'already-deleted': 'Already deleted', 'needs-confirmation': 'Needs confirmation', 'blocked-unknown': 'Blocked — outcome unknown', failed: 'Failed', cancelled: 'Cancelled'})[phase]
+function lifecyclePhaseLabel(
+  operation: NativeListLifecycleOperationRecord,
+  authorizationFailureResolved = false
+): string {
+  if (isAuthorizationError(operation.lastError)) {
+    return authorizationFailureResolved
+      ? 'Authorization recovered — outcome review required'
+      : 'Authorization review required'
+  }
+  return ({queued: 'Queued', preflight: 'Preflight', mutating: 'Mutating', verifying: 'Verifying', succeeded: 'Verified', 'already-deleted': 'Already deleted', 'needs-confirmation': 'Needs confirmation', 'blocked-unknown': 'Blocked — outcome unknown', failed: 'Failed', cancelled: 'Cancelled'})[operation.phase]
 }
 
 function hasActiveNativeListMembershipMutation(state: AppState): boolean {
@@ -4225,13 +4246,15 @@ function applyState(state: AppState): void {
   const nextFingerprints = dashboardSliceFingerprints(state)
   const libraryChanged = nextFingerprints.library !== publishedFingerprints.library
   const accountChanged = dashboardAccountId !== nextAccountId
+  let lifecycleAuthorizationRecovered = false
   if (accountChanged) {
     resetLifecycleAuthorizationRecovery(
       nextAccountId,
       state.writeAuthorization.readiness
     )
   } else {
-    observeLifecycleWriteAuthorizationRecovery(state)
+    lifecycleAuthorizationRecovered =
+      observeLifecycleWriteAuthorizationRecovery(state)
   }
   const lifecycleAuthorityChanged =
     nextFingerprints.writeAuthorization !== publishedFingerprints.writeAuthorization ||
@@ -4247,7 +4270,10 @@ function applyState(state: AppState): void {
     : null
   if (libraryChanged || accountChanged) resetRenderedResults()
   if (!accountChanged && lifecycleAuthorityChanged) {
-    clearNativeListLifecycleError('rail')
+    const railError = nativeListLifecycleRailError()
+    if (!isAuthorizationError(railError) || lifecycleAuthorizationRecovered) {
+      clearNativeListLifecycleError('rail')
+    }
   }
   if (accountChanged) {
     selectedForUnstar.val = new Set()

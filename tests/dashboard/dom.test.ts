@@ -6466,7 +6466,7 @@ test('adds fixed reauthorization guidance for a denied lifecycle refresh', async
   }
 })
 
-test('gates safe lifecycle controls until same-account authorization recovery clears the rail error', async () => {
+test('keeps authorization rail errors gated until an explicit same-account write recovery cycle', async () => {
   const previousChrome = (globalThis as {chrome?: unknown}).chrome
   const state = membershipReadyDashboardState()
   Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
@@ -6488,10 +6488,62 @@ test('gates safe lifecycle controls until same-account authorization recovery cl
       .toContain('Reauthorize GitHub before changing Lists.')
 
     const {renderAppState} = await import('../../src/dashboard/scripts')
-    renderAppState({...state, writeAuthorization: {...state.writeAuthorization, previewVisible: true}, sync: completeSyncState('stars'), nativeListSync: partialSync, nativeListLifecycle: {readiness: 'ready', operation: null}})
+    renderAppState({
+      ...state,
+      writeAuthorization: {
+        ...state.writeAuthorization,
+        previewVisible: true,
+        error: {
+          category: 'network',
+          message: 'Write authorization prompt metadata changed.',
+          retryable: true
+        }
+      },
+      sync: completeSyncState('stars'),
+      nativeListSync: partialSync,
+      nativeListLifecycle: {readiness: 'ready', operation: null}
+    })
     await flushDashboardReactivity(browserWindow)
 
-    const status = root.querySelector<HTMLElement>('[data-native-list-lifecycle-status]')
+    let status = root.querySelector<HTMLElement>(
+      '[data-native-list-lifecycle-status]'
+    )
+    expect(status?.querySelector('[role="alert"]')?.textContent).toBe(
+      'GitHub denied this request.'
+    )
+    expect(status?.textContent).toContain(
+      'Reauthorize GitHub before refreshing Lists.'
+    )
+    expect(root.querySelector('#native-list-lifecycle-guidance')?.textContent).toContain(
+      'Reauthorize GitHub before changing Lists.'
+    )
+    expect(root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.disabled).toBe(true)
+    expect(root.querySelector<HTMLButtonElement>('[data-native-list-delete-invoker="L_current"]')?.disabled).toBe(true)
+
+    renderAppState({
+      ...state,
+      writeAuthorization: {
+        ...state.writeAuthorization,
+        readiness: 'credential-rejected'
+      },
+      sync: completeSyncState('stars'),
+      nativeListSync: partialSync,
+      nativeListLifecycle: {readiness: 'ready', operation: null}
+    })
+    await flushDashboardReactivity(browserWindow)
+    expect(root.querySelector('[data-native-list-lifecycle-status] [role="alert"]')?.textContent).toBe(
+      'GitHub denied this request.'
+    )
+
+    renderAppState({
+      ...state,
+      sync: completeSyncState('stars'),
+      nativeListSync: partialSync,
+      nativeListLifecycle: {readiness: 'ready', operation: null}
+    })
+    await flushDashboardReactivity(browserWindow)
+
+    status = root.querySelector<HTMLElement>('[data-native-list-lifecycle-status]')
     expect(status?.querySelector('[role="alert"]')).toBeNull()
     expect(status?.textContent).not.toContain('GitHub denied this request.')
     expect(status?.textContent).not.toContain('Reauthorize GitHub before refreshing Lists.')
@@ -6539,6 +6591,74 @@ test('keeps terminal lifecycle authorization failures fail-closed across every r
       'Reauthorize GitHub before changing Lists.'
     )
     expect(root.querySelector('[data-native-list-refresh]')).toBeNull()
+  }
+})
+
+test('never presents contradictory success terminal records as verified outcomes', async () => {
+  const state = membershipReadyDashboardState()
+  const forbiddenSuccessCopy = ['Verified', 'Already deleted', 'outcome verified', 'succeeded']
+  for (const phase of ['succeeded', 'already-deleted'] as const) {
+    for (const category of ['authentication', 'permission'] as const) {
+      const operation = lifecycleOperation(phase, {
+        category,
+        message: 'GitHub authorization cannot verify this List outcome.',
+        statusCode: category === 'authentication' ? 401 : 403,
+        occurredAt: '2026-08-20T10:00:01Z'
+      })
+      const failedState: AppState = {
+        ...state,
+        sync: completeSyncState('stars'),
+        nativeListSync: completeSyncState('native-lists'),
+        nativeListLifecycle: {readiness: 'ready', operation}
+      }
+      const root = await mountReadyDashboard(failedState)
+      const browserWindow = window as unknown as Window
+      const {renderAppState} = await import('../../src/dashboard/scripts')
+      const statusText = () =>
+        root.querySelector('#native-list-lifecycle-status-text')?.textContent ?? ''
+      const create = () =>
+        root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+
+      expect(statusText()).toContain('Authorization review required')
+      expect(statusText()).toContain('Reauthorize GitHub')
+      expect(forbiddenSuccessCopy.every((copy) => !statusText().includes(copy))).toBe(true)
+      expect(create()?.disabled).toBe(true)
+
+      renderAppState({
+        ...failedState,
+        writeAuthorization: {
+          ...failedState.writeAuthorization,
+          previewVisible: true
+        }
+      })
+      await flushDashboardReactivity(browserWindow)
+      expect(statusText()).toContain('Authorization review required')
+      expect(statusText()).toContain('Reauthorize GitHub')
+      expect(forbiddenSuccessCopy.every((copy) => !statusText().includes(copy))).toBe(true)
+      expect(create()?.disabled).toBe(true)
+
+      renderAppState({
+        ...failedState,
+        writeAuthorization: {
+          ...failedState.writeAuthorization,
+          readiness: 'credential-rejected'
+        }
+      })
+      await flushDashboardReactivity(browserWindow)
+      renderAppState(failedState)
+      await flushDashboardReactivity(browserWindow)
+
+      expect(statusText()).toContain(
+        'Authorization recovered — outcome review required'
+      )
+      expect(statusText()).toContain(
+        'contradictory operation record still requires refresh and inspection'
+      )
+      expect(statusText()).not.toContain('Reauthorize GitHub')
+      expect(forbiddenSuccessCopy.every((copy) => !statusText().includes(copy))).toBe(true)
+      expect(create()?.disabled).toBe(false)
+      expect(root.querySelector('[data-native-list-refresh]')).not.toBeNull()
+    }
   }
 })
 
