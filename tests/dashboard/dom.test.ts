@@ -7,6 +7,7 @@ import type {
   MutationJobRecord,
   MutationJobStatus,
   MutationRecoveryStatus,
+  NativeListLifecycleOperationRecord,
   OperationHistoryRecord,
   RepositoryRecord,
   SyncKind,
@@ -680,7 +681,7 @@ test('renders real List navigation and repository records without changing Libra
     expect(archiveToggle?.textContent).toBe('Archived shown')
     archiveToggle?.click()
 
-    const refresh = root.querySelector<HTMLButtonElement>('.refresh-button')
+    const refresh = root.querySelector<HTMLButtonElement>('.library-header .refresh-button')
     refresh?.click()
     await nextTurn(browserWindow)
     expect(messages).toContain('start-sync')
@@ -838,7 +839,9 @@ test('renders inline GitHub List lifecycle controls with direct valid list rows'
   expect(create?.textContent).toBe('+')
   expect(create?.hidden).toBe(false)
   expect(create?.getAttribute('aria-label')).toBe('Create GitHub List')
-  expect(create?.hasAttribute('aria-describedby')).toBe(false)
+  expect(create?.getAttribute('aria-describedby')).toBe('native-list-lifecycle-guidance')
+  expect(root.querySelector('#native-list-lifecycle-guidance')?.textContent)
+    .toContain('lifecycle capability is unproven')
   expect(navigationList?.id).toBe('native-list-navigation')
   expect(navigationList?.classList.contains('nav-list')).toBe(true)
   expect(navigationLabels(navigationList)).toEqual([
@@ -869,7 +872,7 @@ test('renders inline GitHub List lifecycle controls with direct valid list rows'
     expect(remove?.classList.contains('native-list-remove-button')).toBe(true)
     expect(remove?.textContent).toBe('−')
     expect(remove?.getAttribute('aria-label')).toBe(`Remove ${name} GitHub List`)
-    expect(remove?.hasAttribute('aria-describedby')).toBe(false)
+    expect(remove?.getAttribute('aria-describedby')).toBe('native-list-lifecycle-guidance')
     expect(navigate?.querySelector('[data-native-list-delete-invoker]')).toBeNull()
   }
 
@@ -1816,6 +1819,8 @@ test('keeps a membership confirmation authoritative over attempted polling and r
     expect(await sendDashboardAction({type: 'get-app-state'})).toBe(false)
     expect(getAppStateRequests).toBe(0)
     expect(root.querySelector<HTMLButtonElement>('.membership-confirmation .primary-action')?.disabled).toBe(true)
+    expect(root.querySelector('#native-list-lifecycle-guidance')?.textContent)
+      .toContain('native GitHub List membership operation is active')
 
     pendingMembership.resolve()
     await nextTurn(browserWindow)
@@ -3568,6 +3573,10 @@ test('keeps native List rename dispatch locked while a pending request survives 
     expect(messages).toEqual([
       {type: 'rename-native-list', listNodeId: 'L_current', name: 'Renamed Current'}
     ])
+    await flushDashboardReactivity(browserWindow)
+    expect(root.querySelector('#native-list-lifecycle-guidance')?.textContent)
+      .toContain('native GitHub List rename request is active')
+    expect(root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.disabled).toBe(true)
 
     nativeListNavigationButton(root, 'Other List')?.click()
     await nextTurn(browserWindow)
@@ -5485,7 +5494,7 @@ test('requires an explicit visibility and renders a read-only create preview bef
   }
 })
 
-test('keeps an unbroken native List name intact in management at narrow content widths', async () => {
+test('keeps an unbroken native List name intact in rail markup', async () => {
   const state = membershipReadyDashboardState()
   const name = `List-${'x'.repeat(180)}`
   const root = await mountReadyDashboard({
@@ -5493,14 +5502,12 @@ test('keeps an unbroken native List name intact in management at narrow content 
     nativeListLifecycle: {readiness: 'capability-unproven', operation: null},
     library: {...state.library!, nativeLists: [nativeList('L_long_management', name)]}
   })
-  const browserWindow = window as unknown as Window
-  ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-    .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
-  await nextTurn(browserWindow)
-  const row = root.querySelector<HTMLElement>('.native-list-management-row')
-  expect(row?.querySelector('strong')?.textContent).toBe(name)
-  expect(row?.querySelector('.danger-action')?.textContent).toBe('Review deletion')
-  expect(row?.classList.contains('native-list-management-row')).toBe(true)
+
+  const row = root.querySelector<HTMLElement>('[data-native-list-row="L_long_management"]')
+  expect(row?.querySelector('.nav-label')?.textContent).toBe(name)
+  expect(row?.querySelector<HTMLButtonElement>('[data-native-list-delete-invoker]')?.getAttribute('aria-label'))
+    .toBe(`Remove ${name} GitHub List`)
+  expect(row?.classList.contains('native-list-nav-row')).toBe(true)
 })
 
 test('keeps lifecycle preview errors actionable in the dialog with linked focus', async () => {
@@ -5655,6 +5662,8 @@ test('shows lifecycle confirmation pending state until a deferred confirm recove
         '.list-sidebar-heading-row [data-native-list-create-invoker]'
       )?.disabled
     ).toBe(true)
+    expect(root.querySelector('#native-list-lifecycle-guidance')?.textContent)
+      .toContain('GitHub List lifecycle operation is active')
     expect(messages.map((message) => message.type)).toEqual([
       'preview-native-list-create',
       'confirm-native-list-create'
@@ -5770,11 +5779,8 @@ test('renders lifecycle progress and blocks conflicting membership and rename ac
   }
   const root = await mountReadyDashboard({...state, nativeListRename: {readiness: 'ready'}, nativeListLifecycle: {readiness: 'ready', operation: active}, library: {...state.library!, nativeMemberships: [{githubUserId: '42', repositoryNodeId: 'R_one', listNodeId: 'L_current', lastObservedAt: '2026-08-20T10:00:00Z'}]}})
   const browserWindow = window as unknown as Window
-  const management = [...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-    .find((button) => button.textContent === 'Manage GitHub Lists')
-  management?.click()
-  await nextTurn(browserWindow)
-  expect(root.textContent).toContain('Latest operation: Verifying')
+  const status = root.querySelector<HTMLElement>('[data-native-list-lifecycle-status]')
+  expect(status?.textContent).toContain('Latest operation: Verifying')
   expect(root.textContent).toContain('Conflicting native List lifecycle, membership, and rename actions are disabled')
   expect(root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.disabled).toBe(true)
   const currentList = nativeListNavigationButton(root, 'Current List')
@@ -5887,7 +5893,7 @@ test('restores a failed deletion preview to the enabled rail invoker', async () 
   }
 })
 
-test('updates the retained List management workspace from applied lifecycle state', async () => {
+test('updates retained List rail lifecycle status from applied state', async () => {
   const initial = membershipReadyDashboardState()
   const root = await mountReadyDashboard({
     ...initial,
@@ -5897,13 +5903,8 @@ test('updates the retained List management workspace from applied lifecycle stat
     library: {...initial.library!, nativeLists: []}
   })
   const browserWindow = window as unknown as Window
-  ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-    .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
-  await nextTurn(browserWindow)
-  const management = root.querySelector<HTMLElement>('[data-native-list-management]')
-  const refresh = management?.querySelector<HTMLButtonElement>('.refresh-button') ?? null
-  refresh?.focus()
-  expect(management?.textContent).toContain('No synchronized GitHub Lists yet.')
+  expect(root.querySelector('[data-native-list-lifecycle-status]')?.textContent)
+    .toContain('lifecycle capability is unproven')
 
   const verified = {
     githubUserId: '42', operationId: 'op-verified',
@@ -5920,11 +5921,11 @@ test('updates the retained List management workspace from applied lifecycle stat
     library: {...initial.library!, nativeLists: [nativeList('L_observed', 'Observed List')]}
   })
   await nextTurn(browserWindow)
-  expect(root.querySelector('[data-native-list-management]')).toBe(management)
-  expect(management?.textContent).toContain('Latest operation: Verified')
-  expect(management?.textContent).toContain('Observed List')
-  expect(management?.textContent).toContain('GitHub List lifecycle writes are ready.')
-  expect((browserWindow.document.activeElement as unknown) === management?.querySelector('.refresh-button')).toBe(true)
+  const status = root.querySelector('[data-native-list-lifecycle-status]')
+  expect(status?.textContent).toContain('Latest operation: Verified')
+  expect(status?.textContent).toContain('Observed List')
+  expect(status?.textContent).toContain('GitHub outcome verified by a read-back.')
+  expect(nativeListNavigationButton(root, 'Observed List')).not.toBeNull()
 })
 
 test('invalidates a membership preview and requires a refreshed review after lifecycle activity', async () => {
@@ -5965,7 +5966,7 @@ test('invalidates a membership preview and requires a refreshed review after lif
   }
 })
 
-test('renders lifecycle refresh errors in management without opening a dialog', async () => {
+test('renders lifecycle refresh errors in the rail without opening a dialog', async () => {
   const previousChrome = (globalThis as {chrome?: unknown}).chrome
   const state = membershipReadyDashboardState()
   Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
@@ -5975,14 +5976,13 @@ test('renders lifecycle refresh errors in management without opening a dialog', 
     throw new Error(`Unexpected runtime message: ${message.type}`)
   }}}})
   try {
-    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}})
+    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: {...completeSyncState('native-lists'), phase: 'stale'}, nativeListLifecycle: {readiness: 'ready', operation: null}})
     const browserWindow = window as unknown as Window
-    ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-      .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
+    root.querySelector<HTMLButtonElement>('[data-native-list-refresh]')?.click()
     await nextTurn(browserWindow)
-    root.querySelector<HTMLButtonElement>('[data-native-list-management-focus="refresh"]')?.click()
-    await nextTurn(browserWindow)
-    expect(root.querySelector('[data-native-list-management]')?.textContent).toContain('Reauthorize GitHub before refreshing Lists.')
+    const status = root.querySelector('[data-native-list-lifecycle-status]')
+    expect(status?.textContent).toContain('Reauthorize GitHub before refreshing Lists.')
+    expect(status?.querySelector('[data-native-list-refresh]')).toBeNull()
     expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
   } finally {
     if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
@@ -5994,9 +5994,6 @@ test('keeps unknown and failed lifecycle outcomes visible without a modal', asyn
   const state = membershipReadyDashboardState()
   const root = await mountReadyDashboard({...state, nativeListLifecycle: {readiness: 'ready', operation: null}})
   const browserWindow = window as unknown as Window
-  ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-    .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
-  await nextTurn(browserWindow)
   const {renderAppState} = await import('../../src/dashboard/scripts')
   const blocked = {
     githubUserId: '42', operationId: 'op-unknown',
@@ -6021,13 +6018,157 @@ test('disables lifecycle actions while native List membership work is active', a
     nativeListLifecycle: {readiness: 'ready', operation: null},
     mutations: {batches: [], jobs: [membershipJob], history: []}
   })
-  const browserWindow = window as unknown as Window
-  ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
-    .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
-  await nextTurn(browserWindow)
   expect(root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.disabled).toBe(true)
   expect(root.querySelector<HTMLButtonElement>('[data-native-list-delete-invoker="L_current"]')?.disabled).toBe(true)
   expect(root.textContent).toContain('A native GitHub List membership operation is active.')
+})
+
+test('applies lifecycle guidance priority and native List sync safety to every rail control', async () => {
+  const state = membershipReadyDashboardState()
+  const membershipJob = {
+    ...mutationJob('42', 'mutating-membership', 1),
+    mutationKind: 'native-list-membership' as const
+  }
+  const root = await mountReadyDashboard({
+    ...state,
+    nativeListLifecycle: {readiness: 'write-authorization-required', operation: lifecycleOperation('verifying')},
+    nativeListSync: null,
+    mutations: {batches: [], jobs: [membershipJob], history: []}
+  })
+  const browserWindow = window as unknown as Window
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const guidance = () => root.querySelector('#native-list-lifecycle-guidance')?.textContent ?? ''
+  const controls = () => [
+    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]'),
+    ...root.querySelectorAll<HTMLButtonElement>('[data-native-list-delete-invoker]')
+  ]
+  const expectGated = (copy: string) => {
+    expect(guidance()).toContain(copy)
+    expect(controls().every((control) => control?.hidden === false && control.disabled)).toBe(true)
+    expect(controls().every((control) => control?.getAttribute('aria-describedby') === 'native-list-lifecycle-guidance')).toBe(true)
+  }
+
+  expectGated('GitHub List lifecycle operation is active')
+  renderAppState({...state, nativeListLifecycle: {readiness: 'write-authorization-required', operation: null}, nativeListSync: null, mutations: {batches: [], jobs: [membershipJob], history: []}})
+  await flushDashboardReactivity(browserWindow)
+  expectGated('native GitHub List membership operation is active')
+  renderAppState({...state, nativeListLifecycle: {readiness: 'write-authorization-required', operation: null}, nativeListSync: null})
+  await flushDashboardReactivity(browserWindow)
+  expectGated('Authorize this GitHub account')
+  renderAppState({...state, nativeListLifecycle: {readiness: 'capability-unproven', operation: null}, nativeListSync: null})
+  await flushDashboardReactivity(browserWindow)
+  expectGated('lifecycle capability is unproven')
+
+  for (const phase of ['idle', 'running', 'stale', 'unavailable'] as const) {
+    renderAppState({...state, nativeListLifecycle: {readiness: 'ready', operation: null}, nativeListSync: {...completeSyncState('native-lists'), phase}})
+    await flushDashboardReactivity(browserWindow)
+    expectGated(`Native List synchronization is ${phase}`)
+  }
+  renderAppState({...state, nativeListLifecycle: {readiness: 'ready', operation: null}, nativeListSync: null})
+  await flushDashboardReactivity(browserWindow)
+  expectGated('Native List synchronization has not run')
+
+  for (const phase of ['complete', 'partial'] as const) {
+    renderAppState({...state, nativeListLifecycle: {readiness: 'ready', operation: null}, nativeListSync: {...completeSyncState('native-lists'), phase}})
+    await flushDashboardReactivity(browserWindow)
+    expect(controls().every((control) => control?.disabled === false)).toBe(true)
+    expect(controls().every((control) => control?.hasAttribute('aria-describedby') === false)).toBe(true)
+  }
+  expect(root.querySelector('[data-native-list-lifecycle-status]')?.textContent)
+    .toContain('Partial native List synchronization can proceed with deletion warnings.')
+
+  renderAppState({...state, nativeListLifecycle: {readiness: 'ready', operation: null}, nativeListSync: {...completeSyncState('native-lists'), phase: 'stale', lastError: {category: 'network', message: 'Catalog read interrupted.', retryable: true}}})
+  await flushDashboardReactivity(browserWindow)
+  const status = root.querySelector('[data-native-list-lifecycle-status]')
+  expect(status?.textContent).toContain('Native List synchronization is stale')
+  expect(status?.querySelector('[role="alert"]')?.textContent).toBe('Catalog read interrupted.')
+  expect(root.querySelector('#native-list-navigation')?.contains(status ?? null)).toBe(false)
+})
+
+test('associates rail lifecycle actions with status text and dispatches only refresh or cancellation', async () => {
+  const messages: Array<{readonly type: string}> = []
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    messages.push(message)
+    if (message.type === 'refresh-native-list-lifecycle') return {ok: true, data: state}
+    if (message.type === 'cancel-native-list-lifecycle') {
+      return {ok: true, data: {...state, nativeListLifecycle: {readiness: 'ready', operation: lifecycleOperation('cancelled')}}}
+    }
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+  try {
+    const root = await mountReadyDashboard({...state, nativeListLifecycle: {readiness: 'ready', operation: null}, nativeListSync: null})
+    const browserWindow = window as unknown as Window
+    const status = root.querySelector<HTMLElement>('[data-native-list-lifecycle-status]')
+    const live = status?.querySelector<HTMLElement>('[role="status"]') ?? null
+    const refresh = status?.querySelector<HTMLButtonElement>('[data-native-list-refresh]') ?? null
+    expect(status).not.toBeNull()
+    expect(root.querySelectorAll('#native-list-lifecycle-status-text')).toHaveLength(1)
+    expect(live?.contains(refresh)).toBe(false)
+    expect(refresh?.getAttribute('aria-describedby')).toBe('native-list-lifecycle-status-text')
+    expect(refresh?.getAttribute('aria-controls')).toContain('native-list-navigation')
+    expect(refresh?.getAttribute('aria-controls')).toContain('native-list-lifecycle-status-text')
+    refresh?.click()
+    await nextTurn(browserWindow)
+    expect(messages).toEqual([{type: 'refresh-native-list-lifecycle'}])
+
+    const {renderAppState} = await import('../../src/dashboard/scripts')
+    renderAppState({...state, nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: lifecycleOperation('queued')}})
+    await flushDashboardReactivity(browserWindow)
+    const queuedStatus = root.querySelector<HTMLElement>('[data-native-list-lifecycle-status]')
+    const cancel = [...(queuedStatus?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+      .find((action) => action.textContent === 'Cancel queued operation') ?? null
+    expect(queuedStatus?.querySelector('[role="status"]')?.contains(cancel)).toBe(false)
+    expect(cancel?.getAttribute('aria-describedby')).toBe('native-list-lifecycle-status-text')
+    expect(cancel?.getAttribute('aria-controls')).toBe('native-list-navigation native-list-lifecycle-status-text')
+    cancel?.click()
+    await flushDashboardReactivity(browserWindow)
+    expect(messages).toEqual([
+      {type: 'refresh-native-list-lifecycle'},
+      {type: 'cancel-native-list-lifecycle'}
+    ])
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('shows lifecycle refresh only for deterministic recovery states', async () => {
+  const state = membershipReadyDashboardState()
+  const root = await mountReadyDashboard({...state, nativeListLifecycle: {readiness: 'ready', operation: null}, nativeListSync: null})
+  const browserWindow = window as unknown as Window
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const refresh = () => root.querySelector<HTMLButtonElement>('[data-native-list-refresh]')
+  expect(refresh()).not.toBeNull()
+
+  for (const phase of ['idle', 'partial', 'stale', 'unavailable'] as const) {
+    renderAppState({...state, nativeListLifecycle: {readiness: 'ready', operation: null}, nativeListSync: {...completeSyncState('native-lists'), phase}})
+    await flushDashboardReactivity(browserWindow)
+    expect(refresh()).not.toBeNull()
+  }
+  for (const phase of ['blocked-unknown', 'needs-confirmation'] as const) {
+    renderAppState({...state, nativeListLifecycle: {readiness: 'ready', operation: lifecycleOperation(phase)}, nativeListSync: completeSyncState('native-lists')})
+    await flushDashboardReactivity(browserWindow)
+    expect(refresh()).not.toBeNull()
+  }
+  for (const phase of ['running', 'complete'] as const) {
+    renderAppState({...state, nativeListLifecycle: {readiness: 'ready', operation: null}, nativeListSync: {...completeSyncState('native-lists'), phase}})
+    await flushDashboardReactivity(browserWindow)
+    expect(refresh()).toBeNull()
+  }
+  for (const phase of ['queued', 'preflight', 'mutating', 'verifying', 'succeeded', 'already-deleted', 'cancelled'] as const) {
+    renderAppState({...state, nativeListLifecycle: {readiness: 'ready', operation: lifecycleOperation(phase)}, nativeListSync: completeSyncState('native-lists')})
+    await flushDashboardReactivity(browserWindow)
+    expect(refresh()).toBeNull()
+  }
+  for (const category of ['authentication', 'permission'] as const) {
+    renderAppState({...state, nativeListLifecycle: {readiness: 'ready', operation: lifecycleOperation('failed', {category, message: 'Authorization cannot perform this List action.', statusCode: 403, occurredAt: '2026-08-20T10:00:01Z'})}, nativeListSync: {...completeSyncState('native-lists'), phase: 'stale'}})
+    await flushDashboardReactivity(browserWindow)
+    expect(refresh()).toBeNull()
+    expect(root.querySelector('[data-native-list-lifecycle-status]')?.textContent)
+      .toContain('Reauthorize GitHub before retrying after this failure.')
+  }
 })
 
 test('rejects a stale lifecycle preview after the active account changes', async () => {
@@ -6134,6 +6275,34 @@ async function mountReadyDashboard(
   mountDashboard(root, state, runQuery)
   await browserWindow.happyDOM.whenAsyncComplete()
   return root as unknown as HTMLElement
+}
+
+function lifecycleOperation(
+  phase: NativeListLifecycleOperationRecord['phase'],
+  lastError: NativeListLifecycleOperationRecord['lastError'] = null
+): NativeListLifecycleOperationRecord {
+  return {
+    githubUserId: '42',
+    operationId: `op-${phase}`,
+    intent: {
+      kind: 'delete',
+      listNodeId: 'L_current',
+      name: 'Current List',
+      visibility: 'private',
+      reportedItemCount: 1,
+      importStatus: 'complete'
+    },
+    phase,
+    attemptCount: 1,
+    candidateListNodeId: 'L_current',
+    confirmationFingerprint: 'fresh',
+    lastError,
+    createdAt: '2026-08-20T10:00:00Z',
+    updatedAt: '2026-08-20T10:00:01Z',
+    completedAt: ['queued', 'preflight', 'mutating', 'verifying'].includes(phase)
+      ? null
+      : '2026-08-20T10:00:01Z'
+  }
 }
 
 function completeSyncState(kind: SyncKind): SyncStateRecord {
@@ -6321,6 +6490,11 @@ async function selectResultMode(
   if (button === null) throw new Error(`${mode} result mode is required.`)
   button.click()
   await browserWindow.happyDOM.whenAsyncComplete()
+}
+
+async function flushDashboardReactivity(browserWindow: Window): Promise<void> {
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
 }
 
 async function nextTurn(browserWindow: Window): Promise<void> {

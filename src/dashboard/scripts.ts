@@ -432,20 +432,26 @@ function AppHeader() {
 }
 
 function Navigation() {
+  const lifecycleGate = van.derive(() =>
+    nativeListLifecycleGate(lifecyclePublishedState())
+  )
   return div(
     {class: 'list-sidebar'},
     div(
       {class: 'list-sidebar-heading-row'},
       h2({class: 'list-sidebar-heading'}, 'My Lists'),
       () => {
-        const disabled = nativeListLifecycleControlsDisabled()
+        const gate = lifecycleGate.val
         return button(
           {
             class: 'native-list-create-button',
             type: 'button',
             'aria-label': 'Create GitHub List',
+            ...(gate.disabled
+              ? {'aria-describedby': 'native-list-lifecycle-guidance'}
+              : {}),
             'data-native-list-create-invoker': 'true',
-            disabled,
+            disabled: gate.disabled,
             onclick: (event: MouseEvent) =>
               openNativeListCreate(event.currentTarget as HTMLElement)
           },
@@ -453,14 +459,15 @@ function Navigation() {
         )
       }
     ),
+    () => NativeListLifecycleStatus(lifecyclePublishedState(), lifecycleGate.val),
     nav(
       {class: 'list-navigation', 'aria-label': 'Library'},
-      () => NativeListNavigation()
+      () => NativeListNavigation(lifecycleGate.val)
     )
   )
 }
 
-function NativeListNavigation() {
+function NativeListNavigation(gate: NativeListLifecycleGate) {
   const repositories = publishedRepositories.val
   const counts = deriveViewCounts(
     repositories,
@@ -469,7 +476,6 @@ function NativeListNavigation() {
   const lists = publishedLibrary.val?.nativeLists.toSorted((left, right) =>
     left.name.localeCompare(right.name)
   ) ?? []
-  const lifecycleControlsDisabled = nativeListLifecycleControlsDisabled()
   return ul(
     {class: 'nav-list nav-list-secondary', id: 'native-list-navigation'},
     NavItem('Unlist', {kind: 'unlist'}, counts.unlist, '', 0),
@@ -478,7 +484,7 @@ function NativeListNavigation() {
         nativeList,
         counts.lists[nativeList.listNodeId] ?? 0,
         index + 1,
-        lifecycleControlsDisabled
+        gate
       )
     )
   )
@@ -534,7 +540,7 @@ function NativeListNavigationRow(
   list: NativeListRecord,
   count: number,
   index: number,
-  disabled: boolean
+  gate: NativeListLifecycleGate
 ) {
   return li(
     {class: 'native-list-nav-row', 'data-native-list-row': list.listNodeId},
@@ -550,8 +556,11 @@ function NativeListNavigationRow(
         class: 'native-list-remove-button',
         type: 'button',
         'aria-label': `Remove ${list.name} GitHub List`,
+        ...(gate.disabled
+          ? {'aria-describedby': 'native-list-lifecycle-guidance'}
+          : {}),
         'data-native-list-delete-invoker': list.listNodeId,
-        disabled,
+        disabled: gate.disabled,
         onclick: (event: MouseEvent) =>
           void previewNativeListDelete(
             list.listNodeId,
@@ -563,19 +572,55 @@ function NativeListNavigationRow(
   )
 }
 
-function nativeListLifecycleControlsDisabled(): boolean {
-  const state = lifecyclePublishedState()
-  const active = activeNativeListLifecycleOperation(state)
-  const membershipActive = hasActiveNativeListMembershipMutation(state)
-  const renameActive = savingNativeListRename.val || activeNativeListRenameRequest !== null
+interface NativeListLifecycleGate {
+  readonly disabled: boolean
+  readonly reason: string | null
+}
+
+function nativeListLifecycleGate(state: AppState): NativeListLifecycleGate {
+  if (
+    nativeListLifecyclePending.val ||
+    activeNativeListLifecycleOperation(state) !== null
+  ) {
+    return {
+      disabled: true,
+      reason: 'A GitHub List lifecycle operation is active.'
+    }
+  }
+  if (
+    confirmingMembership.val ||
+    activeMembershipConfirmationToken !== null ||
+    hasActiveNativeListMembershipMutation(state)
+  ) {
+    return {
+      disabled: true,
+      reason: 'A native GitHub List membership operation is active.'
+    }
+  }
+  if (savingNativeListRename.val || activeNativeListRenameRequest !== null) {
+    return {
+      disabled: true,
+      reason: 'A native GitHub List rename request is active.'
+    }
+  }
   const readiness = state.nativeListLifecycle?.readiness ?? 'capability-unproven'
-  return (
-    readiness !== 'ready' ||
-    active !== null ||
-    membershipActive ||
-    renameActive ||
-    nativeListLifecyclePending.val
-  )
+  if (readiness === 'write-authorization-required') {
+    return {
+      disabled: true,
+      reason: 'Authorize this GitHub account before changing Lists.'
+    }
+  }
+  if (readiness !== 'ready') {
+    return {
+      disabled: true,
+      reason: 'GitHub List lifecycle capability is unproven for this build.'
+    }
+  }
+  const syncPhase = state.nativeListSync?.phase ?? null
+  if (syncPhase === 'complete' || syncPhase === 'partial') {
+    return {disabled: false, reason: null}
+  }
+  return {disabled: true, reason: nativeListSyncGuidance(state.nativeListSync)}
 }
 
 function phasePublishedState(): AppState {
@@ -742,28 +787,168 @@ function renderNativeListLifecycleDialog(): void {
   if (nativeListLifecycleDialog.val) van.add(host, NativeListLifecycleConfirmation())
 }
 
-function LifecycleReadinessNotice(state: AppState) {
-  const readiness = state.nativeListLifecycle?.readiness ?? 'capability-unproven'
-  if (readiness === 'ready') return p({class: 'lifecycle-readiness is-ready', role: 'status'}, 'GitHub List lifecycle writes are ready. Every create or deletion is previewed first and verified by a later GitHub read-back.')
-  if (readiness === 'write-authorization-required') return p({class: 'lifecycle-readiness', role: 'status'}, 'Read-only: authorize the connected GitHub account for native List lifecycle writes before confirming a change.')
-  return p({class: 'lifecycle-readiness', role: 'status'}, 'Read-only: lifecycle capability is unproven for this build. You can inspect synchronized GitHub Lists, but cannot create or delete them.')
+function NativeListLifecycleStatus(
+  state: AppState,
+  gate: NativeListLifecycleGate
+) {
+  const operation = state.nativeListLifecycle?.operation ?? null
+  const operationError = operation?.lastError ?? null
+  const syncError = state.nativeListSync?.lastError ?? null
+  const currentError = nativeListLifecycleError.val
+  const showRefresh = shouldShowNativeListLifecycleRefresh(state, currentError)
+  const showCancel =
+    operation?.phase === 'queued' || operation?.phase === 'preflight'
+  const actionAssociation = {
+    'aria-describedby': 'native-list-lifecycle-status-text',
+    'aria-controls': 'native-list-navigation native-list-lifecycle-status-text'
+  }
+  return div(
+    {
+      class: 'native-list-lifecycle-status',
+      'data-native-list-lifecycle-status': 'true'
+    },
+    gate.reason
+      ? p({id: 'native-list-lifecycle-guidance'}, gate.reason)
+      : null,
+    p(
+      {
+        id: 'native-list-lifecycle-status-text',
+        ...(publishedPhase.val === 'ready' ? {role: 'status'} : {})
+      },
+      operation
+        ? `Latest operation: ${lifecyclePhaseLabel(operation.phase)}. ${operation.intent.name} · ${operation.intent.kind}. ${lifecycleOperationGuidance(operation)}`
+        : nativeListSyncStatusText(state)
+    ),
+    currentError
+      ? p({class: 'inline-error', role: 'alert'}, currentError)
+      : operationError
+        ? p({class: 'inline-error', role: 'alert'}, operationError.message)
+        : syncError
+          ? p({class: 'inline-error', role: 'alert'}, syncError.message)
+          : null,
+    showRefresh || showCancel
+      ? div(
+          {class: 'native-list-lifecycle-actions'},
+          showRefresh
+            ? button(
+                {
+                  class: 'refresh-button',
+                  type: 'button',
+                  'data-native-list-refresh': 'true',
+                  ...actionAssociation,
+                  disabled: nativeListLifecyclePending,
+                  onclick: () => void refreshNativeListLifecycle()
+                },
+                () =>
+                  nativeListLifecyclePending.val
+                    ? 'Refreshing…'
+                    : 'Refresh GitHub Lists'
+              )
+            : null,
+          showCancel
+            ? button(
+                {
+                  class: 'secondary-action',
+                  type: 'button',
+                  ...actionAssociation,
+                  disabled: nativeListLifecyclePending,
+                  onclick: () => void cancelNativeListLifecycle()
+                },
+                'Cancel queued operation'
+              )
+            : null
+        )
+      : null
+  )
 }
 
-function LifecycleOperationStatus(operation: NativeListLifecycleOperationRecord) {
-  const phase = lifecyclePhaseLabel(operation.phase)
-  const guidance = operation.phase === 'blocked-unknown'
-    ? 'GitHub did not provide a verified outcome. Do not retry automatically; refresh and inspect GitHub before taking another action.'
-    : operation.phase === 'failed' && operation.lastError?.category === 'authentication'
-      ? 'Reauthorize GitHub before retrying after this failure.'
-      : operation.phase === 'needs-confirmation'
-        ? 'GitHub changed since preview. Refresh and review a new confirmation before a write.'
-        : operation.phase === 'succeeded' || operation.phase === 'already-deleted'
-          ? 'GitHub outcome verified by a read-back.'
-          : 'Conflicting native List lifecycle, membership, and rename actions are disabled until this operation reaches a terminal verified outcome.'
-  return section({class: `lifecycle-operation status-${operation.phase}`, role: 'status'}, h2(`Latest operation: ${phase}`), p(`${operation.intent.kind === 'create' ? operation.intent.name : operation.intent.name} · ${operation.intent.kind}`), p(guidance), operation.lastError ? p({class: 'inline-error', role: 'alert'}, operation.lastError.message) : null,
-    (operation.phase === 'queued' || operation.phase === 'preflight')
-      ? button({class: 'secondary-action', type: 'button', disabled: nativeListLifecyclePending, onclick: () => void cancelNativeListLifecycle()}, 'Cancel queued operation')
-      : null)
+function nativeListSyncGuidance(sync: AppState['nativeListSync']): string {
+  if (sync === null) return 'Native List synchronization has not run.'
+  return `Native List synchronization is ${sync.phase}.`
+}
+
+function nativeListSyncStatusText(state: AppState): string {
+  const sync = state.nativeListSync
+  const readiness =
+    state.nativeListLifecycle?.readiness ?? 'capability-unproven'
+  if (readiness === 'write-authorization-required') {
+    return 'GitHub List lifecycle writes require account authorization.'
+  }
+  if (readiness !== 'ready') {
+    return 'GitHub List lifecycle capability is unproven for this build.'
+  }
+  if (
+    sync?.lastError?.category === 'authentication' ||
+    sync?.lastError?.category === 'permission'
+  ) {
+    return 'Reauthorize GitHub before refreshing Lists.'
+  }
+  if (sync === null) return 'Native List synchronization has not run.'
+  if (sync.phase === 'partial') {
+    return 'Partial native List synchronization can proceed with deletion warnings.'
+  }
+  if (sync.phase === 'complete') {
+    return 'GitHub List lifecycle writes are ready. Changes require preview and verified read-back.'
+  }
+  return nativeListSyncGuidance(sync)
+}
+
+function lifecycleOperationGuidance(
+  operation: NativeListLifecycleOperationRecord
+): string {
+  if (operation.phase === 'blocked-unknown') {
+    return 'GitHub did not provide a verified outcome. Do not retry automatically; refresh and inspect GitHub before taking another action.'
+  }
+  if (
+    operation.phase === 'failed' &&
+    (operation.lastError?.category === 'authentication' ||
+      operation.lastError?.category === 'permission')
+  ) {
+    return 'Reauthorize GitHub before retrying after this failure.'
+  }
+  if (operation.phase === 'failed') {
+    return 'The operation failed. Inspect the error before retrying.'
+  }
+  if (operation.phase === 'needs-confirmation') {
+    return 'GitHub changed since preview. Refresh and review a new confirmation before a write.'
+  }
+  if (
+    operation.phase === 'succeeded' ||
+    operation.phase === 'already-deleted'
+  ) {
+    return 'GitHub outcome verified by a read-back.'
+  }
+  if (operation.phase === 'cancelled') {
+    return 'The queued GitHub List operation was cancelled.'
+  }
+  return 'Conflicting native List lifecycle, membership, and rename actions are disabled until this operation reaches a terminal verified outcome.'
+}
+
+function shouldShowNativeListLifecycleRefresh(
+  state: AppState,
+  currentError: string | null
+): boolean {
+  if (nativeListLifecyclePending.val || currentError !== null) return false
+  const operation = state.nativeListLifecycle?.operation ?? null
+  const error = operation?.lastError ?? state.nativeListSync?.lastError ?? null
+  if (error?.category === 'authentication' || error?.category === 'permission') {
+    return false
+  }
+  if (operation) {
+    return (
+      operation.phase === 'blocked-unknown' ||
+      operation.phase === 'needs-confirmation' ||
+      operation.phase === 'failed'
+    )
+  }
+  const phase = state.nativeListSync?.phase ?? null
+  return (
+    phase === null ||
+    phase === 'idle' ||
+    phase === 'partial' ||
+    phase === 'stale' ||
+    phase === 'unavailable'
+  )
 }
 
 function lifecyclePhaseLabel(phase: NativeListLifecycleOperationRecord['phase']): string {
