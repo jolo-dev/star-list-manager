@@ -7,15 +7,15 @@ Allow an authenticated user with verified optional write authorization to create
 ## ADDED Requirements
 
 ### Requirement: Lifecycle actions require independent release and account gates
-The system SHALL expose native List creation and deletion only when reviewed, non-secret release evidence proves that the configured OAuth App supports the required lifecycle mutations and the active account separately has a matching optional OAuth credential with the required scopes. The release probe MUST prove both `createUserList` and `deleteUserList` with independent catalog read-back, and MUST delete only the List it created for the probe. Release evidence MUST NOT be treated as end-user authorization.
+The system SHALL enable native List creation and deletion only when reviewed, non-secret release evidence proves that the configured OAuth App supports the required lifecycle mutations and the active account separately has a matching optional OAuth credential with the required scopes. The release probe MUST prove both `createUserList` and `deleteUserList` with independent catalog read-back, and MUST delete only the List it created for the probe. Release evidence MUST NOT be treated as end-user authorization.
 
 #### Scenario: Release capability is not proven
 - **WHEN** lifecycle release evidence is absent, malformed, unreviewed, or does not verify the schema, fixture creation, fixture deletion, and independent read-backs
-- **THEN** the system keeps native List lifecycle controls unavailable for every account, preserves read-only List import and existing membership controls according to their own readiness, and shows a sanitized explanation
+- **THEN** the system keeps native List lifecycle controls disabled for every account, preserves read-only List import and existing membership controls according to their own readiness, and shows a sanitized explanation
 
 #### Scenario: Active account is not authorized
 - **WHEN** valid lifecycle release evidence exists but the active account lacks a matching optional OAuth credential or the required scopes
-- **THEN** the system sends no lifecycle mutation, keeps lifecycle controls unavailable for that account, and provides sanitized authorization guidance
+- **THEN** the system sends no lifecycle mutation, keeps lifecycle controls disabled for that account, and provides sanitized authorization guidance
 
 #### Scenario: Both lifecycle gates are satisfied
 - **WHEN** reviewed release evidence verifies the separate disposable-fixture create/delete probe and the active account has a matching OAuth credential with the required scopes
@@ -102,9 +102,45 @@ The system SHALL persist a lifecycle operation before remote work, serialize it 
 - **WHEN** a newly created List is synchronized or a deleted List is referenced by a pending membership job
 - **THEN** the system exposes the newly created List only after verified synchronization, and pauses affected membership work for refreshed preview rather than targeting a deleted or changed List
 
-### Requirement: Lifecycle UI is available independently of existing Lists
-The dashboard SHALL provide a GitHub List management entry even when the latest synchronization returns no Lists. It MUST clearly distinguish native GitHub Lists from local tags and show lifecycle write readiness, synchronization status, and a manual refresh path.
+### Requirement: Lifecycle controls are available inline independently of existing Lists
+The dashboard SHALL expose a visible native GitHub List creation control beside the My Lists heading even when synchronization returns zero Lists, SHALL expose a separate removal control for each synchronized native GitHub List, and SHALL NOT expose removal for Unlist. It MUST keep lifecycle controls visible but disabled with concise visible and programmatically associated readiness guidance when writes are unsafe. It MUST show material synchronization and operation status in a compact List-rail surface, retain queued and preflight cancellation, and retain a manual `refresh-native-list-lifecycle` recovery path distinct from ordinary Library Refresh. It MUST keep action controls outside status and alert live-region text while programmatically associating those controls with the relevant status or guidance, and MUST NOT report success before authoritative GitHub read-back.
 
 #### Scenario: Account has no native Lists
-- **WHEN** the user has completed a successful List synchronization with zero native Lists
-- **THEN** the user can still open List management and begin the create flow
+- **WHEN** synchronization completes with zero native Lists
+- **THEN** the visible create control beside My Lists can begin the preview flow when lifecycle writes are ready
+
+#### Scenario: Release or account gate is unavailable
+- **WHEN** release capability is unproven or the active account lacks matching lifecycle authorization
+- **THEN** create and remove controls remain visible but disabled and reference concise visible readiness or reauthorization guidance
+
+#### Scenario: Synchronization state prevents a safe write
+- **WHEN** the native List catalog has never synchronized or is running, stale, or unavailable
+- **THEN** create and remove controls remain visible but disabled and reference the synchronization guidance required to make lifecycle state safe
+
+#### Scenario: Conflicting or in-flight work prevents a safe write
+- **WHEN** a lifecycle request or operation is in flight, or conflicting membership or rename work holds the native-List mutation lock
+- **THEN** create and remove controls remain visible but disabled and reference concise conflict or pending-operation guidance
+
+#### Scenario: Account has synchronized native Lists
+- **WHEN** one or more native GitHub Lists are synchronized
+- **THEN** each native List has a separate remove control, its navigation control remains separate, and Unlist has no remove control
+
+#### Scenario: Queued or preflight operation can be cancelled safely
+- **WHEN** a lifecycle operation remains queued or in preflight and no mutation has been dispatched
+- **THEN** the rail shows truthful operation status and a visible cancellation action that sends no lifecycle mutation
+
+#### Scenario: Operation requires guided recovery
+- **WHEN** an operation has failed, is blocked-unknown, or needs renewed confirmation
+- **THEN** the rail preserves truthful status and shows the safe reauthorization, inspection, renewed-confirmation, or fixed lifecycle-refresh guidance required for that state without automatically replaying a mutation
+
+#### Scenario: Lifecycle refresh remains distinct from Library Refresh
+- **WHEN** catalog synchronization or lifecycle recovery requires an explicit refresh
+- **THEN** the rail exposes a contextual action that dispatches `refresh-native-list-lifecycle`, and ordinary Library Refresh is not presented or used as an equivalent lifecycle recovery command
+
+#### Scenario: Lifecycle actions are associated with live status without entering it
+- **WHEN** lifecycle refresh, queued cancellation, or another lifecycle action is presented with status or alert guidance
+- **THEN** the interactive action remains outside the live region and programmatically references the associated status or guidance
+
+#### Scenario: Authoritative read-back is pending
+- **WHEN** a create or delete mutation has resolved but complete authoritative catalog read-back has not verified the requested outcome
+- **THEN** the dashboard continues to report pending, unknown, or verification-conflict status and does not report success

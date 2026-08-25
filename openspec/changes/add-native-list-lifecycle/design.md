@@ -68,9 +68,11 @@ After delete success or interrupted recovery, synchronize the catalog and requir
 
 Creating a List has no membership side effects; it becomes selectable only after read-back. Deletion invalidates queued membership work that references the deleted List. It must move those jobs to refreshed preview rather than attempt the stale complete List ID set. A global native-List write lock prevents lifecycle deletion racing a membership replace-all mutation.
 
-### UI uses a List management surface instead of the repository inspector
+### UI places lifecycle controls directly in My Lists
 
-Provide a `Manage GitHub Lists` control in the List navigation area or a dedicated management dialog. It remains available when the catalog is empty. The create form has a trimmed name and mandatory public/private radio selection. Each known List exposes delete. Controls state their capability readiness and sync state, disable during active lifecycle/membership writes, preserve focus, and use semantic dialogs/alerts.
+Render an accessible, visible `+` create control beside the My Lists heading and a separate remove control beside every synchronized native GitHub List. Unlist is a derived local view and has no remove control. Activating either control opens the existing create or delete preview and confirmation flow, preserving explicit visibility, stronger populated-List confirmation, and stable-ID safety.
+
+Keep create and remove controls visible but disabled, with concise visible and programmatically associated guidance, whenever lifecycle gates, catalog state, an in-flight request, or conflicting native-List work make a write unsafe. Preserve material catalog sync state, lifecycle progress and outcomes, queued or preflight cancellation, and failed or ambiguous recovery guidance in a compact rail status surface. Interactive controls remain outside status and alert live-region text while referencing the associated guidance. A contextual GitHub List refresh continues to dispatch the fixed `refresh-native-list-lifecycle` message; ordinary Library Refresh retains its star synchronization behavior and does not replace lifecycle refresh or recovery. The UI never reports lifecycle success before authoritative GitHub read-back. Dialog focus restoration and shell-level fallback remain deterministic when an invoking control becomes disabled or disappears.
 
 ## Risks / Trade-offs
 
