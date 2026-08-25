@@ -45,16 +45,16 @@
 - [x] 6.4 Render lifecycle progress, verified outcome, ambiguous outcome, error/re-auth guidance, manual refresh, and disable conflicting controls while a native-List mutation is active.
 - [x] 6.5 Add DOM tests for empty catalog creation, required visibility, empty deletion, populated deletion confirmation, cancellation, keyboard focus, partial imports, and lifecycle invalidation of membership previews.
 - [x] 6.6 Run the targeted dashboard DOM tests with `bun test tests/dashboard/<targeted-files>`.
-- [ ] 6.7 Replace the dedicated management navigation/workspace with inline rail markup: a visible accessible `+` beside My Lists and separate sibling remove controls for synchronized native GitHub Lists, with no remove control for Unlist.
-- [ ] 6.8 Retain compact rail readiness, catalog sync, operation status, queued/preflight cancellation, sanitized recovery guidance, and the fixed `refresh-native-list-lifecycle` action distinct from ordinary Library Refresh; keep actions outside associated live regions.
-- [ ] 6.9 Move lifecycle dialog ownership to the retained dashboard shell and implement deterministic focus restoration and shell-level fallback when an invoker is disabled or removed by authoritative reconciliation.
-- [ ] 6.10 Migrate dashboard DOM tests for inline heading/List-row structure, empty-catalog creation, separate navigation and remove controls, no Unlist removal, and removal of the management navigation/workspace.
-- [ ] 6.11 Add dashboard DOM tests for visible disabled guidance, catalog and conflict blockers, create/delete confirmation flows, queued cancellation, recovery guidance, lifecycle refresh dispatch, and authoritative read-back wording.
-- [ ] 6.12 Add dashboard DOM tests for live-region association, non-nested interactive controls, dialog focus restoration, post-queue invoker fallback, and shell-level focus fallback after authoritative row removal.
-- [ ] 6.13 Implement responsive and accessible runtime rail styles for the heading action, sibling List-row controls, compact status surface, narrow touch targets, long names, and forced colors; remove management-page-only rules while retaining dialog styles.
-- [ ] 6.14 Update dashboard style tests to verify the inline heading action, two-control rows, compact status, narrow sizing, touch targets, forced colors, and removal of obsolete management selectors.
-- [ ] 6.15 Update `DESIGN.md` to replace the management-panel pattern with inline lifecycle heading, row-action, status, recovery, and focus guidance.
-- [ ] 6.16 Update `.impeccable/design.json` to replace the management-page component example and synchronize its inline rail lifecycle guidance with `DESIGN.md`.
+- [x] 6.7 Replace the dedicated management navigation/workspace with inline rail markup: a visible accessible `+` beside My Lists and separate sibling remove controls for synchronized native GitHub Lists, with no remove control for Unlist.
+- [x] 6.8 Retain compact rail readiness, catalog sync, operation status, queued/preflight cancellation, sanitized recovery guidance, and the fixed `refresh-native-list-lifecycle` action distinct from ordinary Library Refresh; keep actions outside associated live regions.
+- [x] 6.9 Move lifecycle dialog ownership to the retained dashboard shell and implement deterministic focus restoration and shell-level fallback when an invoker is disabled or removed by authoritative reconciliation.
+- [x] 6.10 Migrate dashboard DOM tests for inline heading/List-row structure, empty-catalog creation, separate navigation and remove controls, no Unlist removal, and removal of the management navigation/workspace.
+- [x] 6.11 Add dashboard DOM tests for visible disabled guidance, catalog and conflict blockers, create/delete confirmation flows, queued cancellation, recovery guidance, lifecycle refresh dispatch, and authoritative read-back wording.
+- [x] 6.12 Add dashboard DOM tests for live-region association, non-nested interactive controls, dialog focus restoration, post-queue invoker fallback, and shell-level focus fallback after authoritative row removal.
+- [x] 6.13 Implement responsive and accessible runtime rail styles for the heading action, sibling List-row controls, compact status surface, narrow touch targets, long names, and forced colors; remove management-page-only rules while retaining dialog styles.
+- [x] 6.14 Update dashboard style tests to verify the inline heading action, two-control rows, compact status, narrow sizing, touch targets, forced colors, and removal of obsolete management selectors.
+- [x] 6.15 Update `DESIGN.md` to replace the management-panel pattern with inline lifecycle heading, row-action, status, recovery, and focus guidance.
+- [x] 6.16 Update `.impeccable/design.json` to replace the management-page component example and synchronize its inline rail lifecycle guidance with `DESIGN.md`.
 
 ## 7. Update specifications and product documentation
 
