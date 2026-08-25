@@ -153,8 +153,9 @@ async function confirmLifecycle(
   const active = await requireAccount(services)
   const writeAuthorization = await services.writeAuthController.getState()
   if (!writeAuthorization.membershipReady) return failureResponse(writeAuthorizationRequired())
-  const stillActive = await requireAccount(services)
-  if (stillActive.githubUserId !== active.githubUserId) return failureResponse(accountChanged())
+  if (!(await hasExpectedActiveAccount(services, active))) {
+    return failureResponse(accountChanged())
+  }
   if (await services.lifecycleStorage.getActive(active.githubUserId)) {
     return failureResponse(activeOperationConflict())
   }
@@ -165,6 +166,9 @@ async function confirmLifecycle(
     operation = newCreateOperation(active.githubUserId, request.name, request.visibility, timestamp, dependencies.operationId)
   } else {
     const preview = await freshDeletePreview(services, active.githubUserId, request.listNodeId)
+    if (!(await hasExpectedActiveAccount(services, active))) {
+      return failureResponse(accountChanged())
+    }
     if (preview.kind !== 'delete' || preview.confirmationFingerprint !== request.confirmationFingerprint) {
       return failureResponse(confirmationExpired())
     }
@@ -172,6 +176,9 @@ async function confirmLifecycle(
   }
 
   // Persisted queued work is the only state the runner may dispatch.
+  if (!(await hasExpectedActiveAccount(services, active))) {
+    return failureResponse(accountChanged())
+  }
   await services.lifecycleStorage.put(operation)
   await services.nativeListLifecycleRunner.run(active.githubUserId)
   return successResponse(await dependencies.getDashboardState())
@@ -296,6 +303,15 @@ async function requireAccount(services: NativeListLifecycleRuntimeServices): Pro
   if (!active) throw lifecycleAuthenticationRequired()
   if (active.identity.githubUserId !== active.githubUserId) throw accountChanged()
   return active
+}
+
+async function hasExpectedActiveAccount(
+  services: NativeListLifecycleRuntimeServices,
+  expected: NativeListLifecycleActiveAccount
+): Promise<boolean> {
+  const active = await services.authSession.loadActive()
+  return active?.githubUserId === expected.githubUserId &&
+    active.identity.githubUserId === expected.identity.githubUserId
 }
 
 function lifecycleAuthenticationRequired() {

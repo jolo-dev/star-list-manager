@@ -57,6 +57,52 @@ describe('native List lifecycle background runtime', () => {
     expect(harness.runnerCalls).toBe(0)
   })
 
+  test('rejects delete confirmation when the active account changes during fresh revalidation', async () => {
+    const harness = runtimeServices({deferCatalog: true})
+    const confirmation = handleNativeListLifecycle(harness.services, {
+      type: 'confirm-native-list-delete',
+      listNodeId: 'UL_one',
+      confirmationFingerprint: JSON.stringify(['UL_one', 'Ideas', 'private', 2, 'partial'])
+    }, {capabilityProven: true, getDashboardState: harness.dashboard})
+
+    await harness.waitForCatalog()
+    harness.setActive({githubUserId: '99', identity: {githubUserId: '99'}})
+    harness.resolveCatalog()
+
+    expect(await confirmation).toEqual({
+      ok: false,
+      error: {
+        category: 'authentication',
+        message: 'The active GitHub account changed. Retry the native List action.',
+        retryable: true
+      }
+    })
+    expect(harness.persisted).toEqual([])
+    expect(harness.runnerCalls).toBe(0)
+  })
+
+  test('rejects create confirmation when the active account changes during an awaited operation check', async () => {
+    const harness = runtimeServices({deferActiveLookup: true})
+    const confirmation = handleNativeListLifecycle(harness.services, {
+      type: 'confirm-native-list-create', name: 'Ideas', visibility: 'public'
+    }, {capabilityProven: true, getDashboardState: harness.dashboard})
+
+    await harness.waitForActiveLookup()
+    harness.setActive({githubUserId: '99', identity: {githubUserId: '99'}})
+    harness.resolveActiveLookup()
+
+    expect(await confirmation).toEqual({
+      ok: false,
+      error: {
+        category: 'authentication',
+        message: 'The active GitHub account changed. Retry the native List action.',
+        retryable: true
+      }
+    })
+    expect(harness.persisted).toEqual([])
+    expect(harness.runnerCalls).toBe(0)
+  })
+
   test('persists a confirmed operation before starting the composed runner and rejects active-operation conflicts', async () => {
     const harness = runtimeServices()
     const response = await handleNativeListLifecycle(harness.services, {
@@ -135,26 +181,47 @@ interface Overrides {
   readonly active?: {readonly githubUserId: string; readonly identity: {readonly githubUserId: string}} | null
   readonly writeAuthorization?: WriteAuthorizationState
   readonly activeOperation?: NativeListLifecycleOperationRecord | null
+  readonly deferCatalog?: boolean
+  readonly deferActiveLookup?: boolean
 }
 
 function runtimeServices(overrides: Overrides = {}) {
   const persisted: NativeListLifecycleOperationRecord[] = []
   const events: string[] = []
   let activeOperation = overrides.activeOperation ?? null
+  let active = overrides.active === undefined
+    ? {githubUserId: '42', identity: {githubUserId: '42'}}
+    : overrides.active
   let runnerCalls = 0
   const lock = new NativeListMutationLock()
   const catalog = [list('UL_one', 'Ideas', 'private', 2, 'partial')]
+  let beginCatalog!: () => void
+  const catalogStarted = new Promise<void>((resolve) => { beginCatalog = resolve })
+  let releaseCatalog: (() => void) | null = null
+  const catalogReleased = new Promise<void>((resolve) => { releaseCatalog = resolve })
+  let beginActiveLookup!: () => void
+  const activeLookupStarted = new Promise<void>((resolve) => { beginActiveLookup = resolve })
+  let releaseActiveLookup: (() => void) | null = null
+  const activeLookupReleased = new Promise<void>((resolve) => { releaseActiveLookup = resolve })
   const services: NativeListLifecycleRuntimeServices = {
-    authSession: {loadActive: async () => overrides.active === undefined ? {githubUserId: '42', identity: {githubUserId: '42'}} : overrides.active},
+    authSession: {loadActive: async () => active},
     writeAuthController: {getState: async () => overrides.writeAuthorization ?? readyWriteAuthorization()},
     nativeListSync: {
-      observeCatalog: async (_userId, ids) => ({githubUserId: '42', complete: true, targets: new Map(ids.map((id) => [id, id === 'UL_one' ? {
-        listNodeId: 'UL_one', name: 'Ideas', description: null, isPrivate: true, slug: null, createdAt: null, updatedAt: null, lastAddedAt: null, reportedItemCount: 2
-      } : null])), fingerprint: 'catalog', rateLimit: {limit: 5000, remaining: 4999, resetAt: null}}),
+      observeCatalog: async (_userId, ids) => {
+        beginCatalog()
+        if (overrides.deferCatalog) await catalogReleased
+        return {githubUserId: '42', complete: true, targets: new Map(ids.map((id) => [id, id === 'UL_one' ? {
+          listNodeId: 'UL_one', name: 'Ideas', description: null, isPrivate: true, slug: null, createdAt: null, updatedAt: null, lastAddedAt: null, reportedItemCount: 2
+        } : null])), fingerprint: 'catalog', rateLimit: {limit: 5000, remaining: 4999, resetAt: null}}
+      },
       synchronize: async () => ({phase: 'complete'})
     },
     lifecycleStorage: {
-      getActive: async () => activeOperation,
+      getActive: async () => {
+        beginActiveLookup()
+        if (overrides.deferActiveLookup) await activeLookupReleased
+        return activeOperation
+      },
       put: async (operation) => { events.push('persist'); persisted.push(operation); activeOperation = operation },
       cancelPreDispatch: async (githubUserId, operationId, cancelledAt) => {
         if (
@@ -181,7 +248,12 @@ function runtimeServices(overrides: Overrides = {}) {
     persisted,
     events,
     lock,
+    setActive: (next: NonNullable<Overrides['active']>) => { active = next },
     setActiveOperation: (operation: NativeListLifecycleOperationRecord | null) => { activeOperation = operation },
+    waitForCatalog: () => catalogStarted,
+    resolveCatalog: () => releaseCatalog?.(),
+    waitForActiveLookup: () => activeLookupStarted,
+    resolveActiveLookup: () => releaseActiveLookup?.(),
     get runnerCalls() { return runnerCalls },
     dashboard: async () => dashboardState()
   }
