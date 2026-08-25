@@ -282,6 +282,7 @@ let activeNativeListLifecycleRequest: {
   readonly context: AppStateRequestContext
 } | null = null
 let nativeListLifecycleDialogHost: HTMLElement | null = null
+let nativeListManagementRevision = van.state(0)
 let unstarDialogInvoker: DialogInvoker | null = null
 let membershipDialogInvoker: DialogInvoker | null = null
 let repositoryDialogInvoker: DialogInvoker | null = null
@@ -656,20 +657,40 @@ function lifecyclePublishedState(): AppState {
       ? {}
       : {nativeListLifecycle: publishedNativeListLifecycle.val}),
     nativeListSync: publishedNativeListSync.val,
+    ...(publishedNativeListRename.val === undefined
+      ? {}
+      : {nativeListRename: publishedNativeListRename.val}),
+    mutations: publishedMutations.val ?? null,
     library: publishedLibrary.val,
     error: publishedError.val
   }
 }
 
 function NativeListManagementState() {
-  const state = lifecyclePublishedState()
+  return div(
+    {'class': 'native-list-management', 'data-native-list-management': 'true'},
+    () => {
+      nativeListManagementRevision.val
+      const focusKey = managementFocusKey()
+      const content = NativeListManagementContent(lifecyclePublishedState())
+      if (focusKey) restoreManagementFocus(focusKey)
+      return content
+    },
+    createNativeListLifecycleDialogHost()
+  )
+}
+
+function NativeListManagementContent(state: AppState) {
   const lists = state.library?.nativeLists.toSorted((left, right) =>
     left.name.localeCompare(right.name)
   ) ?? []
   const active = activeNativeListLifecycleOperation(state)
+  const membershipActive = hasActiveNativeListMembershipMutation(state)
+  const renameActive = savingNativeListRename.val || activeNativeListRenameRequest !== null
+  const conflictingNativeListWork = active !== null || membershipActive || renameActive
   const readiness = state.nativeListLifecycle?.readiness ?? 'capability-unproven'
   return div(
-    {'class': 'native-list-management', 'data-native-list-management': 'true'},
+    {class: 'native-list-management-content'},
     header(
       {'class': 'archive-document-header'},
       div(h1('Manage GitHub Lists'), p({class: 'operations-intro'}, 'Remote native GitHub Lists are separate from local tags and annotations.')), 
@@ -677,6 +698,7 @@ function NativeListManagementState() {
         {
           class: 'refresh-button',
           type: 'button',
+          'data-native-list-management-focus': 'refresh',
           disabled: nativeListLifecyclePending,
           onclick: () => void refreshNativeListLifecycle()
         },
@@ -684,7 +706,18 @@ function NativeListManagementState() {
       )
     ),
     LifecycleReadinessNotice(state),
-    active ? LifecycleOperationStatus(active) : null,
+    () => nativeListLifecycleError.val
+      ? p({class: 'inline-error', role: 'alert'}, nativeListLifecycleError.val)
+      : null,
+    state.nativeListLifecycle?.operation
+      ? LifecycleOperationStatus(state.nativeListLifecycle.operation)
+      : null,
+    membershipActive
+      ? p({class: 'lifecycle-readiness', role: 'status'}, 'A native GitHub List membership operation is active. Lifecycle changes remain disabled until it reaches a terminal outcome.')
+      : null,
+    renameActive
+      ? p({class: 'lifecycle-readiness', role: 'status'}, 'A native GitHub List rename request is active. Lifecycle changes remain disabled until it completes.')
+      : null,
     section(
       {class: 'native-list-management-section', 'aria-labelledby': 'native-list-create-heading'},
       h2({id: 'native-list-create-heading'}, 'Create a GitHub List'),
@@ -693,7 +726,8 @@ function NativeListManagementState() {
         {
           class: 'primary-action', type: 'button',
           'data-native-list-create-invoker': 'true',
-          disabled: readiness !== 'ready' || active !== null || nativeListLifecyclePending,
+          'data-native-list-management-focus': 'create',
+          disabled: readiness !== 'ready' || conflictingNativeListWork || nativeListLifecyclePending,
           onclick: () => openNativeListCreate(document.querySelector<HTMLElement>('[data-native-list-create-invoker]') ?? document.body)
         },
         'Create GitHub List'
@@ -719,15 +753,31 @@ function NativeListManagementState() {
                 button({
                   class: 'danger-action', type: 'button',
                   'data-native-list-delete-invoker': list.listNodeId,
-                  disabled: readiness !== 'ready' || active !== null || nativeListLifecyclePending,
+                  'data-native-list-management-focus': `delete-${list.listNodeId}`,
+                  disabled: readiness !== 'ready' || conflictingNativeListWork || nativeListLifecyclePending,
                   onclick: (event: MouseEvent) => void previewNativeListDelete(list.listNodeId, event.currentTarget as HTMLElement)
                 }, 'Review deletion')
               )
             )
           )
-    ),
-    createNativeListLifecycleDialogHost()
+    )
   )
+}
+
+function managementFocusKey(): string | null {
+  const active = document.activeElement as HTMLElement | null
+  return active?.closest('[data-native-list-management]')
+    ? active.dataset.nativeListManagementFocus ?? null
+    : null
+}
+
+function restoreManagementFocus(key: string): void {
+  window.setTimeout(() => {
+    const target = mountedDashboardRoot?.querySelector<HTMLElement>(
+      `[data-native-list-management-focus="${key}"]`
+    ) ?? null
+    if (isDashboardFocusTargetVisible(target)) target.focus()
+  }, 0)
 }
 
 function createNativeListLifecycleDialogHost(): HTMLElement {
@@ -770,6 +820,12 @@ function LifecycleOperationStatus(operation: NativeListLifecycleOperationRecord)
 
 function lifecyclePhaseLabel(phase: NativeListLifecycleOperationRecord['phase']): string {
   return ({queued: 'Queued', preflight: 'Preflight', mutating: 'Mutating', verifying: 'Verifying', succeeded: 'Verified', 'already-deleted': 'Already deleted', 'needs-confirmation': 'Needs confirmation', 'blocked-unknown': 'Blocked — outcome unknown', failed: 'Failed', cancelled: 'Cancelled'})[phase]
+}
+
+function hasActiveNativeListMembershipMutation(state: AppState): boolean {
+  return (state.mutations?.jobs ?? []).some((job) =>
+    job.mutationKind === 'native-list-membership' && isNonterminalMutationStatus(job.status)
+  )
 }
 
 function activeNativeListLifecycleOperation(state: AppState): NativeListLifecycleOperationRecord | null {
@@ -1406,6 +1462,7 @@ function NativeListMembershipControls(
             type: 'button',
             class: membershipOperation.val === kind ? 'is-active' : '',
             'aria-pressed': membershipOperation.val === kind,
+            disabled: lifecycleActive,
             onclick: () => {
               membershipOperation.val = kind
               membershipActivity.val = null
@@ -1427,6 +1484,7 @@ function NativeListMembershipControls(
             select(
               {
                 value: moveSourceListNodeId,
+                disabled: lifecycleActive,
                 onchange: (event: Event) => {
                   moveSourceListNodeId.val = (event.currentTarget as HTMLSelectElement).value
                 }
@@ -1442,6 +1500,7 @@ function NativeListMembershipControls(
             select(
               {
                 value: moveDestinationListNodeId,
+                disabled: lifecycleActive,
                 onchange: (event: Event) => {
                   moveDestinationListNodeId.val = (event.currentTarget as HTMLSelectElement).value
                 }
@@ -1472,6 +1531,7 @@ function NativeListMembershipControls(
               input({
                 type: 'checkbox',
                 checked: selected.has(nativeList.listNodeId),
+                disabled: lifecycleActive,
                 onchange: (event: Event) =>
                   toggleNativeListSelection(
                     nativeList.listNodeId,
@@ -2900,11 +2960,12 @@ function LifecycleCreateForm() {
 function LifecyclePreview(preview: NativeListLifecyclePreview) {
   if (preview.kind === 'create') return div({class: 'native-list-lifecycle-preview'}, p('Read-only preview. No GitHub operation has been sent.'), strongText(preview.name), p(`Visibility: ${preview.visibility}.`), p('After confirmation, the operation is queued and GitHub success is not reported until a verified read-back.'))
   const populated = preview.reportedItemCount > 0
-  return div({class: `native-list-lifecycle-preview${populated ? ' is-populated' : ''}`}, p(populated ? 'This populated GitHub List requires a stronger confirmation.' : 'Read-only confirmation. No GitHub operation has been sent.'), strongText(preview.name), p(`Visibility: ${preview.visibility}. GitHub reports ${preview.reportedItemCount} ${preview.reportedItemCount === 1 ? 'repository' : 'repositories'}.`), preview.importStatus === 'partial' ? p({class: 'partial-native-list-note'}, 'Partial import limitation: GitHub-reported count may include repositories not imported locally.') : null, p({class: 'no-undo-note'}, 'There is no Undo. Repositories remain starred but become unlisted.'), p('GitHub success is not reported until a verified read-back.'))
+  return div({class: `native-list-lifecycle-preview${populated ? ' is-populated' : ''}`}, p(populated ? 'This populated GitHub List requires a stronger confirmation.' : 'This empty GitHub List has no reported repositories. Read-only confirmation. No GitHub operation has been sent.'), strongText(preview.name), p(`Visibility: ${preview.visibility}. GitHub reports ${preview.reportedItemCount} ${preview.reportedItemCount === 1 ? 'repository' : 'repositories'}.`), preview.importStatus === 'partial' ? p({class: 'partial-native-list-note'}, 'Partial import limitation: GitHub-reported count may include repositories not imported locally.') : null, p({class: 'no-undo-note'}, 'There is no Undo. Repositories remain starred but become unlisted.'), p('GitHub success is not reported until a verified read-back.'))
 }
 
 function setNativeListLifecycleError(message: string | null): void {
   nativeListLifecycleError.val = message
+  nativeListManagementRevision.val += 1
   renderNativeListLifecycleDialog()
 }
 
@@ -3023,9 +3084,9 @@ async function refreshNativeListLifecycle(): Promise<void> {
   try {
     const response = await sendRuntimeMessage({type: 'refresh-native-list-lifecycle'}) as RuntimeResponse<AppState>
     if (!isCurrentNativeListLifecycleRequest(request)) return
-    if (!response.ok) { nativeListLifecycleError.val = response.error.message; return }
+    if (!response.ok) { setNativeListLifecycleError(response.error.message); return }
     applyAppStateResponse(request.context, response.data)
-  } catch { if (isCurrentNativeListLifecycleRequest(request)) nativeListLifecycleError.val = 'Unable to refresh GitHub Lists. Please try again.' } finally { finishNativeListLifecycleRequest(request) }
+  } catch { if (isCurrentNativeListLifecycleRequest(request)) setNativeListLifecycleError('Unable to refresh GitHub Lists. Please try again.') } finally { finishNativeListLifecycleRequest(request) }
 }
 
 async function cancelNativeListLifecycle(): Promise<void> {
@@ -3034,9 +3095,9 @@ async function cancelNativeListLifecycle(): Promise<void> {
   try {
     const response = await sendRuntimeMessage({type: 'cancel-native-list-lifecycle'}) as RuntimeResponse<AppState>
     if (!isCurrentNativeListLifecycleRequest(request)) return
-    if (!response.ok) { nativeListLifecycleError.val = response.error.message; return }
+    if (!response.ok) { setNativeListLifecycleError(response.error.message); return }
     applyAppStateResponse(request.context, response.data)
-  } catch { if (isCurrentNativeListLifecycleRequest(request)) nativeListLifecycleError.val = 'Unable to cancel the queued GitHub List operation. Please try again.' } finally { finishNativeListLifecycleRequest(request) }
+  } catch { if (isCurrentNativeListLifecycleRequest(request)) setNativeListLifecycleError('Unable to cancel the queued GitHub List operation. Please try again.') } finally { finishNativeListLifecycleRequest(request) }
 }
 
 function handleDialogKeydown(
@@ -3742,6 +3803,7 @@ function applyState(state: AppState): void {
   }
   if (activeNativeListLifecycleOperation(state) !== null && pendingMembershipPreview.val !== null) {
     resetMembershipPreview()
+    membershipActivity.val = 'A GitHub List lifecycle operation invalidated the membership preview. Refresh the membership review after its outcome is verified.'
   }
   reconcileActiveNativeList(state)
   appState.val = state
@@ -4496,6 +4558,7 @@ function resetDashboardUiState(): void {
   nativeListLifecycleName = van.state('')
   nativeListLifecycleVisibility = van.state<'public' | 'private' | null>(null)
   nativeListLifecycleError = van.state<string | null>(null)
+  nativeListManagementRevision = van.state(0)
   nativeListLifecyclePending = van.state(false)
   nativeListLifecycleInvoker = null
   activeNativeListLifecycleRequest = null

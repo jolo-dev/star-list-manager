@@ -5497,7 +5497,212 @@ test('renders lifecycle progress and blocks conflicting membership and rename ac
   expect(renameEditButton(root)).toBeNull()
   await openRepositoryDetails(root, browserWindow)
   expect(root.querySelector<HTMLButtonElement>('.membership-review')?.disabled).toBe(true)
+  expect(root.querySelector<HTMLButtonElement>('.membership-operation-tabs button')?.disabled).toBe(true)
+  expect(root.querySelector<HTMLInputElement>('.native-list-choices input')?.disabled).toBe(true)
   expect(root.textContent).toContain('Membership previews are unavailable until its outcome is verified.')
+})
+
+test('uses the standard exact-name confirmation for an empty GitHub List', async () => {
+  const messages: Array<{readonly type: string; readonly listNodeId?: string}> = []
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    messages.push(message)
+    return {ok: true, data: {kind: 'delete', listNodeId: 'L_current', name: 'Current List', visibility: 'public', reportedItemCount: 0, importStatus: 'complete', confirmationFingerprint: 'empty'}}
+  }}}})
+  try {
+    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}})
+    const browserWindow = window as unknown as Window
+    ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+      .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
+    await nextTurn(browserWindow)
+    root.querySelector<HTMLButtonElement>('[data-native-list-delete-invoker="L_current"]')?.click()
+    await nextTurn(browserWindow)
+    const dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
+    expect(dialog?.textContent).toContain('This empty GitHub List has no reported repositories.')
+    expect(dialog?.textContent).toContain('Current List')
+    expect(dialog?.textContent).toContain('Visibility: public.')
+    expect(dialog?.textContent).toContain('There is no Undo. Repositories remain starred but become unlisted.')
+    expect(dialog?.classList.contains('is-destructive')).toBe(true)
+    expect(messages).toEqual([{type: 'preview-native-list-delete', listNodeId: 'L_current'}])
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('traps Tab focus and restores the lifecycle dialog invoker on Escape', async () => {
+  const state = membershipReadyDashboardState()
+  const root = await mountReadyDashboard({
+    ...state,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    nativeListLifecycle: {readiness: 'ready', operation: null},
+    library: {...state.library!, nativeLists: []}
+  })
+  const browserWindow = window as unknown as Window
+  ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+    .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
+  await nextTurn(browserWindow)
+  const invoker = root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+  invoker?.click()
+  await nextTurn(browserWindow)
+  const dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
+  const name = dialog?.querySelector<HTMLInputElement>('#native-list-create-name')
+  const cancel = dialog?.querySelector<HTMLButtonElement>('.dialog-cancel')
+  if (!dialog || !name || !cancel) throw new Error('Lifecycle dialog controls required.')
+  cancel.focus()
+  cancel.dispatchEvent(new browserWindow.KeyboardEvent('keydown', {key: 'Tab', bubbles: true}) as unknown as Event)
+  expect((browserWindow.document.activeElement as unknown) === name).toBe(true)
+  name.dispatchEvent(new browserWindow.KeyboardEvent('keydown', {key: 'Tab', shiftKey: true, bubbles: true}) as unknown as Event)
+  expect((browserWindow.document.activeElement as unknown) === cancel).toBe(true)
+  dialog.dispatchEvent(new browserWindow.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}) as unknown as Event)
+  await nextTurn(browserWindow)
+  expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
+  expect((browserWindow.document.activeElement as unknown) === invoker).toBe(true)
+})
+
+test('updates the retained List management workspace from applied lifecycle state', async () => {
+  const initial = membershipReadyDashboardState()
+  const root = await mountReadyDashboard({
+    ...initial,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    nativeListLifecycle: {readiness: 'capability-unproven', operation: null},
+    library: {...initial.library!, nativeLists: []}
+  })
+  const browserWindow = window as unknown as Window
+  ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+    .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
+  await nextTurn(browserWindow)
+  const management = root.querySelector<HTMLElement>('[data-native-list-management]')
+  const refresh = management?.querySelector<HTMLButtonElement>('.refresh-button') ?? null
+  refresh?.focus()
+  expect(management?.textContent).toContain('No synchronized GitHub Lists yet.')
+
+  const verified = {
+    githubUserId: '42', operationId: 'op-verified',
+    intent: {kind: 'create' as const, name: 'Observed List', visibility: 'private' as const},
+    phase: 'succeeded' as const, attemptCount: 1, candidateListNodeId: 'L_observed', confirmationFingerprint: null, lastError: null,
+    createdAt: '2026-08-20T10:00:00Z', updatedAt: '2026-08-20T10:00:01Z', completedAt: '2026-08-20T10:00:01Z'
+  }
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  renderAppState({
+    ...initial,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    nativeListLifecycle: {readiness: 'ready', operation: verified},
+    library: {...initial.library!, nativeLists: [nativeList('L_observed', 'Observed List')]}
+  })
+  await nextTurn(browserWindow)
+  expect(root.querySelector('[data-native-list-management]')).toBe(management)
+  expect(management?.textContent).toContain('Latest operation: Verified')
+  expect(management?.textContent).toContain('Observed List')
+  expect(management?.textContent).toContain('GitHub List lifecycle writes are ready.')
+  expect((browserWindow.document.activeElement as unknown) === management?.querySelector('.refresh-button')).toBe(true)
+})
+
+test('invalidates a membership preview and requires a refreshed review after lifecycle activity', async () => {
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    if (message.type === 'preview-native-list-membership') return {ok: true, data: membershipPreview('add', null)}
+    if (message.type === 'get-app-state') return {ok: true, data: state}
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+  try {
+    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists')})
+    const browserWindow = window as unknown as Window
+    await openRepositoryDetails(root, browserWindow)
+    const choice = root.querySelector<HTMLInputElement>('.native-list-choices input')
+    if (choice === null) throw new Error('Membership choice required.')
+    choice.checked = true
+    choice.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+    await browserWindow.happyDOM.whenAsyncComplete()
+    root.querySelector<HTMLButtonElement>('.membership-review')?.click()
+    await nextTurn(browserWindow)
+    expect(root.querySelector('.membership-confirmation')).not.toBeNull()
+    const {renderAppState} = await import('../../src/dashboard/scripts')
+    const active = {
+      githubUserId: '42', operationId: 'op-lifecycle',
+      intent: {kind: 'create' as const, name: 'New List', visibility: 'private' as const},
+      phase: 'preflight' as const, attemptCount: 0, candidateListNodeId: null, confirmationFingerprint: null, lastError: null,
+      createdAt: '2026-08-20T10:00:00Z', updatedAt: '2026-08-20T10:00:00Z', completedAt: null
+    }
+    renderAppState({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: active}})
+    await nextTurn(browserWindow)
+    expect(root.querySelector('.membership-confirmation')).toBeNull()
+    await openRepositoryDetails(root, browserWindow)
+    expect(root.textContent).toContain('A GitHub List lifecycle operation invalidated the membership preview. Refresh the membership review after its outcome is verified.')
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('renders lifecycle refresh errors in management without opening a dialog', async () => {
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    if (message.type === 'refresh-native-list-lifecycle') {
+      return {ok: false, error: {category: 'authentication', message: 'Reauthorize GitHub before refreshing Lists.', retryable: true}}
+    }
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+  try {
+    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}})
+    const browserWindow = window as unknown as Window
+    ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+      .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
+    await nextTurn(browserWindow)
+    root.querySelector<HTMLButtonElement>('[data-native-list-management-focus="refresh"]')?.click()
+    await nextTurn(browserWindow)
+    expect(root.querySelector('[data-native-list-management]')?.textContent).toContain('Reauthorize GitHub before refreshing Lists.')
+    expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('keeps unknown and failed lifecycle outcomes visible without a modal', async () => {
+  const state = membershipReadyDashboardState()
+  const root = await mountReadyDashboard({...state, nativeListLifecycle: {readiness: 'ready', operation: null}})
+  const browserWindow = window as unknown as Window
+  ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+    .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
+  await nextTurn(browserWindow)
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const blocked = {
+    githubUserId: '42', operationId: 'op-unknown',
+    intent: {kind: 'delete' as const, listNodeId: 'L_current', name: 'Current List', visibility: 'private' as const, reportedItemCount: 1, importStatus: 'complete' as const},
+    phase: 'blocked-unknown' as const, attemptCount: 1, candidateListNodeId: 'L_current', confirmationFingerprint: 'fresh',
+    lastError: {category: 'network' as const, message: 'Connection ended before GitHub verification.', statusCode: null, occurredAt: '2026-08-20T10:00:01Z'},
+    createdAt: '2026-08-20T10:00:00Z', updatedAt: '2026-08-20T10:00:01Z', completedAt: '2026-08-20T10:00:01Z'
+  }
+  renderAppState({...state, nativeListLifecycle: {readiness: 'ready', operation: blocked}})
+  await nextTurn(browserWindow)
+  expect(root.textContent).toContain('Latest operation: Blocked — outcome unknown')
+  expect(root.textContent).toContain('Do not retry automatically')
+  expect(root.textContent).toContain('Connection ended before GitHub verification.')
+  expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
+})
+
+test('disables lifecycle actions while native List membership work is active', async () => {
+  const state = membershipReadyDashboardState()
+  const membershipJob = {...mutationJob('42', 'mutating-membership', 1), mutationKind: 'native-list-membership' as const}
+  const root = await mountReadyDashboard({
+    ...state,
+    nativeListLifecycle: {readiness: 'ready', operation: null},
+    mutations: {batches: [], jobs: [membershipJob], history: []}
+  })
+  const browserWindow = window as unknown as Window
+  ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+    .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
+  await nextTurn(browserWindow)
+  expect(root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.disabled).toBe(true)
+  expect(root.querySelector<HTMLButtonElement>('[data-native-list-delete-invoker="L_current"]')?.disabled).toBe(true)
+  expect(root.textContent).toContain('A native GitHub List membership operation is active.')
 })
 
 test('rejects a stale lifecycle preview after the active account changes', async () => {

@@ -2349,6 +2349,11 @@ textarea:disabled {
   gap: 20px;
 }
 
+.native-list-management-content {
+  display: grid;
+  gap: 20px;
+}
+
 .native-list-management > .archive-document-header {
   align-items: flex-start;
 }

@@ -343,6 +343,12 @@ test('wraps user content and preserves mobile controls and reflow', () => {
   expect(ruleFor(mobile, '.dialog-backdrop')).toMatch(/place-items:\s*end center/)
 })
 
+test('keeps retained native List management content in the existing operating rhythm', () => {
+  const content = exactRuleFor(styles, ['.native-list-management-content'])
+  expect(content).toMatch(/display:\s*grid/)
+  expect(content).toMatch(/gap:\s*20px/)
+})
+
 test('uses transform-only bounded skeleton shimmer', () => {
   expect(styles).not.toMatch(/@keyframes[^{}]*shimmer[\s\S]*?background-position/)
   expect(ruleFor(styles, '.skeleton-row')).toMatch(/overflow:\s*hidden/)
