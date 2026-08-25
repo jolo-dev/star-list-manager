@@ -6504,6 +6504,276 @@ test('gates safe lifecycle controls until same-account authorization recovery cl
   }
 })
 
+test('keeps terminal lifecycle authorization failures fail-closed across every rail control', async () => {
+  const state = membershipReadyDashboardState()
+  for (const category of ['authentication', 'permission'] as const) {
+    const root = await mountReadyDashboard({
+      ...state,
+      sync: completeSyncState('stars'),
+      nativeListSync: completeSyncState('native-lists'),
+      nativeListLifecycle: {
+        readiness: 'ready',
+        operation: lifecycleOperation('failed', {
+          category,
+          message: 'GitHub authorization cannot perform this List action.',
+          statusCode: category === 'authentication' ? 401 : 403,
+          occurredAt: '2026-08-20T10:00:01Z'
+        })
+      }
+    })
+    const controls = [
+      root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]'),
+      ...root.querySelectorAll<HTMLButtonElement>('[data-native-list-delete-invoker]')
+    ]
+
+    expect(controls.length).toBeGreaterThan(1)
+    expect(controls.every((control) => control?.disabled === true)).toBe(true)
+    expect(
+      controls.every(
+        (control) =>
+          control?.getAttribute('aria-describedby') ===
+          'native-list-lifecycle-guidance'
+      )
+    ).toBe(true)
+    expect(root.querySelector('#native-list-lifecycle-guidance')?.textContent).toContain(
+      'Reauthorize GitHub before changing Lists.'
+    )
+    expect(root.querySelector('[data-native-list-refresh]')).toBeNull()
+  }
+})
+
+test('keeps complete and partial native List sync authorization failures fail-closed', async () => {
+  const state = membershipReadyDashboardState()
+  for (const phase of ['complete', 'partial'] as const) {
+    for (const category of ['authentication', 'permission'] as const) {
+      const root = await mountReadyDashboard({
+        ...state,
+        sync: completeSyncState('stars'),
+        nativeListSync: {
+          ...completeSyncState('native-lists'),
+          phase,
+          lastError: {
+            category,
+            message: 'Native List authorization expired.',
+            retryable: false
+          }
+        },
+        nativeListLifecycle: {readiness: 'ready', operation: null}
+      })
+      const controls = [
+        root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]'),
+        ...root.querySelectorAll<HTMLButtonElement>('[data-native-list-delete-invoker]')
+      ]
+
+      expect(controls.every((control) => control?.disabled === true)).toBe(true)
+      expect(
+        controls.every(
+          (control) =>
+            control?.getAttribute('aria-describedby') ===
+            'native-list-lifecycle-guidance'
+        )
+      ).toBe(true)
+      expect(root.querySelector('#native-list-lifecycle-guidance')?.textContent).toContain(
+        'Reauthorize GitHub before changing Lists.'
+      )
+      expect(root.querySelector('[data-native-list-lifecycle-status]')?.textContent).toContain(
+        'Reauthorize GitHub before refreshing Lists.'
+      )
+      expect(root.querySelector('[data-native-list-refresh]')).toBeNull()
+    }
+  }
+})
+
+test('recovers only the observed same-account authorization failure fingerprint after a non-ready to ready write cycle', async () => {
+  const state = membershipReadyDashboardState()
+  const failedOperation = lifecycleOperation('failed', {
+    category: 'permission',
+    message: 'GitHub authorization cannot perform this List action.',
+    statusCode: 403,
+    occurredAt: '2026-08-20T10:00:01Z'
+  })
+  const failedState: AppState = {
+    ...state,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    nativeListLifecycle: {readiness: 'ready', operation: failedOperation}
+  }
+  const root = await mountReadyDashboard(failedState)
+  const browserWindow = window as unknown as Window
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const create = () =>
+    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+
+  expect(create()?.disabled).toBe(true)
+  renderAppState({
+    ...failedState,
+    writeAuthorization: {...failedState.writeAuthorization, previewVisible: true}
+  })
+  await flushDashboardReactivity(browserWindow)
+  expect(create()?.disabled).toBe(true)
+
+  renderAppState({
+    ...failedState,
+    writeAuthorization: {
+      ...failedState.writeAuthorization,
+      readiness: 'credential-rejected'
+    }
+  })
+  await flushDashboardReactivity(browserWindow)
+  expect(create()?.disabled).toBe(true)
+
+  renderAppState(failedState)
+  await flushDashboardReactivity(browserWindow)
+  const recoveredStatus = root.querySelector<HTMLElement>(
+    '[data-native-list-lifecycle-status]'
+  )
+  expect(create()?.disabled).toBe(false)
+  expect(
+    root.querySelector<HTMLButtonElement>(
+      '[data-native-list-delete-invoker="L_current"]'
+    )?.disabled
+  ).toBe(false)
+  expect(recoveredStatus?.textContent).toContain(
+    'Previous authorization failure was resolved by renewed write authorization.'
+  )
+  expect(recoveredStatus?.textContent).not.toContain('Reauthorize GitHub')
+  expect(recoveredStatus?.querySelector('[role="alert"]')).toBeNull()
+  expect(recoveredStatus?.querySelector('[data-native-list-refresh]')).not.toBeNull()
+
+  const newFailure = {
+    ...failedOperation,
+    operationId: 'op-failed-new',
+    updatedAt: '2026-08-20T10:00:02Z',
+    completedAt: '2026-08-20T10:00:02Z',
+    lastError: {
+      ...failedOperation.lastError!,
+      occurredAt: '2026-08-20T10:00:02Z'
+    }
+  }
+  renderAppState({
+    ...failedState,
+    nativeListLifecycle: {readiness: 'ready', operation: newFailure}
+  })
+  await flushDashboardReactivity(browserWindow)
+  expect(create()?.disabled).toBe(true)
+  expect(root.querySelector('#native-list-lifecycle-guidance')?.textContent).toContain(
+    'Reauthorize GitHub before changing Lists.'
+  )
+})
+
+test('recovers only the observed native List sync failure fingerprint after renewed write authorization', async () => {
+  const state = membershipReadyDashboardState()
+  const failedSync: SyncStateRecord = {
+    ...completeSyncState('native-lists'),
+    phase: 'partial',
+    lastError: {
+      category: 'authentication',
+      message: 'Native List authorization expired.',
+      retryable: false
+    }
+  }
+  const failedState: AppState = {
+    ...state,
+    writeAuthorization: {
+      ...state.writeAuthorization,
+      readiness: 'credential-rejected'
+    },
+    sync: completeSyncState('stars'),
+    nativeListSync: failedSync,
+    nativeListLifecycle: {readiness: 'ready', operation: null}
+  }
+  const root = await mountReadyDashboard(failedState)
+  const browserWindow = window as unknown as Window
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const create = () =>
+    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+
+  expect(create()?.disabled).toBe(true)
+  renderAppState({
+    ...failedState,
+    writeAuthorization: {...state.writeAuthorization, readiness: 'ready'}
+  })
+  await flushDashboardReactivity(browserWindow)
+  const recoveredStatus = root.querySelector<HTMLElement>(
+    '[data-native-list-lifecycle-status]'
+  )
+  expect(create()?.disabled).toBe(false)
+  expect(recoveredStatus?.textContent).toContain(
+    'Previous authorization failure was resolved by renewed write authorization.'
+  )
+  expect(recoveredStatus?.textContent).not.toContain('Reauthorize GitHub')
+  expect(recoveredStatus?.querySelector('[role="alert"]')).toBeNull()
+  expect(recoveredStatus?.querySelector('[data-native-list-refresh]')).not.toBeNull()
+
+  renderAppState({
+    ...state,
+    sync: completeSyncState('stars'),
+    nativeListSync: {
+      ...failedSync,
+      attempt: 2,
+      lastStartedAt: '2026-08-20T10:00:02Z'
+    },
+    nativeListLifecycle: {readiness: 'ready', operation: null}
+  })
+  await flushDashboardReactivity(browserWindow)
+  expect(create()?.disabled).toBe(true)
+  expect(root.querySelector('#native-list-lifecycle-guidance')?.textContent).toContain(
+    'Reauthorize GitHub before changing Lists.'
+  )
+})
+
+test('resets lifecycle authorization recovery on account change and dashboard mount', async () => {
+  const state = membershipReadyDashboardState()
+  const failure = lifecycleOperation('failed', {
+    category: 'authentication',
+    message: 'GitHub authorization expired.',
+    statusCode: 401,
+    occurredAt: '2026-08-20T10:00:01Z'
+  })
+  const failedState: AppState = {
+    ...state,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    nativeListLifecycle: {readiness: 'ready', operation: failure}
+  }
+  const root = await mountReadyDashboard({
+    ...failedState,
+    writeAuthorization: {
+      ...failedState.writeAuthorization,
+      readiness: 'credential-rejected'
+    }
+  })
+  const browserWindow = window as unknown as Window
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  renderAppState(failedState)
+  await flushDashboardReactivity(browserWindow)
+  expect(
+    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+      ?.disabled
+  ).toBe(false)
+
+  const accountB = accountBDashboardState()
+  renderAppState({
+    ...accountB,
+    nativeListLifecycle: {
+      readiness: 'ready',
+      operation: {...failure, githubUserId: '7'}
+    }
+  })
+  await flushDashboardReactivity(browserWindow)
+  expect(
+    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+      ?.disabled
+  ).toBe(true)
+
+  const remountedRoot = await mountReadyDashboard(failedState)
+  expect(
+    remountedRoot.querySelector<HTMLButtonElement>(
+      '[data-native-list-create-invoker]'
+    )?.disabled
+  ).toBe(true)
+})
+
 test('deduplicates lifecycle reauthorization guidance across sync and foreground errors', async () => {
   const refreshResponse = deferred()
   const previousChrome = (globalThis as {chrome?: unknown}).chrome
