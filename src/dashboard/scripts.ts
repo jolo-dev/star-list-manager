@@ -275,8 +275,15 @@ let nativeListLifecycleDialog = van.state<NativeListLifecycleDialog | null>(null
 let nativeListLifecycleName = van.state('')
 let nativeListDeleteConfirmationName = van.state('')
 let nativeListLifecycleVisibility = van.state<'public' | 'private' | null>(null)
-let nativeListLifecycleError = van.state<string | null>(null)
-let nativeListLifecycleErrorCategory = van.state<ErrorCategory | null>(null)
+type NativeListLifecycleErrorSource = 'dialog' | 'rail'
+type NativeListLifecycleRailAction = 'refresh' | 'cancel'
+interface NativeListLifecycleUiError {
+  readonly message: string
+  readonly category: ErrorCategory
+  readonly source: NativeListLifecycleErrorSource
+  readonly railAction: NativeListLifecycleRailAction | null
+}
+let nativeListLifecycleError = van.state<NativeListLifecycleUiError | null>(null)
 let nativeListLifecyclePending = van.state(false)
 let nativeListLifecycleInvoker: DialogInvoker | null = null
 let nextNativeListLifecycleRequestToken = 0
@@ -605,6 +612,16 @@ function nativeListLifecycleGate(state: AppState): NativeListLifecycleGate {
       reason: 'A native GitHub List rename request is active.'
     }
   }
+  const railError = nativeListLifecycleRailError()
+  if (
+    railError?.category === 'authentication' ||
+    railError?.category === 'permission'
+  ) {
+    return {
+      disabled: true,
+      reason: 'Reauthorize GitHub before changing Lists.'
+    }
+  }
   const readiness = state.nativeListLifecycle?.readiness ?? 'capability-unproven'
   if (readiness === 'write-authorization-required') {
     return {
@@ -796,14 +813,15 @@ function NativeListLifecycleStatus(
   const operation = state.nativeListLifecycle?.operation ?? null
   const operationError = operation?.lastError ?? null
   const syncError = state.nativeListSync?.lastError ?? null
-  const currentError = nativeListLifecycleError.val
-  const currentErrorCategory = nativeListLifecycleErrorCategory.val
+  const currentError = nativeListLifecycleRailError()
+  const currentErrorMessage = currentError?.message ?? null
+  const currentErrorCategory = currentError?.category ?? null
   const baseStatusText = operation
     ? `Latest operation: ${lifecyclePhaseLabel(operation.phase)}. ${operation.intent.name} · ${operation.intent.kind}. ${lifecycleOperationGuidance(operation)}`
     : nativeListSyncStatusText(state)
   const reauthorizationGuidance = lifecycleReauthorizationGuidance(
     baseStatusText,
-    currentError,
+    currentErrorMessage,
     currentErrorCategory
   )
   const showRefresh = shouldShowNativeListLifecycleRefresh(
@@ -832,7 +850,7 @@ function NativeListLifecycleStatus(
       `${baseStatusText}${reauthorizationGuidance ? ` ${reauthorizationGuidance}` : ''}`
     ),
     currentError
-      ? p({class: 'inline-error', role: 'alert'}, currentError)
+      ? p({class: 'inline-error', role: 'alert'}, currentError.message)
       : operationError
         ? p({class: 'inline-error', role: 'alert'}, operationError.message)
         : syncError
@@ -862,6 +880,7 @@ function NativeListLifecycleStatus(
                 {
                   class: 'secondary-action',
                   type: 'button',
+                  'data-native-list-cancel': 'true',
                   ...actionAssociation,
                   disabled: nativeListLifecyclePending,
                   onclick: () => void cancelNativeListLifecycle()
@@ -988,7 +1007,8 @@ function shouldShowNativeListLifecycleRefresh(
     phase === 'idle' ||
     phase === 'partial' ||
     phase === 'stale' ||
-    phase === 'unavailable'
+    phase === 'unavailable' ||
+    phase === 'error'
   )
 }
 
@@ -3140,7 +3160,7 @@ function NativeListLifecycleConfirmation() {
               : null
           )
         : null,
-      nativeListLifecycleError.val ? p({class: 'inline-error', id: 'native-list-lifecycle-error', role: 'alert'}, nativeListLifecycleError) : null,
+      nativeListLifecycleDialogError() ? p({class: 'inline-error', id: 'native-list-lifecycle-error', role: 'alert'}, nativeListLifecycleDialogError()?.message ?? '') : null,
       div(
         {class: 'action-row'},
         preview
@@ -3156,10 +3176,10 @@ function LifecycleCreateForm() {
   const inputId = 'native-list-create-name'
   return form(
     {class: 'native-list-lifecycle-form', onsubmit: (event: SubmitEvent) => { event.preventDefault(); void previewNativeListCreate() }},
-    label({for: inputId}, span('List name'), input({id: inputId, type: 'text', value: nativeListLifecycleName, disabled: nativeListLifecyclePending, 'aria-invalid': () => String(nativeListLifecycleError.val !== null), 'aria-describedby': () => nativeListLifecycleError.val ? 'native-list-lifecycle-error' : null, 'aria-errormessage': () => nativeListLifecycleError.val ? 'native-list-lifecycle-error' : null, oninput: (event: Event) => { nativeListLifecycleName.val = (event.currentTarget as HTMLInputElement).value; clearNativeListLifecycleError() }})),
+    label({for: inputId}, span('List name'), input({id: inputId, type: 'text', value: nativeListLifecycleName, disabled: nativeListLifecyclePending, 'aria-invalid': () => String(nativeListLifecycleDialogError() !== null), 'aria-describedby': () => nativeListLifecycleDialogError() ? 'native-list-lifecycle-error' : null, 'aria-errormessage': () => nativeListLifecycleDialogError() ? 'native-list-lifecycle-error' : null, oninput: (event: Event) => { nativeListLifecycleName.val = (event.currentTarget as HTMLInputElement).value; clearNativeListLifecycleError('dialog') }})),
     section({class: 'native-list-visibility', 'aria-labelledby': 'native-list-visibility-heading'}, h3({id: 'native-list-visibility-heading'}, 'Visibility'),
       p('Select whether GitHub should make this List public or private. No visibility is selected by default.'),
-      ...(['public', 'private'] as const).map((visibility) => label(input({type: 'radio', name: 'native-list-visibility', value: visibility, checked: () => nativeListLifecycleVisibility.val === visibility, disabled: nativeListLifecyclePending, onchange: () => { nativeListLifecycleVisibility.val = visibility; clearNativeListLifecycleError() }}), span(visibility === 'public' ? 'Public' : 'Private')))
+      ...(['public', 'private'] as const).map((visibility) => label(input({type: 'radio', name: 'native-list-visibility', value: visibility, checked: () => nativeListLifecycleVisibility.val === visibility, disabled: nativeListLifecyclePending, onchange: () => { nativeListLifecycleVisibility.val = visibility; clearNativeListLifecycleError('dialog') }}), span(visibility === 'public' ? 'Public' : 'Private')))
     ),
     p({class: 'lifecycle-readiness'}, 'This form has no repository membership controls. It stays read-only until you review and explicitly confirm the GitHub operation.')
   )
@@ -3171,19 +3191,58 @@ function LifecyclePreview(preview: NativeListLifecyclePreview) {
   return div({class: `native-list-lifecycle-preview${populated ? ' is-populated' : ''}`}, p(populated ? 'This populated GitHub List requires a stronger confirmation.' : 'This empty GitHub List has no reported repositories. Read-only confirmation. No GitHub operation has been sent.'), strongText(preview.name), p(`Visibility: ${preview.visibility}. GitHub reports ${preview.reportedItemCount} ${preview.reportedItemCount === 1 ? 'repository' : 'repositories'}.`), preview.importStatus === 'partial' ? p({class: 'partial-native-list-note'}, 'Partial import limitation: GitHub-reported count may include repositories not imported locally.') : null, p({class: 'no-undo-note'}, 'There is no Undo. Repositories remain starred but become unlisted.'), p('GitHub success is not reported until a verified read-back.'))
 }
 
-function setNativeListLifecycleError(
-  message: string,
-  category: ErrorCategory = 'validation'
-): void {
-  nativeListLifecycleError.val = message
-  nativeListLifecycleErrorCategory.val = category
-  renderNativeListLifecycleDialog()
-  focusNativeListLifecycleErrorTarget()
+function nativeListLifecycleDialogError(): NativeListLifecycleUiError | null {
+  const error = nativeListLifecycleError.val
+  return error?.source === 'dialog' ? error : null
 }
 
-function clearNativeListLifecycleError(): void {
+function nativeListLifecycleRailError(): NativeListLifecycleUiError | null {
+  const error = nativeListLifecycleError.val
+  return error?.source === 'rail' ? error : null
+}
+
+function setNativeListLifecycleError(
+  message: string,
+  category: ErrorCategory = 'validation',
+  source: NativeListLifecycleErrorSource = 'dialog',
+  railAction: NativeListLifecycleRailAction | null = null
+): void {
+  nativeListLifecycleError.val = {message, category, source, railAction}
+  if (source === 'dialog') {
+    renderNativeListLifecycleDialog()
+    focusNativeListLifecycleErrorTarget()
+  } else if (railAction !== null) {
+    focusNativeListLifecycleRailErrorTarget(railAction, category)
+  }
+}
+
+function clearNativeListLifecycleError(
+  source?: NativeListLifecycleErrorSource
+): void {
+  if (source && nativeListLifecycleError.val?.source !== source) return
   nativeListLifecycleError.val = null
-  nativeListLifecycleErrorCategory.val = null
+}
+
+function focusNativeListLifecycleRailErrorTarget(
+  action: NativeListLifecycleRailAction,
+  category: ErrorCategory
+): void {
+  const lifecycle = captureFocusLifecycle(mountedDashboardRoot)
+  const ownerWindow = lifecycle.ownerDocument.defaultView ?? window
+  ownerWindow.setTimeout(() => {
+    if (!isFocusLifecycleCurrent(lifecycle)) return
+    const searchRoot = lifecycle.dashboardRoot ?? lifecycle.ownerDocument
+    const actionTarget = searchRoot.querySelector<HTMLElement>(
+      action === 'refresh'
+        ? '[data-native-list-refresh]'
+        : '[data-native-list-cancel]'
+    )
+    const actionDisappears =
+      action === 'refresh' &&
+      (category === 'authentication' || category === 'permission')
+    if (!actionDisappears && tryFocusTarget(actionTarget)) return
+    tryFocusTarget(searchRoot.querySelector<HTMLElement>('[data-view-kind="unlist"]'))
+  }, 0)
 }
 
 function focusNativeListLifecycleErrorTarget(): void {
@@ -3206,7 +3265,7 @@ function cancelNativeListLifecycleDialog(restoreFocus = false): void {
   if (nativeListLifecyclePending.val) return
   const invoker = nativeListLifecycleInvoker
   nativeListLifecycleDialog.val = null
-  clearNativeListLifecycleError()
+  clearNativeListLifecycleError('dialog')
   nativeListLifecycleInvoker = null
   renderNativeListLifecycleDialog()
   if (restoreFocus) restoreNativeListLifecycleFocus(invoker)
@@ -3275,7 +3334,7 @@ async function previewNativeListCreate(): Promise<void> {
   if (!visibility) { setNativeListLifecycleError('Choose public or private visibility before reviewing.'); return }
   const request = beginNativeListLifecycleRequest()
   if (!request) return
-  clearNativeListLifecycleError()
+  clearNativeListLifecycleError('dialog')
   try {
     const response = await sendRuntimeMessage({type: 'preview-native-list-create', name, visibility}) as RuntimeResponse<NativeListLifecyclePreview>
     if (!isCurrentNativeListLifecycleRequest(request)) return
@@ -3291,7 +3350,7 @@ async function previewNativeListDelete(listNodeId: string, invoker: HTMLElement)
   const request = beginNativeListLifecycleRequest()
   if (!request) return
   nativeListLifecycleInvoker = captureDialogInvoker(invoker)
-  clearNativeListLifecycleError()
+  clearNativeListLifecycleError('dialog')
   try {
     const response = await sendRuntimeMessage({type: 'preview-native-list-delete', listNodeId}) as RuntimeResponse<NativeListLifecyclePreview>
     if (!isCurrentNativeListLifecycleRequest(request)) return
@@ -3316,7 +3375,7 @@ async function confirmNativeListLifecycle(preview: NativeListLifecyclePreview): 
     if (!response.ok) { setNativeListLifecycleError(response.error.message, response.error.category); return }
     if (!applyAppStateResponse(request.context, response.data)) return
     nativeListLifecycleDialog.val = null
-    clearNativeListLifecycleError()
+    clearNativeListLifecycleError('dialog')
     nativeListLifecycleInvoker = null
     renderNativeListLifecycleDialog()
     restoreNativeListLifecycleFocus(invoker)
@@ -3326,25 +3385,25 @@ async function confirmNativeListLifecycle(preview: NativeListLifecyclePreview): 
 async function refreshNativeListLifecycle(): Promise<void> {
   const request = beginNativeListLifecycleRequest()
   if (!request) return
-  clearNativeListLifecycleError()
+  clearNativeListLifecycleError('rail')
   try {
     const response = await sendRuntimeMessage({type: 'refresh-native-list-lifecycle'}) as RuntimeResponse<AppState>
     if (!isCurrentNativeListLifecycleRequest(request)) return
-    if (!response.ok) { setNativeListLifecycleError(response.error.message, response.error.category); return }
+    if (!response.ok) { setNativeListLifecycleError(response.error.message, response.error.category, 'rail', 'refresh'); return }
     applyAppStateResponse(request.context, response.data)
-  } catch { if (isCurrentNativeListLifecycleRequest(request)) setNativeListLifecycleError('Unable to refresh GitHub Lists. Please try again.', 'network') } finally { finishNativeListLifecycleRequest(request) }
+  } catch { if (isCurrentNativeListLifecycleRequest(request)) setNativeListLifecycleError('Unable to refresh GitHub Lists. Please try again.', 'network', 'rail', 'refresh') } finally { finishNativeListLifecycleRequest(request) }
 }
 
 async function cancelNativeListLifecycle(): Promise<void> {
   const request = beginNativeListLifecycleRequest()
   if (!request) return
-  clearNativeListLifecycleError()
+  clearNativeListLifecycleError('rail')
   try {
     const response = await sendRuntimeMessage({type: 'cancel-native-list-lifecycle'}) as RuntimeResponse<AppState>
     if (!isCurrentNativeListLifecycleRequest(request)) return
-    if (!response.ok) { setNativeListLifecycleError(response.error.message, response.error.category); return }
+    if (!response.ok) { setNativeListLifecycleError(response.error.message, response.error.category, 'rail', 'cancel'); return }
     applyAppStateResponse(request.context, response.data)
-  } catch { if (isCurrentNativeListLifecycleRequest(request)) setNativeListLifecycleError('Unable to cancel the queued GitHub List operation. Please try again.', 'network') } finally { finishNativeListLifecycleRequest(request) }
+  } catch { if (isCurrentNativeListLifecycleRequest(request)) setNativeListLifecycleError('Unable to cancel the queued GitHub List operation. Please try again.', 'network', 'rail', 'cancel') } finally { finishNativeListLifecycleRequest(request) }
 }
 
 function handleDialogKeydown(
@@ -4014,8 +4073,15 @@ function applyState(state: AppState): void {
   const nextFingerprints = dashboardSliceFingerprints(state)
   const libraryChanged = nextFingerprints.library !== publishedFingerprints.library
   const accountChanged = dashboardAccountId !== nextAccountId
+  const lifecycleAuthorityChanged =
+    nextFingerprints.writeAuthorization !== publishedFingerprints.writeAuthorization ||
+    nextFingerprints.nativeListSync !== publishedFingerprints.nativeListSync ||
+    nextFingerprints.nativeListLifecycle !== publishedFingerprints.nativeListLifecycle
   const position = libraryChanged ? captureDashboardPosition() : null
   if (libraryChanged || accountChanged) resetRenderedResults()
+  if (!accountChanged && lifecycleAuthorityChanged) {
+    clearNativeListLifecycleError('rail')
+  }
   if (accountChanged) {
     selectedForUnstar.val = new Set()
     resetUnstarConfirmation()
@@ -4805,8 +4871,7 @@ function resetDashboardUiState(): void {
   nativeListLifecycleName = van.state('')
   nativeListDeleteConfirmationName = van.state('')
   nativeListLifecycleVisibility = van.state<'public' | 'private' | null>(null)
-  nativeListLifecycleError = van.state<string | null>(null)
-  nativeListLifecycleErrorCategory = van.state<ErrorCategory | null>(null)
+  nativeListLifecycleError = van.state<NativeListLifecycleUiError | null>(null)
   nativeListLifecyclePending = van.state(false)
   nativeListLifecycleInvoker = null
   activeNativeListLifecycleRequest = null

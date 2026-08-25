@@ -5541,6 +5541,8 @@ test('keeps lifecycle preview errors actionable in the dialog with linked focus'
     expect(dialog).not.toBeNull()
     expect(error?.textContent).toBe('GitHub preview is unavailable. Try again.')
     expect(error?.id).toBe('native-list-lifecycle-error')
+    expect(root.querySelectorAll('[role="alert"]')).toHaveLength(1)
+    expect(root.querySelector('[data-native-list-lifecycle-status] [role="alert"]')).toBeNull()
     expect(erroredName?.getAttribute('aria-invalid')).toBe('true')
     expect(erroredName?.getAttribute('aria-describedby')).toBe('native-list-lifecycle-error')
     expect((browserWindow.document.activeElement as unknown) === erroredName).toBe(true)
@@ -5978,7 +5980,9 @@ test('retains lifecycle refresh after a transient catalog recovery failure', asy
   try {
     const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: {...completeSyncState('native-lists'), phase: 'stale'}, nativeListLifecycle: {readiness: 'ready', operation: null}})
     const browserWindow = window as unknown as Window
-    root.querySelector<HTMLButtonElement>('[data-native-list-refresh]')?.click()
+    const refreshBeforeFailure = root.querySelector<HTMLButtonElement>('[data-native-list-refresh]')
+    refreshBeforeFailure?.focus()
+    refreshBeforeFailure?.click()
     await nextTurn(browserWindow)
 
     const status = root.querySelector<HTMLElement>('[data-native-list-lifecycle-status]')
@@ -5988,6 +5992,7 @@ test('retains lifecycle refresh after a transient catalog recovery failure', asy
     expect(refresh?.disabled).toBe(false)
     expect(refresh?.getAttribute('aria-describedby')).toBe('native-list-lifecycle-status-text')
     expect(refresh?.getAttribute('aria-controls')).toBe('native-list-navigation native-list-lifecycle-status-text')
+    expect((browserWindow.document.activeElement as unknown) === refresh).toBe(true)
     expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
   } finally {
     if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
@@ -6007,7 +6012,9 @@ test('adds fixed reauthorization guidance for a denied lifecycle refresh', async
   try {
     const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: {...completeSyncState('native-lists'), phase: 'unavailable'}, nativeListLifecycle: {readiness: 'ready', operation: null}})
     const browserWindow = window as unknown as Window
-    root.querySelector<HTMLButtonElement>('[data-native-list-refresh]')?.click()
+    const refreshBeforeFailure = root.querySelector<HTMLButtonElement>('[data-native-list-refresh]')
+    refreshBeforeFailure?.focus()
+    refreshBeforeFailure?.click()
     await nextTurn(browserWindow)
 
     const status = root.querySelector<HTMLElement>('[data-native-list-lifecycle-status]')
@@ -6015,6 +6022,7 @@ test('adds fixed reauthorization guidance for a denied lifecycle refresh', async
     expect(status?.querySelector('#native-list-lifecycle-status-text')?.textContent)
       .toContain('Reauthorize GitHub before refreshing Lists.')
     expect(status?.querySelector('[data-native-list-refresh]')).toBeNull()
+    expect((browserWindow.document.activeElement as unknown) === root.querySelector('[data-view-kind="unlist"]')).toBe(true)
     expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
   } finally {
     if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
@@ -6022,7 +6030,7 @@ test('adds fixed reauthorization guidance for a denied lifecycle refresh', async
   }
 })
 
-test('deduplicates lifecycle reauthorization guidance across sync and foreground errors', async () => {
+test('gates safe lifecycle controls until same-account authorization recovery clears the rail error', async () => {
   const previousChrome = (globalThis as {chrome?: unknown}).chrome
   const state = membershipReadyDashboardState()
   Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
@@ -6035,11 +6043,56 @@ test('deduplicates lifecycle reauthorization guidance across sync and foreground
     const partialSync = {...completeSyncState('native-lists'), phase: 'partial' as const}
     const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: partialSync, nativeListLifecycle: {readiness: 'ready', operation: null}})
     const browserWindow = window as unknown as Window
-    const refresh = root.querySelector<HTMLButtonElement>('[data-native-list-refresh]')
+    root.querySelector<HTMLButtonElement>('[data-native-list-refresh]')?.click()
+    await nextTurn(browserWindow)
+
+    expect(root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.disabled).toBe(true)
+    expect(root.querySelector<HTMLButtonElement>('[data-native-list-delete-invoker="L_current"]')?.disabled).toBe(true)
+    expect(root.querySelector('#native-list-lifecycle-guidance')?.textContent)
+      .toContain('Reauthorize GitHub before changing Lists.')
+
     const {renderAppState} = await import('../../src/dashboard/scripts')
-    renderAppState({...state, sync: completeSyncState('stars'), nativeListSync: {...partialSync, lastError: {category: 'authentication', message: 'Native List authorization expired.', retryable: false}}, nativeListLifecycle: {readiness: 'ready', operation: null}})
+    renderAppState({...state, writeAuthorization: {...state.writeAuthorization, previewVisible: true}, sync: completeSyncState('stars'), nativeListSync: partialSync, nativeListLifecycle: {readiness: 'ready', operation: null}})
     await flushDashboardReactivity(browserWindow)
-    refresh?.dispatchEvent(new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event)
+
+    const status = root.querySelector<HTMLElement>('[data-native-list-lifecycle-status]')
+    expect(status?.querySelector('[role="alert"]')).toBeNull()
+    expect(status?.textContent).not.toContain('GitHub denied this request.')
+    expect(status?.textContent).not.toContain('Reauthorize GitHub before refreshing Lists.')
+    expect(root.querySelector('#native-list-lifecycle-guidance')).toBeNull()
+    expect(root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.disabled).toBe(false)
+    expect(root.querySelector<HTMLButtonElement>('[data-native-list-delete-invoker="L_current"]')?.disabled).toBe(false)
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('deduplicates lifecycle reauthorization guidance across sync and foreground errors', async () => {
+  const refreshResponse = deferred()
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    if (message.type === 'refresh-native-list-lifecycle') {
+      await refreshResponse.promise
+      return {ok: false, error: {category: 'permission', message: 'GitHub denied this request.', retryable: false}}
+    }
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+  const partialSync = {
+    ...completeSyncState('native-lists'),
+    phase: 'partial' as const,
+    lastError: null as SyncStateRecord['lastError']
+  }
+  try {
+    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: partialSync, nativeListLifecycle: {readiness: 'ready', operation: null}})
+    const browserWindow = window as unknown as Window
+    const refresh = root.querySelector<HTMLButtonElement>('[data-native-list-refresh]')
+    expect(refresh?.isConnected).toBe(true)
+    refresh?.focus()
+    refresh?.click()
+    partialSync.lastError = {category: 'authentication', message: 'Native List authorization expired.', retryable: false}
+    refreshResponse.resolve()
     await nextTurn(browserWindow)
 
     const status = root.querySelector<HTMLElement>('[data-native-list-lifecycle-status]')
@@ -6048,6 +6101,7 @@ test('deduplicates lifecycle reauthorization guidance across sync and foreground
     expect((status?.textContent?.split(guidance).length ?? 1) - 1).toBe(1)
     expect(status?.querySelector('[data-native-list-refresh]')).toBeNull()
   } finally {
+    refreshResponse.resolve()
     if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
     else Object.assign(globalThis, {chrome: previousChrome})
   }
@@ -6146,7 +6200,7 @@ test('applies lifecycle guidance priority and native List sync safety to every r
   await flushDashboardReactivity(browserWindow)
   expectGated('lifecycle capability is unproven')
 
-  for (const phase of ['idle', 'running', 'stale', 'unavailable'] as const) {
+  for (const phase of ['idle', 'running', 'stale', 'unavailable', 'error'] as const) {
     renderAppState({...state, nativeListLifecycle: {readiness: 'ready', operation: null}, nativeListSync: {...completeSyncState('native-lists'), phase}})
     await flushDashboardReactivity(browserWindow)
     expectGated(`Native List synchronization is ${phase}`)
@@ -6221,6 +6275,35 @@ test('associates rail lifecycle actions with status text and dispatches only ref
   }
 })
 
+test('keeps focus on Cancel after a rail cancellation error', async () => {
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    if (message.type === 'cancel-native-list-lifecycle') {
+      return {ok: false, error: {category: 'network', message: 'Unable to cancel this operation.', retryable: true}}
+    }
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+  try {
+    const root = await mountReadyDashboard({...state, nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: lifecycleOperation('queued')}})
+    const browserWindow = window as unknown as Window
+    const cancel = root.querySelector<HTMLButtonElement>('[data-native-list-cancel]')
+    cancel?.focus()
+    cancel?.click()
+    await flushDashboardReactivity(browserWindow)
+
+    const retainedCancel = root.querySelector<HTMLButtonElement>('[data-native-list-cancel]')
+    expect(root.querySelector('[data-native-list-lifecycle-status] [role="alert"]')?.textContent)
+      .toBe('Unable to cancel this operation.')
+    expect(retainedCancel).not.toBeNull()
+    expect((browserWindow.document.activeElement as unknown) === retainedCancel).toBe(true)
+    expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
 test('shows lifecycle refresh only for deterministic recovery states', async () => {
   const state = membershipReadyDashboardState()
   const root = await mountReadyDashboard({...state, nativeListLifecycle: {readiness: 'ready', operation: null}, nativeListSync: null})
@@ -6229,7 +6312,7 @@ test('shows lifecycle refresh only for deterministic recovery states', async () 
   const refresh = () => root.querySelector<HTMLButtonElement>('[data-native-list-refresh]')
   expect(refresh()).not.toBeNull()
 
-  for (const phase of ['idle', 'partial', 'stale', 'unavailable'] as const) {
+  for (const phase of ['idle', 'partial', 'stale', 'unavailable', 'error'] as const) {
     renderAppState({...state, nativeListLifecycle: {readiness: 'ready', operation: null}, nativeListSync: {...completeSyncState('native-lists'), phase}})
     await flushDashboardReactivity(browserWindow)
     expect(refresh()).not.toBeNull()
