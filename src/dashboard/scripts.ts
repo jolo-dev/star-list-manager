@@ -798,7 +798,11 @@ function NativeListLifecycleStatus(
   const syncError = state.nativeListSync?.lastError ?? null
   const currentError = nativeListLifecycleError.val
   const currentErrorCategory = nativeListLifecycleErrorCategory.val
+  const baseStatusText = operation
+    ? `Latest operation: ${lifecyclePhaseLabel(operation.phase)}. ${operation.intent.name} · ${operation.intent.kind}. ${lifecycleOperationGuidance(operation)}`
+    : nativeListSyncStatusText(state)
   const reauthorizationGuidance = lifecycleReauthorizationGuidance(
+    baseStatusText,
     currentError,
     currentErrorCategory
   )
@@ -825,9 +829,7 @@ function NativeListLifecycleStatus(
         id: 'native-list-lifecycle-status-text',
         ...(publishedPhase.val === 'ready' ? {role: 'status'} : {})
       },
-      operation
-        ? `Latest operation: ${lifecyclePhaseLabel(operation.phase)}. ${operation.intent.name} · ${operation.intent.kind}. ${lifecycleOperationGuidance(operation)}${reauthorizationGuidance ? ` ${reauthorizationGuidance}` : ''}`
-        : `${nativeListSyncStatusText(state)}${reauthorizationGuidance ? ` ${reauthorizationGuidance}` : ''}`
+      `${baseStatusText}${reauthorizationGuidance ? ` ${reauthorizationGuidance}` : ''}`
     ),
     currentError
       ? p({class: 'inline-error', role: 'alert'}, currentError)
@@ -891,7 +893,7 @@ function nativeListSyncStatusText(state: AppState): string {
     sync?.lastError?.category === 'authentication' ||
     sync?.lastError?.category === 'permission'
   ) {
-    return 'Reauthorize GitHub before refreshing Lists.'
+    return lifecycleRefreshReauthorizationGuidance
   }
   if (sync === null) return 'Native List synchronization has not run.'
   if (sync.phase === 'partial') {
@@ -934,7 +936,11 @@ function lifecycleOperationGuidance(
   return 'Conflicting native List lifecycle, membership, and rename actions are disabled until this operation reaches a terminal verified outcome.'
 }
 
+const lifecycleRefreshReauthorizationGuidance =
+  'Reauthorize GitHub before refreshing Lists.'
+
 function lifecycleReauthorizationGuidance(
+  baseStatusText: string,
   currentError: string | null,
   currentErrorCategory: ErrorCategory | null
 ): string | null {
@@ -944,8 +950,13 @@ function lifecycleReauthorizationGuidance(
   ) {
     return null
   }
-  const guidance = 'Reauthorize GitHub before refreshing Lists.'
-  return currentError?.includes(guidance) ? null : guidance
+  if (
+    baseStatusText.includes(lifecycleRefreshReauthorizationGuidance) ||
+    currentError?.includes(lifecycleRefreshReauthorizationGuidance)
+  ) {
+    return null
+  }
+  return lifecycleRefreshReauthorizationGuidance
 }
 
 function shouldShowNativeListLifecycleRefresh(

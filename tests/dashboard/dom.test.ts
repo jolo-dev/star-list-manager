@@ -6022,6 +6022,37 @@ test('adds fixed reauthorization guidance for a denied lifecycle refresh', async
   }
 })
 
+test('deduplicates lifecycle reauthorization guidance across sync and foreground errors', async () => {
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    if (message.type === 'refresh-native-list-lifecycle') {
+      return {ok: false, error: {category: 'permission', message: 'GitHub denied this request.', retryable: false}}
+    }
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+  try {
+    const partialSync = {...completeSyncState('native-lists'), phase: 'partial' as const}
+    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: partialSync, nativeListLifecycle: {readiness: 'ready', operation: null}})
+    const browserWindow = window as unknown as Window
+    const refresh = root.querySelector<HTMLButtonElement>('[data-native-list-refresh]')
+    const {renderAppState} = await import('../../src/dashboard/scripts')
+    renderAppState({...state, sync: completeSyncState('stars'), nativeListSync: {...partialSync, lastError: {category: 'authentication', message: 'Native List authorization expired.', retryable: false}}, nativeListLifecycle: {readiness: 'ready', operation: null}})
+    await flushDashboardReactivity(browserWindow)
+    refresh?.dispatchEvent(new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event)
+    await nextTurn(browserWindow)
+
+    const status = root.querySelector<HTMLElement>('[data-native-list-lifecycle-status]')
+    const guidance = 'Reauthorize GitHub before refreshing Lists.'
+    expect(status?.querySelector('[role="alert"]')?.textContent).toBe('GitHub denied this request.')
+    expect((status?.textContent?.split(guidance).length ?? 1) - 1).toBe(1)
+    expect(status?.querySelector('[data-native-list-refresh]')).toBeNull()
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
 test('renders lifecycle refresh errors in the rail without opening a dialog', async () => {
   const previousChrome = (globalThis as {chrome?: unknown}).chrome
   const state = membershipReadyDashboardState()
