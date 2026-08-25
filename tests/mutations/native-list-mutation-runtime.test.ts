@@ -9,7 +9,7 @@ import {enqueueMembershipMutationBatch} from '../../src/storage/mutations'
 const account = '42'
 const timestamp = '2026-08-12T00:00:00.000Z'
 
-test('production native List composition serializes concurrent lifecycle and membership remote writes', async () => {
+test('production native List composition serializes concurrent lifecycle, membership, and rename remote writes', async () => {
   const database = await openLibraryDatabase({name: 'native-list-runtime-shared-lock', factory: new IDBFactory()})
   const events: string[] = []
   let releaseLifecycle!: () => void
@@ -36,6 +36,9 @@ test('production native List composition serializes concurrent lifecycle and mem
       },
       scheduleWake: async () => undefined, now: () => Date.parse(timestamp), createId: (kind) => `${kind}-${membershipObservation}`
     },
+    rename: {
+      rename: async () => { events.push('rename-write'); return nativeList('UL_member', 'Renamed') }
+    },
     lifecycle: {
       database, owner: activeOwner(),
       writer: {createList: async () => { events.push('lifecycle-write-start'); lifecycleStarted(); await new Promise<void>((resolve) => { releaseLifecycle = resolve }); events.push('lifecycle-write-end'); return {listNodeId: 'UL_created', name: 'Ideas', visibility: 'public' as const} }, deleteList: async () => undefined},
@@ -48,11 +51,21 @@ test('production native List composition serializes concurrent lifecycle and mem
   const lifecycle = runtime.lifecycleRunner.run(account)
   await started
   const membership = runtime.mutationQueue.check()
+  const rename = runtime.nativeListRename.rename({
+    expectedGitHubUserId: account,
+    listNodeId: 'UL_member',
+    name: 'Renamed'
+  })
   await Promise.resolve()
   expect(events).toEqual(['lifecycle-write-start'])
   releaseLifecycle()
-  await Promise.all([lifecycle, membership])
-  expect(events).toEqual(['lifecycle-write-start', 'lifecycle-write-end', 'membership-write'])
+  await Promise.all([lifecycle, membership, rename])
+  expect(events).toEqual([
+    'lifecycle-write-start',
+    'lifecycle-write-end',
+    'membership-write',
+    'rename-write'
+  ])
   database.close()
 })
 

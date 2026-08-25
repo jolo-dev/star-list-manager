@@ -457,7 +457,7 @@ interface RuntimeServices {
   readonly mutationQueue: MutationQueueRunner
   readonly nativeListLifecycleRunner: NativeListLifecycleRunner
   readonly membershipObserver: NativeListMembershipObservationService
-  readonly nativeListRename: NativeListRenameService
+  readonly nativeListRename: Pick<NativeListRenameService, 'rename'>
 }
 
 async function createRuntimeServices(): Promise<RuntimeServices> {
@@ -490,7 +490,7 @@ async function createRuntimeServices(): Promise<RuntimeServices> {
     authStore: store,
     writeStore
   })
-  const nativeListRename = new NativeListRenameService({
+  const nativeListRenameService = new NativeListRenameService({
     database,
     storage: {getNativeList, listNativeLists, putNativeList, deleteNativeList},
     owner: store,
@@ -513,6 +513,7 @@ async function createRuntimeServices(): Promise<RuntimeServices> {
     writeStore
   })
   const nativeListMutationRuntime = createNativeListMutationRuntime({
+    rename: nativeListRenameService,
     queue: {
       database,
       authStore: store,
@@ -544,6 +545,7 @@ async function createRuntimeServices(): Promise<RuntimeServices> {
     }
   })
   const mutationQueue = nativeListMutationRuntime.mutationQueue
+  const nativeListRename = nativeListMutationRuntime.nativeListRename
   const nativeListLifecycleRunner = nativeListMutationRuntime.lifecycleRunner
   const starSync = new StarSyncService({database, observer: restClient})
   const triage = new TriageService({database})

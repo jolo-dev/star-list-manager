@@ -132,7 +132,11 @@ export class NativeListLifecycleRunner {
   async #verifyCreate(operation: NativeListLifecycleOperationRecord, created: CreatedNativeList): Promise<void> {
     const verifying = await this.#save(operation, {phase: 'verifying', candidateListNodeId: created.listNodeId})
     const observation = await this.#catalogOrBlocked(verifying, [created.listNodeId])
-    if (!observation || !(await this.#ownerStillActive(verifying.githubUserId))) return
+    if (!observation) return
+    if (!(await this.#ownerStillActive(verifying.githubUserId))) {
+      await this.#accountSuspended(verifying)
+      return
+    }
     const result = observation.targets.get(created.listNodeId) ?? null
     if (result && result.name === created.name && (result.isPrivate ? 'private' : 'public') === created.visibility) {
       const reconciled = await this.#reconcile(verifying)
@@ -152,7 +156,11 @@ export class NativeListLifecycleRunner {
     const intent = verifying.intent
     if (intent.kind !== 'delete') throw new Error('Delete verification requires a delete intent.')
     const observation = await this.#catalogOrBlocked(verifying, [intent.listNodeId])
-    if (!observation || !(await this.#ownerStillActive(verifying.githubUserId))) return
+    if (!observation) return
+    if (!(await this.#ownerStillActive(verifying.githubUserId))) {
+      await this.#accountSuspended(verifying)
+      return
+    }
     if ((observation.targets.get(intent.listNodeId) ?? null) === null) {
       const reconciled = await this.#reconcile(verifying)
       if (reconciled === null) return
@@ -177,7 +185,11 @@ export class NativeListLifecycleRunner {
       return
     }
     const observation = await this.#catalogOrBlocked(operation, [target])
-    if (!observation || !(await this.#ownerStillActive(operation.githubUserId))) return
+    if (!observation) return
+    if (!(await this.#ownerStillActive(operation.githubUserId))) {
+      await this.#accountSuspended(operation)
+      return
+    }
     const found = observation.targets.get(target) ?? null
     if (intent.kind === 'delete' && !found) {
       const reconciled = await this.#reconcile(operation)
@@ -222,13 +234,23 @@ export class NativeListLifecycleRunner {
   }
 
   async #reconcile(operation: NativeListLifecycleOperationRecord): Promise<readonly NativeListRecord[] | null> {
-    if (!(await this.#ownerStillActive(operation.githubUserId))) return null
+    if (!(await this.#ownerStillActive(operation.githubUserId))) {
+      await this.#accountSuspended(operation)
+      return null
+    }
     try {
       const state = await this.#synchronize(operation.githubUserId)
-      if (!(await this.#ownerStillActive(operation.githubUserId))) return null
+      if (!(await this.#ownerStillActive(operation.githubUserId))) {
+        await this.#accountSuspended(operation)
+        return null
+      }
       if (state.phase === 'complete' || state.phase === 'partial') {
         const lists = await this.#listCatalog(operation.githubUserId)
-        return (await this.#ownerStillActive(operation.githubUserId)) ? lists : null
+        if (!(await this.#ownerStillActive(operation.githubUserId))) {
+          await this.#accountSuspended(operation)
+          return null
+        }
+        return lists
       }
       await this.#blocked(operation, 'GitHub did not complete native List reconciliation after verification.')
     } catch (error: unknown) {
@@ -250,6 +272,18 @@ export class NativeListLifecycleRunner {
     )
   }
 
+  async #accountSuspended(operation: NativeListLifecycleOperationRecord): Promise<void> {
+    await this.#save(operation, {
+      phase: 'blocked-unknown',
+      completedAt: this.#now(),
+      lastError: fixedLifecycleError(
+        'The active GitHub account changed during native List reconciliation. Refresh after returning to the account.',
+        this.#now(),
+        'authentication'
+      )
+    })
+  }
+
   async #ownerStillActive(githubUserId: string): Promise<boolean> {
     const active = await this.#owner.loadActive()
     return active?.githubUserId === githubUserId && active.identity.githubUserId === githubUserId
@@ -259,11 +293,15 @@ export class NativeListLifecycleRunner {
     await this.#save(operation, {phase, completedAt: phase === 'needs-confirmation' ? null : this.#now()})
   }
   async #failed(operation: NativeListLifecycleOperationRecord, message: string, error?: unknown): Promise<void> {
-    const safe = error ? lifecycleError(error, this.#now()) : lifecycleError({message}, this.#now())
+    const safe = error
+      ? lifecycleError(error, this.#now(), message)
+      : fixedLifecycleError(message, this.#now())
     await this.#save(operation, {phase: 'failed', lastError: safe, completedAt: this.#now()})
   }
   async #blocked(operation: NativeListLifecycleOperationRecord, message: string, error?: unknown): Promise<void> {
-    const safe = error ? lifecycleError(error, this.#now()) : lifecycleError({message}, this.#now())
+    const safe = error
+      ? lifecycleError(error, this.#now(), message)
+      : fixedLifecycleError(message, this.#now())
     await this.#save(operation, {phase: 'blocked-unknown', lastError: safe, completedAt: this.#now()})
   }
   async #save(operation: NativeListLifecycleOperationRecord, changes: Partial<NativeListLifecycleOperationRecord>): Promise<NativeListLifecycleOperationRecord> {
@@ -282,7 +320,18 @@ function deleteFingerprint(
 ): string {
   return JSON.stringify([list.listNodeId, list.name, list.isPrivate ? 'private' : 'public', list.reportedItemCount, importStatus])
 }
-function lifecycleError(error: unknown, occurredAt: string): SanitizedMutationError {
+function lifecycleError(
+  error: unknown,
+  occurredAt: string,
+  message: string
+): SanitizedMutationError {
   const safe = sanitizeError(error)
-  return {category: safe.category === 'storage' || safe.category === 'unsupported' ? 'unknown' : safe.category, message: safe.message, statusCode: safe.status ?? null, occurredAt}
+  return {category: safe.category === 'storage' || safe.category === 'unsupported' ? 'unknown' : safe.category, message, statusCode: safe.status ?? null, occurredAt}
+}
+function fixedLifecycleError(
+  message: string,
+  occurredAt: string,
+  category: SanitizedMutationError['category'] = 'unknown'
+): SanitizedMutationError {
+  return {category, message, statusCode: null, occurredAt}
 }

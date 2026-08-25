@@ -119,6 +119,46 @@ test('does not report deletion or invalidate work when post-sync reconciliation 
   harness.database.close()
 })
 
+test('suspends lifecycle finalization when ownership changes around reconciliation boundaries', async () => {
+  for (const boundary of [4, 5, 6, 7]) {
+    const harness = await createHarness(`lifecycle-account-switch-reconcile-${boundary}`)
+    await putNativeListLifecycleOperation(harness.database, createOperation())
+    harness.currentCatalog = []
+    harness.catalog.push(observation([metadata('UL_created', 'Ideas', false, 0)]))
+    harness.catalogAfterSync = [list('UL_created', 'Ideas', 'public', 0)]
+    harness.switchOnOwnerCheck = boundary
+    await harness.runner.run('42')
+    expect((await harness.runner.operation('42'))?.phase, String(boundary)).toBe('blocked-unknown')
+    expect((await harness.runner.operation('42'))?.lastError?.message, String(boundary)).toBe(
+      'The active GitHub account changed during native List reconciliation. Refresh after returning to the account.'
+    )
+    harness.database.close()
+  }
+})
+
+test('keeps fixed lifecycle recovery messages while sanitizing underlying errors', async () => {
+  const catalogFailure = await createHarness('lifecycle-fixed-catalog-message')
+  const current = list('UL_delete', 'Delete me', 'public', 0)
+  await putNativeListLifecycleOperation(catalogFailure.database, deleteOperation(current))
+  catalogFailure.currentCatalog = [current]
+  catalogFailure.catalogError = new Error('ghp_secret catalog failure')
+  await catalogFailure.runner.run('42')
+  expect((await catalogFailure.runner.operation('42'))?.lastError?.message).toBe(
+    'GitHub did not provide a fresh native List catalog. Refresh and confirm again before deletion.'
+  )
+  expect(JSON.stringify(await catalogFailure.runner.operation('42'))).not.toContain('ghp_secret')
+  catalogFailure.database.close()
+
+  const mismatch = await createHarness('lifecycle-fixed-mismatch-message')
+  await putNativeListLifecycleOperation(mismatch.database, createOperation())
+  mismatch.catalog.push(observation([metadata('UL_created', 'Wrong', false, 0)]))
+  await mismatch.runner.run('42')
+  expect((await mismatch.runner.operation('42'))?.lastError?.message).toBe(
+    'GitHub did not verify the created native List by its stable ID.'
+  )
+  mismatch.database.close()
+})
+
 test('does not retry a writer rate limit and remains terminal for recovery by observation', async () => {
   const harness = await createHarness('lifecycle-writer-rate-limit')
   await putNativeListLifecycleOperation(harness.database, createOperation())
@@ -127,6 +167,9 @@ test('does not retry a writer rate limit and remains terminal for recovery by ob
   await harness.runner.run('42')
   expect(harness.createCalls).toBe(1)
   expect((await harness.runner.operation('42'))?.phase).toBe('blocked-unknown')
+  expect((await harness.runner.operation('42'))?.lastError?.message).toBe(
+    'The native List request may have completed, but GitHub did not return a verifiable result.'
+  )
   harness.database.close()
 })
 
