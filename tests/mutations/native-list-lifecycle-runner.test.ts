@@ -1,9 +1,12 @@
 import {expect, test} from 'bun:test'
+import {AppFailure} from '../../src/shared/errors'
+import {planMembershipIntent, relevantListCatalogFingerprint} from '../../src/domain/native-list-membership'
 import {IDBFactory} from 'fake-indexeddb'
 import {NativeListLifecycleRunner} from '../../src/mutations/native-list-lifecycle-runner'
 import {NativeListMutationLock} from '../../src/mutations/native-list-mutation-lock'
 import {openLibraryDatabase} from '../../src/storage/database'
-import {putNativeListLifecycleOperation} from '../../src/storage/library'
+import {putNativeListLifecycleOperation, putRepository} from '../../src/storage/library'
+import {enqueueMembershipMutationBatch, getMutationJob} from '../../src/storage/mutations'
 
 const now = () => '2026-08-12T01:00:00.000Z'
 
@@ -11,6 +14,7 @@ test('creates only after the returned stable ID is present with matching metadat
   const harness = await createHarness('lifecycle-create')
   await putNativeListLifecycleOperation(harness.database, createOperation())
   harness.catalog.push(observation([metadata('UL_created', 'Ideas', false, 0)]))
+  harness.currentCatalog = []
   harness.catalogAfterSync = [list('UL_created', 'Ideas', 'public', 0)]
   await harness.runner.run('42')
   expect(harness.createCalls).toBe(1)
@@ -19,12 +23,26 @@ test('creates only after the returned stable ID is present with matching metadat
   harness.database.close()
 })
 
+test('does not report create success when normal reconciliation lacks the read-back candidate', async () => {
+  const harness = await createHarness('lifecycle-create-divergent-sync')
+  await putNativeListLifecycleOperation(harness.database, createOperation())
+  harness.currentCatalog = []
+  harness.catalog.push(observation([metadata('UL_created', 'Ideas', false, 0)]))
+  harness.catalogAfterSync = []
+  await harness.runner.run('42')
+  expect(harness.createCalls).toBe(1)
+  expect(harness.syncCalls).toBe(1)
+  expect((await harness.runner.operation('42'))?.phase).toBe('blocked-unknown')
+  harness.database.close()
+})
+
 test('delete supports empty and populated Lists without any membership mutation', async () => {
   for (const count of [0, 2]) {
     const harness = await createHarness(`lifecycle-delete-${count}`)
     const current = list('UL_delete', 'Delete me', 'public', count)
     await putNativeListLifecycleOperation(harness.database, deleteOperation(current))
-    harness.catalogAfterSync = [current]
+    harness.currentCatalog = [current]
+    harness.catalogAfterSync = []
     harness.catalog.push(observation([metadata('UL_delete', 'Delete me', false, count)]), observation([]))
     await harness.runner.run('42')
     expect(harness.deleteCalls, String(count)).toBe(1)
@@ -37,6 +55,7 @@ test('requires exact renewed delete confirmation and treats fresh absence as alr
   const changed = await createHarness('lifecycle-changed')
   const current = list('UL_delete', 'Delete me', 'public', 0)
   await putNativeListLifecycleOperation(changed.database, deleteOperation(current))
+  changed.currentCatalog = [current]
   changed.catalogAfterSync = [current]
   changed.catalog.push(observation([metadata('UL_delete', 'Renamed', false, 0)]))
   await changed.runner.run('42')
@@ -46,7 +65,8 @@ test('requires exact renewed delete confirmation and treats fresh absence as alr
 
   const absent = await createHarness('lifecycle-already-deleted')
   await putNativeListLifecycleOperation(absent.database, deleteOperation(current))
-  absent.catalogAfterSync = [current]
+  absent.currentCatalog = [current]
+  absent.catalogAfterSync = []
   absent.catalog.push(observation([]))
   await absent.runner.run('42')
   expect(absent.deleteCalls).toBe(0)
@@ -82,10 +102,39 @@ test('never replays response-lost writes, blocks read-back mismatch, and leaves 
   interrupted.database.close()
 })
 
+test('does not report deletion or invalidate work when post-sync reconciliation remains divergent', async () => {
+  const harness = await createHarness('lifecycle-delete-divergent-sync')
+  const current = list('UL_delete', 'Delete me', 'public', 0)
+  await putNativeListLifecycleOperation(harness.database, deleteOperation(current))
+  harness.currentCatalog = [current]
+  await enqueueAffectedMembership(harness.database)
+  // Fresh catalog first proves absence, but normal sync read-back leaves the List present.
+  harness.catalog.push(observation([]))
+  harness.catalogAfterSync = [current]
+  await harness.runner.run('42')
+  expect(harness.deleteCalls).toBe(0)
+  expect(harness.syncCalls).toBe(1)
+  expect((await harness.runner.operation('42'))?.phase).toBe('blocked-unknown')
+  expect((await getMutationJob(harness.database, '42', 'affected-membership'))?.status).toBe('queued')
+  harness.database.close()
+})
+
+test('does not retry a writer rate limit and remains terminal for recovery by observation', async () => {
+  const harness = await createHarness('lifecycle-writer-rate-limit')
+  await putNativeListLifecycleOperation(harness.database, createOperation())
+  harness.createError = new AppFailure({category: 'rate-limit', message: 'limited', retryable: true})
+  await harness.runner.run('42')
+  await harness.runner.run('42')
+  expect(harness.createCalls).toBe(1)
+  expect((await harness.runner.operation('42'))?.phase).toBe('blocked-unknown')
+  harness.database.close()
+})
+
 test('does not mutate on catalog rate limit or account switch at an execution boundary', async () => {
   const rateLimited = await createHarness('lifecycle-rate-limit')
   const rateLimitedList = list('UL_delete', 'Delete me', 'public', 0)
   await putNativeListLifecycleOperation(rateLimited.database, deleteOperation(rateLimitedList))
+  rateLimited.currentCatalog = [rateLimitedList]
   rateLimited.catalogAfterSync = [rateLimitedList]
   rateLimited.catalogError = new Error('rate limited')
   await rateLimited.runner.run('42')
@@ -108,7 +157,8 @@ async function createHarness(name: string) {
   const catalog: ReturnType<typeof observation>[] = []
   const harness = {
     database, catalog, createCalls: 0, deleteCalls: 0, syncCalls: 0, createError: null as Error | null,
-    catalogError: null as Error | null, switchAfterCatalog: false, switchOnOwnerCheck: 0, ownerChecks: 0, catalogAfterSync: [] as ReturnType<typeof list>[],
+    catalogError: null as Error | null, switchAfterCatalog: false, switchOnOwnerCheck: 0, ownerChecks: 0,
+    currentCatalog: [] as ReturnType<typeof list>[], catalogAfterSync: [] as ReturnType<typeof list>[],
     runner: null as unknown as NativeListLifecycleRunner
   }
   harness.runner = new NativeListLifecycleRunner({
@@ -120,11 +170,23 @@ async function createHarness(name: string) {
       deleteList: async () => { harness.deleteCalls += 1 }
     },
     observeCatalog: async () => { if (harness.catalogError) throw harness.catalogError; const result = harness.catalog.shift() ?? observation([]); if (harness.switchAfterCatalog) active = '99'; return result },
-    synchronize: async () => { harness.syncCalls += 1; return {phase: 'complete'} },
-    listCatalog: async () => harness.catalogAfterSync,
+    synchronize: async () => { harness.syncCalls += 1; harness.currentCatalog = harness.catalogAfterSync; return {phase: 'complete'} },
+    listCatalog: async () => harness.currentCatalog,
     now
   })
   return harness
+}
+
+async function enqueueAffectedMembership(database: IDBDatabase): Promise<void> {
+  await putRepository(database, {
+    githubUserId: '42', repositoryNodeId: 'R_kept', ownerLogin: 'octocat', name: 'kept', fullName: 'octocat/kept', htmlUrl: 'https://github.com/octocat/kept', description: null, topics: [], primaryLanguage: null, starredAt: now(), pushedAt: null, archived: false, disabled: false, isStarred: true, firstObservedAt: now(), lastObservedAt: now(), unstarredAt: null
+  })
+  const plan = planMembershipIntent([], {kind: 'add', githubUserId: '42', repositoryNodeId: 'R_kept', additions: ['UL_delete']})
+  if (!plan.ok) throw new Error('invalid fixture')
+  await enqueueMembershipMutationBatch(database, {
+    githubUserId: '42', batchId: 'affected-batch', origin: 'single', createdAt: now(),
+    repositories: [{jobId: 'affected-membership', repositoryNodeId: 'R_kept', ownerLogin: 'octocat', repositoryName: 'kept', plan: plan.value, confirmedCatalog: relevantListCatalogFingerprint(['UL_delete'], [{listNodeId: 'UL_delete', name: 'Delete me', visibility: 'public'}])}]
+  })
 }
 
 function createOperation() {

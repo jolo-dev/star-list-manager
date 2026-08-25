@@ -59,7 +59,10 @@ import {DataPortabilityService} from './import/service'
 import {StarringWriteSession} from './github/starring-write-session'
 import {SafeUnstarService} from './github/safe-unstar-service'
 import {ListMembershipWriteSession} from './github/list-membership-write-session'
+import {ListLifecycleWriteSession} from './github/list-lifecycle-write-session'
 import {ListRenameWriteSession} from './github/list-rename-write-session'
+import {createNativeListMutationRuntime} from './mutations/native-list-mutation-runtime'
+import {NativeListLifecycleRunner} from './mutations/native-list-lifecycle-runner'
 import {nativeListMembershipControlsEnabled} from './github/list-membership-capability'
 import {nativeListRenameControlsEnabled} from './github/list-rename-capability'
 import {NativeListRenameService} from './sync/native-list-rename-service'
@@ -452,6 +455,7 @@ interface RuntimeServices {
   readonly triage: TriageService
   readonly portability: DataPortabilityService
   readonly mutationQueue: MutationQueueRunner
+  readonly nativeListLifecycleRunner: NativeListLifecycleRunner
   readonly membershipObserver: NativeListMembershipObservationService
   readonly nativeListRename: NativeListRenameService
 }
@@ -500,30 +504,48 @@ async function createRuntimeServices(): Promise<RuntimeServices> {
   const membershipObserver = new NativeListMembershipObservationService({
     reader: graphqlClient
   })
-  const mutationQueue = new MutationQueueRunner({
-    database,
-    authStore: store,
-    service: safeUnstar,
-    membershipService: {
-      observer: membershipObserver,
-      writer: membershipWriter
-    },
-    scheduleWake: async (nextExecutionAt) => {
-      if (nextExecutionAt === null) {
-        await clearBrowserAlarm(mutationQueueAlarmName)
-        return
-      }
-      await createBrowserAlarm(
-        mutationQueueAlarmName,
-        Math.max(Date.now(), Date.parse(nextExecutionAt))
-      )
-    }
-  })
-  const starSync = new StarSyncService({database, observer: restClient})
   const nativeListSync = new NativeListSyncService({
     database,
     reader: graphqlClient
   })
+  const lifecycleWriter = new ListLifecycleWriteSession({
+    authStore: store,
+    writeStore
+  })
+  const nativeListMutationRuntime = createNativeListMutationRuntime({
+    queue: {
+      database,
+      authStore: store,
+      service: safeUnstar,
+      membershipService: {
+        observer: membershipObserver,
+        writer: membershipWriter
+      },
+      scheduleWake: async (nextExecutionAt) => {
+        if (nextExecutionAt === null) {
+          await clearBrowserAlarm(mutationQueueAlarmName)
+          return
+        }
+        await createBrowserAlarm(
+          mutationQueueAlarmName,
+          Math.max(Date.now(), Date.parse(nextExecutionAt))
+        )
+      }
+    },
+    lifecycle: {
+      database,
+      owner: store,
+      writer: lifecycleWriter,
+      observeCatalog: (githubUserId, targetListNodeIds) =>
+        nativeListSync.observeCatalog(githubUserId, targetListNodeIds),
+      synchronize: (githubUserId) => nativeListSync.synchronize(githubUserId),
+      listCatalog: (githubUserId) => listNativeLists(database, githubUserId),
+      now: () => new Date().toISOString()
+    }
+  })
+  const mutationQueue = nativeListMutationRuntime.mutationQueue
+  const nativeListLifecycleRunner = nativeListMutationRuntime.lifecycleRunner
+  const starSync = new StarSyncService({database, observer: restClient})
   const triage = new TriageService({database})
   const portability = new DataPortabilityService(database)
   return {
@@ -536,6 +558,7 @@ async function createRuntimeServices(): Promise<RuntimeServices> {
     triage,
     portability,
     mutationQueue,
+    nativeListLifecycleRunner,
     membershipObserver,
     nativeListRename
   }

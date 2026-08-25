@@ -86,9 +86,13 @@ export class NativeListLifecycleRunner {
       if (!(await this.#ownerStillActive(operation.githubUserId))) return
       const current = observation.targets.get(intent.listNodeId) ?? null
       if (!current) {
-        if (await this.#reconcile(operation)) {
+        const reconciled = await this.#reconcile(operation)
+        if (reconciled === null) return
+        if (!reconciled.some((list) => list.listNodeId === intent.listNodeId)) {
           await this.#invalidateMembershipWork(operation, intent.listNodeId)
           await this.#complete(operation, 'already-deleted')
+        } else {
+          await this.#blocked(operation, 'GitHub did not verify removal of the native List after reconciliation.')
         }
         return
       }
@@ -131,7 +135,13 @@ export class NativeListLifecycleRunner {
     if (!observation || !(await this.#ownerStillActive(verifying.githubUserId))) return
     const result = observation.targets.get(created.listNodeId) ?? null
     if (result && result.name === created.name && (result.isPrivate ? 'private' : 'public') === created.visibility) {
-      if (await this.#reconcile(verifying)) await this.#complete(verifying, 'succeeded')
+      const reconciled = await this.#reconcile(verifying)
+      if (reconciled === null) return
+      if (reconciled.some((list) => list.listNodeId === created.listNodeId && list.name === created.name && list.visibility === created.visibility)) {
+        await this.#complete(verifying, 'succeeded')
+      } else {
+        await this.#blocked(verifying, 'GitHub did not verify the created native List after reconciliation.')
+      }
       return
     }
     await this.#blocked(verifying, 'GitHub did not verify the created native List by its stable ID.')
@@ -144,9 +154,13 @@ export class NativeListLifecycleRunner {
     const observation = await this.#catalogOrBlocked(verifying, [intent.listNodeId])
     if (!observation || !(await this.#ownerStillActive(verifying.githubUserId))) return
     if ((observation.targets.get(intent.listNodeId) ?? null) === null) {
-      if (await this.#reconcile(verifying)) {
+      const reconciled = await this.#reconcile(verifying)
+      if (reconciled === null) return
+      if (!reconciled.some((list) => list.listNodeId === intent.listNodeId)) {
         await this.#invalidateMembershipWork(verifying, intent.listNodeId)
         await this.#complete(verifying, 'succeeded')
+      } else {
+        await this.#blocked(verifying, 'GitHub did not verify removal of the native List after reconciliation.')
       }
       return
     }
@@ -165,15 +179,25 @@ export class NativeListLifecycleRunner {
     const observation = await this.#catalogOrBlocked(operation, [target])
     if (!observation || !(await this.#ownerStillActive(operation.githubUserId))) return
     const found = observation.targets.get(target) ?? null
-    if (operation.intent.kind === 'delete' && !found) {
-      if (await this.#reconcile(operation)) {
-        await this.#invalidateMembershipWork(operation, operation.intent.listNodeId)
+    if (intent.kind === 'delete' && !found) {
+      const reconciled = await this.#reconcile(operation)
+      if (reconciled === null) return
+      if (!reconciled.some((list) => list.listNodeId === intent.listNodeId)) {
+        await this.#invalidateMembershipWork(operation, intent.listNodeId)
         await this.#complete(operation, 'succeeded')
+      } else {
+        await this.#blocked(operation, 'GitHub did not verify removal of the native List after reconciliation.')
       }
       return
     }
-    if (operation.intent.kind === 'create' && found && found.name === operation.intent.name && (found.isPrivate ? 'private' : 'public') === operation.intent.visibility) {
-      if (await this.#reconcile(operation)) await this.#complete(operation, 'succeeded')
+    if (intent.kind === 'create' && found && found.name === intent.name && (found.isPrivate ? 'private' : 'public') === intent.visibility) {
+      const reconciled = await this.#reconcile(operation)
+      if (reconciled === null) return
+      if (reconciled.some((list) => list.listNodeId === target && list.name === intent.name && list.visibility === intent.visibility)) {
+        await this.#complete(operation, 'succeeded')
+      } else {
+        await this.#blocked(operation, 'GitHub did not verify the created native List after reconciliation.')
+      }
       return
     }
     await this.#blocked(operation, 'The native List request outcome is unknown. Refresh GitHub before trying again.')
@@ -197,17 +221,20 @@ export class NativeListLifecycleRunner {
     }
   }
 
-  async #reconcile(operation: NativeListLifecycleOperationRecord): Promise<boolean> {
-    if (!(await this.#ownerStillActive(operation.githubUserId))) return false
+  async #reconcile(operation: NativeListLifecycleOperationRecord): Promise<readonly NativeListRecord[] | null> {
+    if (!(await this.#ownerStillActive(operation.githubUserId))) return null
     try {
       const state = await this.#synchronize(operation.githubUserId)
-      if (!(await this.#ownerStillActive(operation.githubUserId))) return false
-      if (state.phase === 'complete' || state.phase === 'partial') return true
+      if (!(await this.#ownerStillActive(operation.githubUserId))) return null
+      if (state.phase === 'complete' || state.phase === 'partial') {
+        const lists = await this.#listCatalog(operation.githubUserId)
+        return (await this.#ownerStillActive(operation.githubUserId)) ? lists : null
+      }
       await this.#blocked(operation, 'GitHub did not complete native List reconciliation after verification.')
     } catch (error: unknown) {
       await this.#blocked(operation, 'GitHub did not complete native List reconciliation after verification.', error)
     }
-    return false
+    return null
   }
 
   async #invalidateMembershipWork(
