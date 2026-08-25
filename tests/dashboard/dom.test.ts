@@ -5995,6 +5995,33 @@ test('retains lifecycle refresh after a transient catalog recovery failure', asy
   }
 })
 
+test('adds fixed reauthorization guidance for a denied lifecycle refresh', async () => {
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    if (message.type === 'refresh-native-list-lifecycle') {
+      return {ok: false, error: {category: 'permission', message: 'GitHub denied this request.', retryable: false}}
+    }
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+  try {
+    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: {...completeSyncState('native-lists'), phase: 'unavailable'}, nativeListLifecycle: {readiness: 'ready', operation: null}})
+    const browserWindow = window as unknown as Window
+    root.querySelector<HTMLButtonElement>('[data-native-list-refresh]')?.click()
+    await nextTurn(browserWindow)
+
+    const status = root.querySelector<HTMLElement>('[data-native-list-lifecycle-status]')
+    expect(status?.querySelector('[role="alert"]')?.textContent).toBe('GitHub denied this request.')
+    expect(status?.querySelector('#native-list-lifecycle-status-text')?.textContent)
+      .toContain('Reauthorize GitHub before refreshing Lists.')
+    expect(status?.querySelector('[data-native-list-refresh]')).toBeNull()
+    expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
 test('renders lifecycle refresh errors in the rail without opening a dialog', async () => {
   const previousChrome = (globalThis as {chrome?: unknown}).chrome
   const state = membershipReadyDashboardState()

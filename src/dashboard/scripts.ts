@@ -798,6 +798,10 @@ function NativeListLifecycleStatus(
   const syncError = state.nativeListSync?.lastError ?? null
   const currentError = nativeListLifecycleError.val
   const currentErrorCategory = nativeListLifecycleErrorCategory.val
+  const reauthorizationGuidance = lifecycleReauthorizationGuidance(
+    currentError,
+    currentErrorCategory
+  )
   const showRefresh = shouldShowNativeListLifecycleRefresh(
     state,
     currentErrorCategory
@@ -822,8 +826,8 @@ function NativeListLifecycleStatus(
         ...(publishedPhase.val === 'ready' ? {role: 'status'} : {})
       },
       operation
-        ? `Latest operation: ${lifecyclePhaseLabel(operation.phase)}. ${operation.intent.name} · ${operation.intent.kind}. ${lifecycleOperationGuidance(operation)}`
-        : nativeListSyncStatusText(state)
+        ? `Latest operation: ${lifecyclePhaseLabel(operation.phase)}. ${operation.intent.name} · ${operation.intent.kind}. ${lifecycleOperationGuidance(operation)}${reauthorizationGuidance ? ` ${reauthorizationGuidance}` : ''}`
+        : `${nativeListSyncStatusText(state)}${reauthorizationGuidance ? ` ${reauthorizationGuidance}` : ''}`
     ),
     currentError
       ? p({class: 'inline-error', role: 'alert'}, currentError)
@@ -928,6 +932,20 @@ function lifecycleOperationGuidance(
     return 'The queued GitHub List operation was cancelled.'
   }
   return 'Conflicting native List lifecycle, membership, and rename actions are disabled until this operation reaches a terminal verified outcome.'
+}
+
+function lifecycleReauthorizationGuidance(
+  currentError: string | null,
+  currentErrorCategory: ErrorCategory | null
+): string | null {
+  if (
+    currentErrorCategory !== 'authentication' &&
+    currentErrorCategory !== 'permission'
+  ) {
+    return null
+  }
+  const guidance = 'Reauthorize GitHub before refreshing Lists.'
+  return currentError?.includes(guidance) ? null : guidance
 }
 
 function shouldShowNativeListLifecycleRefresh(
