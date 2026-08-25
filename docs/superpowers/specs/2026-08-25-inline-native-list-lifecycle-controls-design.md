@@ -41,9 +41,9 @@ The dedicated management page’s create section and synchronized catalog are un
 Lifecycle state remains visible without a dedicated page.
 
 - When create/remove controls are disabled, the rail shows one concise explanation beneath the **My Lists** heading. Blocker copy is deterministic: pending lifecycle request or active lifecycle operation first, then active membership work, active rename work, account authorization, unproven release capability, and finally catalog synchronization state.
-- Native List catalog states—never synchronized, running, partial, stale, unavailable, or complete—remain visible when they affect lifecycle safety or require action.
+- Native List catalog states—never synchronized, running, partial, stale, unavailable, or complete—remain visible when they affect lifecycle safety or require action. Never-synchronized, idle, running, stale, and unavailable catalogs disable lifecycle controls; complete and partial catalogs may proceed because deletion preview already carries the GitHub-reported count and partial-import warning.
 - Active, failed, stale-confirmation, or ambiguous lifecycle outcomes appear in a compact rail status surface with reauthorization, refresh, or inspection guidance as applicable.
-- A queued or preflight operation retains a visible **Cancel queued operation** action. Interactive refresh and cancellation controls sit outside `role="status"`/`role="alert"` text while remaining programmatically associated with it.
+- A queued or preflight operation retains a visible **Cancel queued operation** action. **Refresh GitHub Lists** appears for never-synchronized, idle, partial, stale, or unavailable catalogs and for blocked-unknown or needs-confirmation outcomes; authentication/permission failures show reauthorization guidance instead of a futile refresh action. Interactive refresh and cancellation controls sit outside `role="status"`/`role="alert"` text while remaining programmatically associated with it.
 - Verified terminal outcomes may be shown briefly or until the next relevant state refresh, using the existing truthful read-back wording.
 - Error and status text retains semantic `alert` or `status` roles as appropriate.
 - The interface never reports success before authoritative GitHub read-back.
@@ -62,7 +62,7 @@ The navigation list remains direct under **My Lists**; no collapsible **GitHub L
 
 Move the native List lifecycle dialog host out of the deleted management workspace and mount it once in the retained ready dashboard shell. The existing dialog state, focus capture, focus trap, Escape behavior, error targeting, pending protection, and fallback focus restoration remain authoritative.
 
-After dialog dismissal or a completed request, focus returns to the invoking `+` or remove control when it is still present and available. Confirmation normally returns a queued state before authoritative reconciliation removes a deleted List, so dashboard state reconciliation must also detect a focused remove control whose `listNodeId` disappears during a later publication. It then moves focus deterministically to the enabled `+` control, otherwise to the nearest surviving List navigation control, and finally to **Unlist**.
+After dialog dismissal or a completed request, focus returns to the invoking `+` or remove control only when it remains present and enabled. If queueing immediately disables the invoker, focus moves to the affected List’s navigation control or **Unlist** rather than targeting a native disabled button. Shell-level rail reconciliation remains independent of the active workspace: when a later authoritative publication removes a focused List navigation or remove control, focus moves deterministically to the enabled `+` control, otherwise to the nearest surviving List navigation control, and finally to **Unlist**.
 
 ### Lifecycle requests
 
@@ -106,7 +106,7 @@ Update or add DOM tests that verify:
 - Remove opens the existing empty/populated deletion confirmation flows.
 - Create/remove controls remain visible but disabled with nearby guidance when writes are unavailable or conflicting.
 - No nested interactive controls are rendered.
-- Focus returns immediately to the invoker after queueing, then moves to the specified stable fallback when a later authoritative publication removes the focused deleted row.
+- After queueing disables an invoker, focus moves to the affected List navigation control or to **Unlist** for creation; later authoritative publication uses the specified shell-level fallback if that focused List row disappears.
 - Pending and ambiguous lifecycle states, catalog synchronization state, reauthorization guidance, and queued cancellation remain visible in the rail.
 - Contextual **Refresh GitHub Lists** dispatches `refresh-native-list-lifecycle` and can advance the documented recovery path; ordinary Library Refresh is not substituted for this protocol.
 - Disabled-control guidance follows the documented blocker priority and is associated through `aria-describedby`.
