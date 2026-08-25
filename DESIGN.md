@@ -136,6 +136,12 @@ components:
     rounded: "{rounded.card}"
     padding: "34px"
     width: "620px"
+  list-management-panel:
+    backgroundColor: "{colors.paper-white}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.panel}"
+    padding: "20px"
+    width: "900px"
   status-success:
     backgroundColor: "{colors.success-surface}"
     textColor: "{colors.success-ink}"
@@ -170,6 +176,7 @@ Quietness is structural rather than vague: the active collection, Library-scoped
 - Sans prose and titles paired with mono metadata for deliberate scanability.
 - Restrained elevation, softened rectangles, and pills reserved for compact states.
 - Visible, labeled local-versus-remote and write-readiness semantics.
+- A dedicated GitHub List management surface that keeps remote lifecycle effects explicit and verified.
 - Self-contained assets and resilient behavior from 320px upward.
 
 ## Colors
@@ -234,6 +241,8 @@ The desktop shell begins with a sticky 64px header containing the brand at the s
 
 The Library first viewport leads with the active population title and real result count, then the Library-scoped search, Refresh, View options, and Filters. At widths above 1180px the toolbar resolves into a compact grid; at and below that point it wraps beneath the heading. Cards form three columns on wide screens, two columns at 1024px and below, and one column at 700px and below. The alternate List mode uses the same data and interaction contracts at a denser rhythm.
 
+GitHub List management is a retained Library workspace capped at 900px. Its header, readiness notice, create section, synchronized catalog, and latest operation status follow one 20px vertical rhythm. Catalog rows remain divider-led rather than card-stacked, and create/delete confirmations use the existing modal layer.
+
 At 700px and below the header wraps into brand/account plus a full-width three-column navigation row. The rail becomes a normal-flow, full-width List selector with a bottom divider; all Lists remain available. The workspace becomes one column with 16px side padding, filters and membership controls stack, dialogs become bottom-aligned full-width sheets, and required controls grow to at least 44px. The implementation is designed to avoid horizontal clipping from 320px upward, including long repository and List names.
 
 Spacing follows a compact 4/8/12/16 step for component interiors and a 24/32/40 step for page rhythm. Preserve the single `<main>` landmark and keep global account identity in the header while search remains local to Library.
@@ -293,7 +302,7 @@ Components are restrained and explicit: their shape and color support the user�
 
 The brand mark is a compact ink square containing the locally rendered star, followed by the unchanged **Star List Manager** wordmark. Global navigation exposes only Library, Operations, and Settings. The connected-account initial is a labeled global indicator, not a profile menu or remote avatar.
 
-“My Lists” contains Unlist and synchronized native GitHub Lists with live counts. The current view uses dark ink fill, white text, `aria-current="page"`, and a visible count border. Inactive deterministic dots are decorative. There is no Explore, create-List, random-repository, or fabricated route.
+“My Lists” contains Unlist, synchronized native GitHub Lists with live counts, and the real **Manage GitHub Lists** destination. The current collection uses dark ink fill, white text, `aria-current="page"`, and a visible count border. Management stays reachable when the synchronized catalog is empty or lifecycle writes are unavailable, so read-only state never removes wayfinding. Inactive deterministic dots are decorative. There is no Explore, random-repository, or fabricated route.
 
 ### Repository records
 
@@ -305,11 +314,13 @@ Arrow Up/Down and Home/End move focus through visible results. Cards and rows pr
 
 Selection is visibly reversible and locally inert: the selection bar states that selecting changes no stars, notes, tags, favorites, or triage state. Unstar and native List membership actions remain disabled until separate account-matched write readiness and capability checks pass, and active repository jobs block duplicate review.
 
-Native List controls identify themselves as “GitHub account,” distinguish remote membership from local tags, preview complete current/resulting sets, surface no-ops, and require refreshed confirmation when observations change. Unstar requires an explicit dialog, states that there is no Undo or re-star control, queues work durably, and changes local starred state only after independent GitHub verification. Failed, retrying, queued, blocked-unknown, stale, partial, and verification-conflict states remain labeled and recoverable; the interface must never report false success.
+Native List controls identify themselves as “GitHub account” and distinguish remote Lists and membership from local tags. Membership changes preview complete current/resulting sets, surface no-ops, and require refreshed confirmation when observations change. Lifecycle management requires an explicit public/private choice for creation; deletion names the exact List, states that repositories remain starred but become unlisted, and requires exact-name confirmation for populated Lists. Capability, authorization, sync, pending, verified, stale-confirmation, and ambiguous outcomes remain visible in the management workspace, while conflicting lifecycle, membership, and rename controls stay disabled.
+
+Unstar requires an explicit dialog, states that there is no Undo or re-star control, queues work durably, and changes local starred state only after independent GitHub verification. Failed, retrying, queued, blocked-unknown, stale, partial, and verification-conflict states remain labeled and recoverable; the interface must never report false success.
 
 ### Dialogs and state surfaces
 
-Repository inspection, membership preview, and unstar confirmation use modal semantics, focus trapping, Escape handling when cancellation is safe, initial focus on a non-destructive action, and restoration to a valid invoker or fallback. On narrow screens they become full-width bottom sheets without losing content.
+Repository inspection, membership preview, unstar confirmation, and GitHub List lifecycle confirmation use modal semantics, focus trapping, Escape handling when cancellation is safe, initial focus on a non-destructive action, and restoration to a valid invoker or fallback. Lifecycle errors remain linked to the affected field or actionable dialog control. On narrow screens these dialogs become full-width bottom sheets without losing content or allowing long List names to force horizontal overflow.
 
 Loading, first-run, signed-out, authorization, empty, error, Operations, and Settings views inherit the same type, color, border, radius, and status vocabulary. Operations names verified outcomes and unknown remote states; Settings discloses broad write scopes and keeps read-only/local utility available without write access.
 
@@ -332,11 +343,12 @@ Maintain AA text and control contrast in both schemes. At narrow widths, preserv
 - **Do** preserve AA contrast, visible 3px focus indicators, explicit dark mode, forced-colors behavior, reduced-motion suppression, 320px layouts, and 44px narrow-screen controls.
 - **Do** use Geist Sans for prose and titles, Geist Mono for compact metadata, and package both locally with no runtime design request.
 - **Do** keep selection locally inert and reversible; gate remote or destructive review and confirmation actions on account-matched write readiness and capability checks, preview complete remote effects, require confirmation, and display queued and verified outcomes without collapsing unknown states into success.
+- **Do** keep GitHub List lifecycle management reachable in read-only and empty-catalog states; name remote effects, visibility, reported counts, partial imports, and verification status explicitly.
 - **Do** regenerate visual evidence from the deterministic synthetic review generator; keep its static fixture non-shipping, no-network, and clearly labeled as synthetic.
 
 ### Don't:
 
-- **Don't** add Explore, create-List, random-repository, profile-menu, toast, fake pagination, or any other capability that the product does not implement.
+- **Don't** add Explore, random-repository, profile-menu, toast, fake pagination, quick-create shortcuts, or any other capability that bypasses the implemented GitHub List preview and confirmation workflow.
 - **Don't** revive the category-default developer-tool table or Archive.Stars brutalism through hard rectangles, mono-forward prose, dense chrome, or ornamental separators.
 - **Don't** use semantic green, orange, red, or blue as decoration, or communicate status with a dot, border, or color alone.
 - **Don't** fake mutation capability, enable destructive controls early, imply Undo or re-star, or declare GitHub success before independent remote verification.

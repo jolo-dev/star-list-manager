@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-24T15:56:49Z",
+  "generatedAt": "2026-08-25T10:21:37.253Z",
   "title": "Design System: Star List Manager",
   "extensions": {
     "colorMeta": {
@@ -710,6 +710,14 @@
       "description": "A modal review surface that leads with scope and keeps cancellation visually available.",
       "html": "<section class=\"ds-review-dialog\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"ds-review-title\"><h2 id=\"ds-review-title\">Review remote change</h2><p>This action affects the connected GitHub account only after confirmation and verification.</p><div class=\"ds-review-actions\"><button class=\"ds-review-cancel\" type=\"button\">Cancel</button><button class=\"ds-review-continue\" type=\"button\">Continue review</button></div></section>",
       "css": ".ds-review-dialog { width: min(620px, 100%); padding: 34px; color: var(--text-primary, #0f172a); background: var(--surface, #fff); border: 1px solid var(--border-subtle, #cbd5e1); border-radius: var(--radius-card, 16px); box-shadow: var(--shadow-card, 0 4px 20px rgb(15 23 42 / 8%)); font-family: var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); } .ds-review-dialog h2 { margin: 0 0 12px; font-size: 1.625rem; line-height: 1.15; } .ds-review-dialog p { color: var(--text-secondary, #475569); line-height: 1.6; } .ds-review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; } .ds-review-cancel, .ds-review-continue { min-height: 40px; padding: 8px 13px; border-radius: var(--radius-control, 8px); font: 650 .875rem var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); } .ds-review-cancel { color: var(--text-primary, #0f172a); background: var(--surface, #fff); border: 1px solid var(--border-control, #64748b); } .ds-review-continue { color: var(--action-primary-text, #fff); background: var(--action-primary, #0f172a); border: 1px solid var(--action-primary, #0f172a); } .ds-review-cancel:hover { background: var(--surface-muted, #f1f5f9); } .ds-review-continue:hover { transform: translateY(-1px); } .ds-review-cancel:focus-visible, .ds-review-continue:focus-visible { outline: 3px solid var(--focus-ring, #2563eb); outline-offset: 2px; }"
+    },
+    {
+      "name": "GitHub List Management",
+      "kind": "custom",
+      "refersTo": "list-management-panel",
+      "description": "A retained Library workspace for explicit, capability-gated native GitHub List lifecycle actions.",
+      "html": "<section class=\"ds-list-management\"><header class=\"ds-list-management-header\"><div><h2>Manage GitHub Lists</h2><p>Remote native GitHub Lists are separate from local tags and annotations.</p></div><button class=\"ds-list-refresh\" type=\"button\">Refresh GitHub Lists</button></header><p class=\"ds-lifecycle-readiness\" role=\"status\">Read-only: lifecycle capability is unproven for this build.</p><section class=\"ds-list-panel\"><h3>Create a GitHub List</h3><p>Choose a name and privacy setting, then review the remote change.</p><button class=\"ds-list-primary\" type=\"button\" disabled>Create GitHub List</button></section><section class=\"ds-list-panel\"><h3>Synchronized GitHub Lists</h3><ul class=\"ds-list-catalog\"><li><div><strong>Research</strong><p>private GitHub List · GitHub reports 4 repositories.</p></div><button class=\"ds-list-danger\" type=\"button\" disabled>Review deletion</button></li></ul></section></section>",
+      "css": ".ds-list-management { display: grid; width: min(900px, 100%); gap: 20px; color: var(--text-primary, #0f172a); font-family: var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); } .ds-list-management-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; } .ds-list-management h2, .ds-list-management h3, .ds-list-management p { margin-top: 0; } .ds-list-management h2 { margin-bottom: 8px; font-size: 1.75rem; line-height: 1.15; } .ds-list-management h3 { margin-bottom: 8px; font-size: 1.125rem; } .ds-list-management p { max-width: 70ch; color: var(--text-secondary, #475569); line-height: 1.6; } .ds-list-panel { min-width: 0; padding: 20px; background: var(--surface, #fff); border: 1px solid var(--border-subtle, #cbd5e1); border-radius: var(--radius-panel, 12px); } .ds-lifecycle-readiness { margin: 0; padding: 10px 12px; color: var(--text-warning, #9a3412) !important; background: var(--surface-warning, #fff7ed); border: 1px solid var(--border-warning, #c2410c); border-radius: var(--radius-control, 8px); font-size: .875rem; } .ds-list-catalog { margin: 0; padding: 0; list-style: none; } .ds-list-catalog li { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; } .ds-list-catalog li > div { min-width: 0; } .ds-list-catalog strong, .ds-list-catalog p { overflow-wrap: anywhere; } .ds-list-refresh, .ds-list-primary, .ds-list-danger { min-height: 40px; padding: 8px 13px; border-radius: var(--radius-control, 8px); font: 650 .875rem var(--font-prose, \"Geist Sans\", ui-sans-serif, sans-serif); } .ds-list-refresh { color: var(--text-primary, #0f172a); background: var(--surface, #fff); border: 1px solid var(--border-control, #64748b); } .ds-list-primary { color: var(--action-primary-text, #fff); background: var(--action-primary, #0f172a); border: 1px solid var(--action-primary, #0f172a); } .ds-list-danger { color: var(--action-danger-text, #b91c1c); background: var(--action-danger, #fff); border: 1px solid var(--border-danger, #b91c1c); } .ds-list-refresh:hover:not(:disabled) { background: var(--surface-muted, #f1f5f9); } .ds-list-refresh:focus-visible, .ds-list-primary:focus-visible, .ds-list-danger:focus-visible { outline: 3px solid var(--focus-ring, #2563eb); outline-offset: 2px; } .ds-list-refresh:disabled, .ds-list-primary:disabled, .ds-list-danger:disabled { color: var(--text-disabled, #475569); background: var(--surface-disabled, #e2e8f0); border-color: var(--border-disabled, #64748b); cursor: not-allowed; } @media (max-width: 700px) { .ds-list-management-header, .ds-list-catalog li { align-items: stretch; flex-direction: column; } .ds-list-refresh, .ds-list-primary, .ds-list-danger { width: 100%; min-height: 44px; } }"
     }
   ],
   "narrative": {
@@ -722,6 +730,7 @@
       "Sans prose and titles paired with mono metadata for deliberate scanability.",
       "Restrained elevation, softened rectangles, and pills reserved for compact states.",
       "Visible, labeled local-versus-remote and write-readiness semantics.",
+      "A dedicated GitHub List management surface that keeps remote lifecycle effects explicit and verified.",
       "Self-contained assets and resilient behavior from 320px upward."
     ],
     "rules": [
@@ -764,10 +773,11 @@
       "**Do** preserve AA contrast, visible 3px focus indicators, explicit dark mode, forced-colors behavior, reduced-motion suppression, 320px layouts, and 44px narrow-screen controls.",
       "**Do** use Geist Sans for prose and titles, Geist Mono for compact metadata, and package both locally with no runtime design request.",
       "**Do** keep selection locally inert and reversible; gate remote or destructive review and confirmation actions on account-matched write readiness and capability checks, preview complete remote effects, require confirmation, and display queued and verified outcomes without collapsing unknown states into success.",
+      "**Do** keep GitHub List lifecycle management reachable in read-only and empty-catalog states; name remote effects, visibility, reported counts, partial imports, and verification status explicitly.",
       "**Do** regenerate visual evidence from the deterministic synthetic review generator; keep its static fixture non-shipping, no-network, and clearly labeled as synthetic."
     ],
     "donts": [
-      "**Don't** add Explore, create-List, random-repository, profile-menu, toast, fake pagination, or any other capability that the product does not implement.",
+      "**Don't** add Explore, random-repository, profile-menu, toast, fake pagination, quick-create shortcuts, or any other capability that bypasses the implemented GitHub List preview and confirmation workflow.",
       "**Don't** revive the category-default developer-tool table or Archive.Stars brutalism through hard rectangles, mono-forward prose, dense chrome, or ornamental separators.",
       "**Don't** use semantic green, orange, red, or blue as decoration, or communicate status with a dot, border, or color alone.",
       "**Don't** fake mutation capability, enable destructive controls early, imply Undo or re-star, or declare GitHub success before independent remote verification.",
