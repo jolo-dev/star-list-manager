@@ -6,6 +6,7 @@ import {
   openLibraryDatabase
 } from '../../src/storage/database'
 import {
+  cancelNativeListLifecycleOperationIfPreDispatch,
   clearAllLibraryData,
   deleteNativeListLifecycleOperationsForAccount,
   getActiveNativeListLifecycleOperation,
@@ -62,6 +63,45 @@ describe('native List lifecycle operation storage', () => {
         lifecycleOperation('account-a', 'delete-active', 'preflight')
       )
     ).rejects.toThrow('active native List lifecycle operation')
+    database.close()
+  })
+
+  test('atomically cancels only the same queued or preflight operation', async () => {
+    const database = await openLibraryDatabase({
+      name: 'native-list-lifecycle-conditional-cancel',
+      factory: new IDBFactory()
+    })
+    await putNativeListLifecycleOperation(database, lifecycleOperation('account-a', 'queued', 'queued'))
+    expect(
+      await cancelNativeListLifecycleOperationIfPreDispatch(
+        database,
+        'account-a',
+        'queued',
+        '2026-08-12T22:01:00.000Z'
+      )
+    ).toMatchObject({phase: 'cancelled', completedAt: '2026-08-12T22:01:00.000Z'})
+
+    await putNativeListLifecycleOperation(database, lifecycleOperation('account-a', 'preflight', 'preflight'))
+    expect(
+      await cancelNativeListLifecycleOperationIfPreDispatch(
+        database,
+        'account-a',
+        'preflight',
+        '2026-08-12T22:01:00.000Z'
+      )
+    ).toMatchObject({phase: 'cancelled'})
+
+    const mutating = {...lifecycleOperation('account-a', 'mutating', 'failed'), phase: 'mutating' as const, completedAt: null}
+    await putNativeListLifecycleOperation(database, mutating)
+    expect(
+      await cancelNativeListLifecycleOperationIfPreDispatch(
+        database,
+        'account-a',
+        'mutating',
+        '2026-08-12T22:01:00.000Z'
+      )
+    ).toBeNull()
+    expect((await listNativeListLifecycleOperations(database, 'account-a')).find((operation) => operation.operationId === 'mutating')).toEqual(mutating)
     database.close()
   })
 

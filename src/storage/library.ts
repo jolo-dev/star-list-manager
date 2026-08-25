@@ -250,6 +250,39 @@ export async function getActiveNativeListLifecycleOperation(
   )
 }
 
+/** Atomically transitions only an undispatched lifecycle operation to cancelled. */
+export async function cancelNativeListLifecycleOperationIfPreDispatch(
+  database: IDBDatabase,
+  githubUserId: GitHubUserId,
+  operationId: string,
+  cancelledAt: string
+): Promise<NativeListLifecycleOperationRecord | null> {
+  return runLibraryTransaction(
+    database,
+    libraryStores.nativeListLifecycleOperations,
+    'readwrite',
+    async (transaction) => {
+      const store = transaction.objectStore(libraryStores.nativeListLifecycleOperations)
+      const operation = await requestResult(
+        store.get([githubUserId, operationId]) as IDBRequest<
+          NativeListLifecycleOperationRecord | undefined
+        >
+      )
+      if (!operation || (operation.phase !== 'queued' && operation.phase !== 'preflight')) {
+        return null
+      }
+      const cancelled: NativeListLifecycleOperationRecord = {
+        ...operation,
+        phase: 'cancelled',
+        updatedAt: cancelledAt,
+        completedAt: cancelledAt
+      }
+      await requestResult(store.put(cancelled))
+      return cancelled
+    }
+  )
+}
+
 export async function putNativeMembership(
   database: IDBDatabase,
   membership: NativeMembershipRecord

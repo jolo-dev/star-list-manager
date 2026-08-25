@@ -1,6 +1,7 @@
 import {describe, expect, test} from 'bun:test'
 import type {NativeListLifecycleOperationRecord, NativeListRecord} from '../../src/domain/types'
 import type {AppState, WriteAuthorizationState} from '../../src/shared/messages'
+import {NativeListMutationLock} from '../../src/mutations/native-list-mutation-lock'
 import {
   handleNativeListLifecycle,
   nativeListLifecycleReadiness,
@@ -95,13 +96,38 @@ describe('native List lifecycle background runtime', () => {
     expect(harness.persisted.at(-1)).toMatchObject({phase: 'cancelled', completedAt: now})
     expect(harness.runnerCalls).toBe(0)
 
-    const dispatched = runtimeServices({activeOperation: {...operation, phase: 'preflight'}})
-    const rejected = await handleNativeListLifecycle(dispatched.services, {
+    const preflight = runtimeServices({activeOperation: {...operation, phase: 'preflight'}})
+    const preflightCancelled = await handleNativeListLifecycle(preflight.services, {
       type: 'cancel-native-list-lifecycle'
-    }, {capabilityProven: true, getDashboardState: dispatched.dashboard})
-    expect(rejected.ok).toBe(false)
-    expect(dispatched.persisted).toEqual([])
-    expect(dispatched.runnerCalls).toBe(0)
+    }, {capabilityProven: true, getDashboardState: preflight.dashboard, now: () => now})
+    expect(preflightCancelled.ok).toBe(true)
+    expect(preflight.persisted.at(-1)).toMatchObject({phase: 'cancelled'})
+    expect(preflight.runnerCalls).toBe(0)
+  })
+
+  test('waits on the shared mutation lock and does not overwrite work that advanced to mutating', async () => {
+    const operation = {...createOperation(), phase: 'preflight' as const}
+    const harness = runtimeServices({activeOperation: operation})
+    let releaseRunner!: () => void
+    const runnerOwnsLock = harness.lock.run(async () => {
+      await new Promise<void>((resolve) => { releaseRunner = resolve })
+    })
+    await Promise.resolve()
+
+    const cancellation = handleNativeListLifecycle(harness.services, {
+      type: 'cancel-native-list-lifecycle'
+    }, {capabilityProven: true, getDashboardState: harness.dashboard, now: () => now})
+    await Promise.resolve()
+    expect(harness.persisted).toEqual([])
+
+    harness.setActiveOperation({...operation, phase: 'mutating'})
+    releaseRunner()
+    const response = await cancellation
+    await runnerOwnsLock
+
+    expect(response.ok).toBe(false)
+    expect(harness.persisted).toEqual([])
+    expect(harness.runnerCalls).toBe(0)
   })
 })
 
@@ -116,6 +142,7 @@ function runtimeServices(overrides: Overrides = {}) {
   const events: string[] = []
   let activeOperation = overrides.activeOperation ?? null
   let runnerCalls = 0
+  const lock = new NativeListMutationLock()
   const catalog = [list('UL_one', 'Ideas', 'private', 2, 'partial')]
   const services: NativeListLifecycleRuntimeServices = {
     authSession: {loadActive: async () => overrides.active === undefined ? {githubUserId: '42', identity: {githubUserId: '42'}} : overrides.active},
@@ -129,14 +156,35 @@ function runtimeServices(overrides: Overrides = {}) {
     lifecycleStorage: {
       getActive: async () => activeOperation,
       put: async (operation) => { events.push('persist'); persisted.push(operation); activeOperation = operation },
+      cancelPreDispatch: async (githubUserId, operationId, cancelledAt) => {
+        if (
+          activeOperation?.githubUserId !== githubUserId ||
+          activeOperation.operationId !== operationId ||
+          (activeOperation.phase !== 'queued' && activeOperation.phase !== 'preflight')
+        ) return null
+        const cancelled = {...activeOperation, phase: 'cancelled' as const, updatedAt: cancelledAt, completedAt: cancelledAt}
+        events.push('persist')
+        persisted.push(cancelled)
+        activeOperation = cancelled
+        return cancelled
+      },
       listCatalog: async () => catalog
     },
     nativeListLifecycleRunner: {
       run: async () => { events.push('run'); runnerCalls += 1 },
       operation: async () => activeOperation
-    }
+    },
+    nativeListMutationLock: lock
   }
-  return {services, persisted, events, get runnerCalls() { return runnerCalls }, dashboard: async () => dashboardState()}
+  return {
+    services,
+    persisted,
+    events,
+    lock,
+    setActiveOperation: (operation: NativeListLifecycleOperationRecord | null) => { activeOperation = operation },
+    get runnerCalls() { return runnerCalls },
+    dashboard: async () => dashboardState()
+  }
 }
 
 function readyWriteAuthorization(): WriteAuthorizationState {

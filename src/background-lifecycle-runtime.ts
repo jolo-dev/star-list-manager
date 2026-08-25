@@ -3,6 +3,7 @@ import type {
   NativeListRecord
 } from './domain/types'
 import {nativeListCatalogFingerprint} from './mutations/native-list-lifecycle-runner'
+import type {NativeListMutationLock} from './mutations/native-list-mutation-lock'
 import {failureResponse, successResponse} from './shared/messages'
 import type {
   AppState,
@@ -53,12 +54,18 @@ export interface NativeListLifecycleRuntimeServices {
   readonly lifecycleStorage: {
     readonly getActive: (githubUserId: string) => Promise<NativeListLifecycleOperationRecord | null>
     readonly put: (operation: NativeListLifecycleOperationRecord) => Promise<void>
+    readonly cancelPreDispatch: (
+      githubUserId: string,
+      operationId: string,
+      cancelledAt: string
+    ) => Promise<NativeListLifecycleOperationRecord | null>
     readonly listCatalog: (githubUserId: string) => Promise<readonly NativeListRecord[]>
   }
   readonly nativeListLifecycleRunner: {
     readonly run: (githubUserId: string) => Promise<void>
     readonly operation: (githubUserId: string) => Promise<NativeListLifecycleOperationRecord | null>
   }
+  readonly nativeListMutationLock: Pick<NativeListMutationLock, 'run'>
 }
 
 export interface NativeListLifecycleRuntimeDependencies {
@@ -175,11 +182,18 @@ async function cancelLifecycle(
   dependencies: NativeListLifecycleRuntimeDependencies
 ): Promise<RuntimeResponse<AppState>> {
   const active = await requireAccount(services)
-  const operation = await services.lifecycleStorage.getActive(active.githubUserId)
-  if (!operation || operation.phase !== 'queued') return failureResponse(cancellationUnavailable())
-  const now = (dependencies.now ?? (() => new Date().toISOString()))()
-  await services.lifecycleStorage.put({...operation, phase: 'cancelled', updatedAt: now, completedAt: now})
-  return successResponse(await dependencies.getDashboardState())
+  return services.nativeListMutationLock.run(async () => {
+    const operation = await services.lifecycleStorage.getActive(active.githubUserId)
+    if (!operation) return failureResponse(cancellationUnavailable())
+    const now = (dependencies.now ?? (() => new Date().toISOString()))()
+    const cancelled = await services.lifecycleStorage.cancelPreDispatch(
+      active.githubUserId,
+      operation.operationId,
+      now
+    )
+    if (!cancelled) return failureResponse(cancellationUnavailable())
+    return successResponse(await dependencies.getDashboardState())
+  })
 }
 
 async function freshDeletePreview(
@@ -303,5 +317,5 @@ function confirmationExpired() {
   return {category: 'validation' as const, message: 'The native List changed since preview. Refresh and confirm again.', retryable: true}
 }
 function cancellationUnavailable() {
-  return {category: 'validation' as const, message: 'Only a queued native List lifecycle operation can be cancelled before remote execution.', retryable: false}
+  return {category: 'validation' as const, message: 'Only a queued or preflight native List lifecycle operation can be cancelled before remote execution.', retryable: false}
 }
