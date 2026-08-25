@@ -5757,14 +5757,48 @@ test('falls back to Unlist after a queued create disables its lifecycle invoker'
   }
 })
 
-test('reconciles authoritative native List deletion from the persistent rail in every workspace', async () => {
+test('reconciles focused lifecycle actions after a gate-only publication disables them', async () => {
+  const base = membershipReadyDashboardState()
+  const initial: AppState = {
+    ...base,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    nativeListLifecycle: {readiness: 'ready', operation: null}
+  }
+  const root = await mountReadyDashboard(initial)
+  const browserWindow = window as unknown as Window
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const remove = root.querySelector<HTMLButtonElement>(
+    '.list-sidebar [data-native-list-delete-invoker="L_current"]'
+  )
+  remove?.focus()
+  expect(remove?.disabled).toBe(false)
+  expect((browserWindow.document.activeElement as unknown) === remove).toBe(true)
+
+  renderAppState({
+    ...initial,
+    nativeListLifecycle: {readiness: 'ready', operation: lifecycleOperation('verifying')}
+  })
+  await flushFocusReconciliation(browserWindow)
+
+  const disabledRemove = root.querySelector<HTMLButtonElement>(
+    '.list-sidebar [data-native-list-delete-invoker="L_current"]'
+  )
+  const siblingNavigation = nativeListNavigationButton(root, 'Current List')
+  expect(disabledRemove?.disabled).toBe(true)
+  expect((browserWindow.document.activeElement as unknown) === siblingNavigation).toBe(true)
+
+  renderAppState(initial)
+})
+
+test('reconciles authoritative native List deletion from focused remove controls in every workspace', async () => {
   for (const workspace of ['Library', 'Operations', 'Settings'] as const) {
     const base = membershipReadyDashboardState()
     const queued: AppState = {
       ...base,
       sync: completeSyncState('stars'),
       nativeListSync: completeSyncState('native-lists'),
-      nativeListLifecycle: {readiness: 'ready', operation: lifecycleOperation('verifying')},
+      nativeListLifecycle: {readiness: 'ready', operation: null},
       library: {
         ...base.library!,
         nativeLists: [
@@ -5784,9 +5818,12 @@ test('reconciles authoritative native List deletion from the persistent rail in 
     }
     expect(root.querySelector(`.${workspace.toLowerCase()}-page`)).not.toBeNull()
 
-    const retainedNavigation = nativeListNavigationButton(root, 'Current List')
-    retainedNavigation?.focus()
-    expect((browserWindow.document.activeElement as unknown) === retainedNavigation).toBe(true)
+    const focusedRemove = [...root.querySelectorAll<HTMLButtonElement>(
+      '.list-sidebar [data-native-list-delete-invoker]'
+    )].find((button) => button.dataset.nativeListDeleteInvoker === 'L_current') ?? null
+    focusedRemove?.focus()
+    expect(focusedRemove?.disabled).toBe(false)
+    expect((browserWindow.document.activeElement as unknown) === focusedRemove).toBe(true)
 
     const verified: AppState = {
       ...queued,
@@ -5813,7 +5850,7 @@ test('reconciles authoritative native List deletion from the persistent rail in 
   }
 })
 
-test('preserves an original connected and enabled native List rail target', async () => {
+test('preserves a semantically retained and enabled native List rail target', async () => {
   const base = membershipReadyDashboardState()
   const initial: AppState = {
     ...base,
@@ -5829,13 +5866,75 @@ test('preserves an original connected and enabled native List rail target', asyn
 
   renderAppState({
     ...initial,
-    triageCounts: {inbox: 9, backlog: 8, due: 7, organized: 6}
+    library: {
+      ...initial.library!,
+      nativeLists: [...initial.library!.nativeLists, nativeList('L_added', 'Added List')]
+    }
   })
   await flushFocusReconciliation(browserWindow)
 
-  expect(create?.isConnected).toBe(true)
-  expect(create?.disabled).toBe(false)
-  expect((browserWindow.document.activeElement as unknown) === create).toBe(true)
+  const retainedCreate = root.querySelector<HTMLButtonElement>(
+    '[data-native-list-create-invoker]'
+  )
+  expect(retainedCreate?.disabled).toBe(false)
+  expect((browserWindow.document.activeElement as unknown) === retainedCreate).toBe(true)
+})
+
+test('restores repository position and clears stale inspection while rail focus owns focus', async () => {
+  const base = membershipReadyDashboardState()
+  const inspected = repositoryRecord('42', 'R_inspected', 'octocat/inspected')
+  const surviving = repositoryRecord('42', 'R_surviving', 'octocat/surviving')
+  const initial: AppState = {
+    ...base,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    nativeListLifecycle: {readiness: 'ready', operation: null},
+    library: {
+      ...base.library!,
+      repositories: [inspected, surviving]
+    }
+  }
+  const root = await mountReadyDashboard(initial)
+  const browserWindow = window as unknown as Window
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  await selectResultMode(root, 'list', browserWindow)
+  root.querySelector<HTMLButtonElement>(
+    '[data-repository-node-id="R_inspected"]'
+  )?.click()
+  await nextTurn(browserWindow)
+  expect(root.querySelector('.repository-inspection-dialog')).not.toBeNull()
+
+  const list = root.querySelector<HTMLElement>('.repository-list')
+  if (list === null) throw new Error('Repository list required.')
+  list.scrollTop = 91
+  root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.focus()
+
+  const withoutInspected: AppState = {
+    ...initial,
+    library: {
+      ...initial.library!,
+      repositories: [surviving],
+      nativeLists: [...initial.library!.nativeLists, nativeList('L_added', 'Added List')]
+    }
+  }
+  renderAppState(withoutInspected)
+  await flushFocusReconciliation(browserWindow)
+
+  const retainedCreate = root.querySelector<HTMLButtonElement>(
+    '[data-native-list-create-invoker]'
+  )
+  expect(root.querySelector('.repository-inspection-dialog')).toBeNull()
+  expect(root.querySelector<HTMLElement>('.repository-list')?.scrollTop).toBe(91)
+  expect((browserWindow.document.activeElement as unknown) === retainedCreate).toBe(true)
+
+  renderAppState({
+    ...withoutInspected,
+    library: {...withoutInspected.library!, repositories: [inspected, surviving]}
+  })
+  await flushFocusReconciliation(browserWindow)
+  expect(root.querySelector('.repository-inspection-dialog')).toBeNull()
+  expect((browserWindow.document.activeElement as unknown) ===
+    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')).toBe(true)
 })
 
 test('preserves or safely falls back rail focus without selector interpolation', async () => {

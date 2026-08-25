@@ -4099,8 +4099,12 @@ function applyState(state: AppState): void {
     nextFingerprints.writeAuthorization !== publishedFingerprints.writeAuthorization ||
     nextFingerprints.nativeListSync !== publishedFingerprints.nativeListSync ||
     nextFingerprints.nativeListLifecycle !== publishedFingerprints.nativeListLifecycle
+  const lifecycleRailChanged =
+    lifecycleAuthorityChanged ||
+    nextFingerprints.mutations !== publishedFingerprints.mutations ||
+    nextFingerprints.nativeListRename !== publishedFingerprints.nativeListRename
   const position = libraryChanged ? captureDashboardPosition() : null
-  const railFocus = libraryChanged || accountChanged
+  const railFocus = libraryChanged || accountChanged || lifecycleRailChanged
     ? captureNativeListRailFocus()
     : null
   if (libraryChanged || accountChanged) resetRenderedResults()
@@ -4147,8 +4151,8 @@ function applyState(state: AppState): void {
   appState.val = state
   publishStateSlices(state, nextFingerprints)
   scheduleNativeListRailFocusReconciliation(railFocus)
-  if (position && railFocus === null) {
-    scheduleRepositoryQueryReconciliation(position)
+  if (position) {
+    scheduleRepositoryQueryReconciliation(position, railFocus === null)
   }
   if (state.library) {
     const selectable = new Set(
@@ -4527,7 +4531,8 @@ function captureDashboardPosition(): DashboardPosition | null {
 }
 
 function scheduleRepositoryQueryReconciliation(
-  position: DashboardPosition | null
+  position: DashboardPosition | null,
+  allowFocusRestoration = true
 ): void {
   if (position === null) return
   const generation = ++position.lifecycle.generation
@@ -4549,7 +4554,10 @@ function scheduleRepositoryQueryReconciliation(
       currentFocus !== ownerDocument.body &&
       currentFocus.isConnected &&
       currentFocus !== position.focusAnchor
-    restoreDashboardPosition(position, !focusWasIntentionallyMoved)
+    restoreDashboardPosition(
+      position,
+      allowFocusRestoration && !focusWasIntentionallyMoved
+    )
   }
   queueMicrotask(() => {
     if (!isCurrent()) return
