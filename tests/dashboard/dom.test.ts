@@ -6656,8 +6656,26 @@ test('never presents contradictory success terminal records as verified outcomes
       )
       expect(statusText()).not.toContain('Reauthorize GitHub')
       expect(forbiddenSuccessCopy.every((copy) => !statusText().includes(copy))).toBe(true)
-      expect(create()?.disabled).toBe(false)
+      expect(create()?.disabled).toBe(true)
+      expect(
+        [...root.querySelectorAll<HTMLButtonElement>('[data-native-list-delete-invoker]')]
+          .every((control) => control.disabled)
+      ).toBe(true)
+      expect(root.querySelector('#native-list-lifecycle-guidance')?.textContent).toContain(
+        'Refresh and inspect GitHub Lists before changing Lists.'
+      )
       expect(root.querySelector('[data-native-list-refresh]')).not.toBeNull()
+
+      renderAppState({
+        ...failedState,
+        nativeListLifecycle: {
+          readiness: 'ready',
+          operation: {...operation, lastError: null}
+        }
+      })
+      await flushDashboardReactivity(browserWindow)
+      expect(create()?.disabled).toBe(false)
+      expect(root.querySelector('#native-list-lifecycle-guidance')).toBeNull()
     }
   }
 })
@@ -6702,6 +6720,136 @@ test('keeps complete and partial native List sync authorization failures fail-cl
       expect(root.querySelector('[data-native-list-refresh]')).toBeNull()
     }
   }
+})
+
+test('does not recover a foreign-account lifecycle operation during the active account write cycle', async () => {
+  const state = membershipReadyDashboardState()
+  const foreignFailure = {
+    ...lifecycleOperation('failed', {
+      category: 'permission' as const,
+      message: 'Foreign account authorization failed.',
+      statusCode: 403,
+      occurredAt: '2026-08-20T10:00:01Z'
+    }),
+    githubUserId: '7'
+  }
+  const foreignState: AppState = {
+    ...state,
+    writeAuthorization: {
+      ...state.writeAuthorization,
+      readiness: 'credential-rejected'
+    },
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    nativeListLifecycle: {readiness: 'ready', operation: foreignFailure}
+  }
+  const root = await mountReadyDashboard(foreignState)
+  const browserWindow = window as unknown as Window
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const create = () =>
+    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+  const statusText = () =>
+    root.querySelector('#native-list-lifecycle-status-text')?.textContent ?? ''
+
+  renderAppState({
+    ...foreignState,
+    writeAuthorization: {...state.writeAuthorization, readiness: 'ready'}
+  })
+  await flushDashboardReactivity(browserWindow)
+  expect(create()?.disabled).toBe(true)
+  expect(statusText()).toContain('Authorization review required')
+  expect(statusText()).toContain('Reauthorize GitHub')
+
+  const matchingFailure = {...foreignFailure, githubUserId: '42'}
+  const matchingState: AppState = {
+    ...state,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    nativeListLifecycle: {readiness: 'ready', operation: matchingFailure}
+  }
+  renderAppState(matchingState)
+  await flushDashboardReactivity(browserWindow)
+  expect(create()?.disabled).toBe(true)
+  expect(statusText()).toContain('Reauthorize GitHub')
+
+  renderAppState({
+    ...matchingState,
+    writeAuthorization: {
+      ...matchingState.writeAuthorization,
+      readiness: 'credential-rejected'
+    }
+  })
+  await flushDashboardReactivity(browserWindow)
+  renderAppState(matchingState)
+  await flushDashboardReactivity(browserWindow)
+  expect(create()?.disabled).toBe(false)
+  expect(statusText()).toContain(
+    'Previous authorization failure was resolved by renewed write authorization.'
+  )
+})
+
+test('does not recover a foreign-account native List sync during the active account write cycle', async () => {
+  const state = membershipReadyDashboardState()
+  const foreignSync: SyncStateRecord = {
+    ...completeSyncState('native-lists'),
+    githubUserId: '7',
+    lastError: {
+      category: 'authentication',
+      message: 'Foreign account synchronization authorization expired.',
+      retryable: false
+    }
+  }
+  const foreignState: AppState = {
+    ...state,
+    writeAuthorization: {
+      ...state.writeAuthorization,
+      readiness: 'credential-rejected'
+    },
+    sync: completeSyncState('stars'),
+    nativeListSync: foreignSync,
+    nativeListLifecycle: {readiness: 'ready', operation: null}
+  }
+  const root = await mountReadyDashboard(foreignState)
+  const browserWindow = window as unknown as Window
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const create = () =>
+    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+  const statusText = () =>
+    root.querySelector('#native-list-lifecycle-status-text')?.textContent ?? ''
+
+  renderAppState({
+    ...foreignState,
+    writeAuthorization: {...state.writeAuthorization, readiness: 'ready'}
+  })
+  await flushDashboardReactivity(browserWindow)
+  expect(create()?.disabled).toBe(true)
+  expect(statusText()).toContain('Reauthorize GitHub')
+
+  const matchingState: AppState = {
+    ...state,
+    sync: completeSyncState('stars'),
+    nativeListSync: {...foreignSync, githubUserId: '42'},
+    nativeListLifecycle: {readiness: 'ready', operation: null}
+  }
+  renderAppState(matchingState)
+  await flushDashboardReactivity(browserWindow)
+  expect(create()?.disabled).toBe(true)
+  expect(statusText()).toContain('Reauthorize GitHub')
+
+  renderAppState({
+    ...matchingState,
+    writeAuthorization: {
+      ...matchingState.writeAuthorization,
+      readiness: 'credential-rejected'
+    }
+  })
+  await flushDashboardReactivity(browserWindow)
+  renderAppState(matchingState)
+  await flushDashboardReactivity(browserWindow)
+  expect(create()?.disabled).toBe(false)
+  expect(statusText()).toContain(
+    'Previous authorization failure was resolved by renewed write authorization.'
+  )
 })
 
 test('recovers only the observed same-account authorization failure fingerprint after a non-ready to ready write cycle', async () => {
@@ -6760,19 +6908,52 @@ test('recovers only the observed same-account authorization failure fingerprint 
   expect(recoveredStatus?.querySelector('[role="alert"]')).toBeNull()
   expect(recoveredStatus?.querySelector('[data-native-list-refresh]')).not.toBeNull()
 
-  const newFailure = {
+  const changedOccurrenceFailure = {
     ...failedOperation,
-    operationId: 'op-failed-new',
-    updatedAt: '2026-08-20T10:00:02Z',
-    completedAt: '2026-08-20T10:00:02Z',
     lastError: {
       ...failedOperation.lastError!,
       occurredAt: '2026-08-20T10:00:02Z'
     }
   }
-  renderAppState({
+  const changedOccurrenceState: AppState = {
     ...failedState,
-    nativeListLifecycle: {readiness: 'ready', operation: newFailure}
+    nativeListLifecycle: {
+      readiness: 'ready',
+      operation: changedOccurrenceFailure
+    }
+  }
+  renderAppState(changedOccurrenceState)
+  await flushDashboardReactivity(browserWindow)
+  expect(create()?.disabled).toBe(true)
+  expect(root.querySelector('#native-list-lifecycle-guidance')?.textContent).toContain(
+    'Reauthorize GitHub before changing Lists.'
+  )
+
+  renderAppState({
+    ...changedOccurrenceState,
+    writeAuthorization: {
+      ...changedOccurrenceState.writeAuthorization,
+      readiness: 'credential-rejected'
+    }
+  })
+  await flushDashboardReactivity(browserWindow)
+  renderAppState(changedOccurrenceState)
+  await flushDashboardReactivity(browserWindow)
+  expect(create()?.disabled).toBe(false)
+
+  renderAppState({
+    ...changedOccurrenceState,
+    nativeListLifecycle: {
+      readiness: 'ready',
+      operation: {
+        ...changedOccurrenceFailure,
+        lastError: {
+          ...changedOccurrenceFailure.lastError!,
+          category: 'authentication',
+          statusCode: 401
+        }
+      }
+    }
   })
   await flushDashboardReactivity(browserWindow)
   expect(create()?.disabled).toBe(true)

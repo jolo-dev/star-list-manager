@@ -613,6 +613,8 @@ function lifecycleOperationAuthorizationFailureFingerprint(
   ) {
     return null
   }
+  // Account, operation generation, category, and occurrence identify one
+  // persisted failure; each changed field must require a new recovery cycle.
   return JSON.stringify([
     'lifecycle-operation',
     operation.githubUserId,
@@ -630,6 +632,8 @@ function nativeListSyncAuthorizationFailureFingerprint(
   sync: AppState['nativeListSync']
 ): string | null {
   if (sync === null || !isAuthorizationError(sync.lastError)) return null
+  // Account, sync generation, and error identity intentionally distinguish a
+  // later or cross-account failure from one already recovered locally.
   return JSON.stringify([
     'native-list-sync',
     sync.githubUserId,
@@ -649,6 +653,25 @@ function lifecycleAuthorizationFailureFingerprints(state: AppState): string[] {
   )
   const sync = nativeListSyncAuthorizationFailureFingerprint(state.nativeListSync)
   return [operation, sync].filter(
+    (fingerprint): fingerprint is string => fingerprint !== null
+  )
+}
+
+function recoverableLifecycleAuthorizationFailureFingerprintsForAccount(
+  state: AppState,
+  accountId: string | null
+): string[] {
+  if (accountId === null) return []
+  const operation = state.nativeListLifecycle?.operation ?? null
+  const operationFingerprint =
+    operation?.githubUserId === accountId
+      ? lifecycleOperationAuthorizationFailureFingerprint(operation)
+      : null
+  const syncFingerprint =
+    state.nativeListSync?.githubUserId === accountId
+      ? nativeListSyncAuthorizationFailureFingerprint(state.nativeListSync)
+      : null
+  return [operationFingerprint, syncFingerprint].filter(
     (fingerprint): fingerprint is string => fingerprint !== null
   )
 }
@@ -691,12 +714,26 @@ function observeLifecycleWriteAuthorizationRecovery(state: AppState): boolean {
     // AppState has no credential generation. A same-account non-ready -> ready
     // publication is the sole local recovery proof for the failures visible in
     // that publication; unrelated changes and later fingerprints stay gated.
-    for (const fingerprint of lifecycleAuthorizationFailureFingerprints(state)) {
+    for (const fingerprint of recoverableLifecycleAuthorizationFailureFingerprintsForAccount(
+      state,
+      accountId
+    )) {
       recoveredLifecycleAuthorizationFailureFingerprints.add(fingerprint)
     }
   }
   observedLifecycleWriteReadiness = state.writeAuthorization.readiness
   return recovered
+}
+
+function hasContradictorySuccessfulLifecycleAuthorizationFailure(
+  state: AppState
+): boolean {
+  const operation = state.nativeListLifecycle?.operation ?? null
+  return (
+    operation !== null &&
+    (operation.phase === 'succeeded' || operation.phase === 'already-deleted') &&
+    isAuthorizationError(operation.lastError)
+  )
 }
 
 function nativeListLifecycleGate(state: AppState): NativeListLifecycleGate {
@@ -739,6 +776,12 @@ function nativeListLifecycleGate(state: AppState): NativeListLifecycleGate {
     return {
       disabled: true,
       reason: 'Reauthorize GitHub before changing Lists.'
+    }
+  }
+  if (hasContradictorySuccessfulLifecycleAuthorizationFailure(state)) {
+    return {
+      disabled: true,
+      reason: 'Refresh and inspect GitHub Lists before changing Lists.'
     }
   }
   const readiness = state.nativeListLifecycle?.readiness ?? 'capability-unproven'
