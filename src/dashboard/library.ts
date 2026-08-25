@@ -11,6 +11,7 @@ import type {
 export type LibraryView =
   | {readonly kind: 'unlist'}
   | {readonly kind: 'list'; readonly listNodeId: string}
+  | {readonly kind: 'native-list-management'}
   | {readonly kind: 'operations'}
   | {readonly kind: 'settings'}
 
@@ -179,7 +180,11 @@ export function availableLanguages(
 }
 
 function matchesView(item: LibraryRepository, view: LibraryView): boolean {
-  if (view.kind === 'settings' || view.kind === 'operations') return false
+  if (
+    view.kind === 'settings' ||
+    view.kind === 'operations' ||
+    view.kind === 'native-list-management'
+  ) return false
   if (view.kind === 'list') {
     return item.nativeLists.some((list) => list.listNodeId === view.listNodeId)
   }

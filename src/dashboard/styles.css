@@ -2341,3 +2341,165 @@ textarea:disabled {
     transform: none !important;
   }
 }
+
+
+.native-list-management {
+  display: grid;
+  max-width: 900px;
+  gap: 20px;
+}
+
+.native-list-management > .archive-document-header {
+  align-items: flex-start;
+}
+
+.native-list-management-section,
+.lifecycle-operation {
+  min-width: 0;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+}
+
+.native-list-management-section h2,
+.lifecycle-operation h2,
+.native-list-visibility h3 {
+  margin-bottom: 8px;
+  font-size: 1.125rem;
+}
+
+.native-list-management-section > p,
+.native-list-management-row p,
+.native-list-lifecycle-preview > p,
+.native-list-lifecycle-form > p,
+.native-list-visibility > p,
+.lifecycle-operation > p {
+  max-width: var(--measure-prose);
+  color: var(--text-secondary);
+  line-height: var(--type-leading-reading);
+}
+
+.native-list-management-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.native-list-management-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.native-list-management-row:first-child {
+  border-top: 0;
+}
+
+.native-list-management-row > div {
+  min-width: 0;
+}
+
+.native-list-management-row strong,
+.native-list-lifecycle-preview > strong {
+  overflow-wrap: anywhere;
+}
+
+.partial-native-list-note {
+  color: var(--text-warning) !important;
+}
+
+.lifecycle-readiness {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--text-warning);
+  background: var(--surface-warning);
+  border: 1px solid var(--border-warning);
+  border-radius: var(--radius-control);
+  font-size: var(--type-warning-size);
+  line-height: 1.5;
+}
+
+.lifecycle-readiness.is-ready,
+.lifecycle-operation.status-succeeded,
+.lifecycle-operation.status-already-deleted {
+  color: var(--text-success);
+  background: var(--surface-success);
+  border-color: var(--border-success);
+}
+
+.lifecycle-operation.status-blocked-unknown,
+.lifecycle-operation.status-failed {
+  color: var(--text-danger);
+  background: var(--surface-danger);
+  border-color: var(--border-danger);
+}
+
+.native-list-lifecycle-form,
+.native-list-visibility,
+.native-list-lifecycle-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.native-list-lifecycle-form > label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--type-label-size);
+  font-weight: 600;
+}
+
+.native-list-lifecycle-form input[type="text"] {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 11px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+}
+
+.native-list-visibility {
+  padding-top: 4px;
+}
+
+.native-list-visibility label {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  color: var(--text-primary);
+  background: var(--surface-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+
+.native-list-lifecycle-preview.is-populated {
+  padding: 14px;
+  background: var(--surface-danger);
+  border: 1px solid var(--border-danger);
+  border-radius: var(--radius-control);
+}
+
+@media (max-width: 700px) {
+  .native-list-management > .archive-document-header,
+  .native-list-management-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .native-list-management .refresh-button,
+  .native-list-management-row .danger-action,
+  .native-list-management-section .primary-action {
+    width: 100%;
+    min-height: 44px;
+  }
+}

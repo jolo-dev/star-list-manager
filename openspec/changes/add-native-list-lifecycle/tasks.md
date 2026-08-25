@@ -39,12 +39,12 @@
 
 ## 6. Add accessible List management UI
 
-- [ ] 6.1 Add a GitHub List management entry in `src/dashboard/scripts.ts` that remains reachable when no Lists exist and clearly distinguishes native Lists from local tags.
-- [ ] 6.2 Add the create dialog with a trimmed non-empty name, mandatory public/private choice, write/readiness disclosure, focus restoration, pending state, and no repository-membership controls.
-- [ ] 6.3 Add deletion controls for synchronized Lists. Use standard confirmation for zero reported items and a stronger List-name-specific confirmation for populated Lists that displays reported count, partial-import status, no-undo wording, and “repositories remain starred but unlisted.”
-- [ ] 6.4 Render lifecycle progress, verified outcome, ambiguous outcome, error/re-auth guidance, manual refresh, and disable conflicting controls while a native-List mutation is active.
-- [ ] 6.5 Add DOM tests for empty catalog creation, required visibility, empty deletion, populated deletion confirmation, cancellation, keyboard focus, partial imports, and lifecycle invalidation of membership previews.
-- [ ] 6.6 Run the targeted dashboard DOM tests with `bun test tests/dashboard/<targeted-files>`.
+- [x] 6.1 Add a GitHub List management entry in `src/dashboard/scripts.ts` that remains reachable when no Lists exist and clearly distinguishes native Lists from local tags.
+- [x] 6.2 Add the create dialog with a trimmed non-empty name, mandatory public/private choice, write/readiness disclosure, focus restoration, pending state, and no repository-membership controls.
+- [x] 6.3 Add deletion controls for synchronized Lists. Use standard confirmation for zero reported items and a stronger List-name-specific confirmation for populated Lists that displays reported count, partial-import status, no-undo wording, and “repositories remain starred but unlisted.”
+- [x] 6.4 Render lifecycle progress, verified outcome, ambiguous outcome, error/re-auth guidance, manual refresh, and disable conflicting controls while a native-List mutation is active.
+- [x] 6.5 Add DOM tests for empty catalog creation, required visibility, empty deletion, populated deletion confirmation, cancellation, keyboard focus, partial imports, and lifecycle invalidation of membership previews.
+- [x] 6.6 Run the targeted dashboard DOM tests with `bun test tests/dashboard/<targeted-files>`.
 
 ## 7. Update specifications and product documentation
 

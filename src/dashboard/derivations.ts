@@ -9,7 +9,7 @@ import {
 
 export type RepositoryQueryRunner = typeof queryRepositories
 
-export type DashboardWorkspace = AppPhase | 'library' | 'operations' | 'settings'
+export type DashboardWorkspace = AppPhase | 'library' | 'native-list-management' | 'operations' | 'settings'
 
 export interface DashboardSliceFingerprints {
   readonly phase: AppPhase
@@ -20,6 +20,7 @@ export interface DashboardSliceFingerprints {
   readonly nativeListSync: string
   readonly nativeListMembership: string
   readonly nativeListRename: string
+  readonly nativeListLifecycle: string
   readonly triageCounts: string
   readonly library: string
   readonly mutations: string
@@ -62,6 +63,7 @@ export function dashboardSliceFingerprints(
     nativeListSync: fingerprintSlice(state.nativeListSync),
     nativeListMembership: fingerprintSlice(state.nativeListMembership),
     nativeListRename: fingerprintSlice(state.nativeListRename),
+    nativeListLifecycle: fingerprintSlice(state.nativeListLifecycle),
     triageCounts: fingerprintSlice(state.triageCounts),
     library: fingerprintSlice(state.library),
     mutations: fingerprintSlice(state.mutations),
@@ -74,7 +76,11 @@ export function classifyWorkspace(
   view: LibraryView
 ): DashboardWorkspace {
   if (phase !== 'ready') return phase
-  if (view.kind === 'operations' || view.kind === 'settings') return view.kind
+  if (
+    view.kind === 'operations' ||
+    view.kind === 'settings' ||
+    view.kind === 'native-list-management'
+  ) return view.kind
   return 'library'
 }
 

@@ -469,7 +469,7 @@ test('renders accessible List navigation and repository results for the ready li
   const sidebar = root.querySelector<HTMLElement>('.list-sidebar')
   const navigation = sidebar?.querySelector<HTMLElement>('.list-navigation') ?? null
   const listButtons = [...(navigation?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
-    .filter((button) => button.querySelector('.nav-label'))
+    .filter((button) => button.querySelector('.nav-label') && button.dataset.viewKind !== 'native-list-management')
   const markers = [...root.querySelectorAll<HTMLElement>('.list-marker')]
 
   expect(markers.length).toBeGreaterThan(0)
@@ -832,7 +832,8 @@ test('renders only GitHub Lists in the directory before alphabetized imported na
     'Unlist',
     'Alpha List',
     'Middle List',
-    'Zulu List'
+    'Zulu List',
+    'Manage GitHub Lists'
   ])
   expect(root.querySelectorAll('[data-view-kind="operations"]')).toHaveLength(1)
   expect(root.querySelectorAll('[data-view-kind="settings"]')).toHaveLength(1)
@@ -1378,7 +1379,7 @@ test('renders GitHub Lists and Unlist without imported native Lists', async () =
   const githubLists = navigationGroup(sidebar, 'GitHub Lists')
 
   expect(githubLists).not.toBeNull()
-  expect(navigationLabels(directNavigationList(githubLists))).toEqual(['Unlist'])
+  expect(navigationLabels(directNavigationList(githubLists))).toEqual(['Unlist', 'Manage GitHub Lists'])
 })
 
 test('keeps a visible Search label beside the prominent Refresh control', async () => {
@@ -3678,7 +3679,8 @@ test('sends one valid native List header rename and renders only verified return
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
       'Other List',
-      'Verified Name'
+      'Verified Name',
+      'Manage GitHub Lists'
     ])
     const restoredEdit = renameEditButton(root)
     expect(restoredEdit?.isConnected).toBe(true)
@@ -3714,7 +3716,8 @@ test('shows a fixed safe message when native List rename dispatch throws', async
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
       'Current List',
-      'Other List'
+      'Other List',
+      'Manage GitHub Lists'
     ])
   } finally {
     cleanup()
@@ -3750,7 +3753,8 @@ test('preserves native List header editor and prior rendered name after a runtim
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
       'Current List',
-      'Other List'
+      'Other List',
+      'Manage GitHub Lists'
     ])
   } finally {
     cleanup()
@@ -3793,7 +3797,8 @@ test('applies divergent native List state while retaining the sanitized rename r
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
       'Observed List',
-      'Other List'
+      'Other List',
+      'Manage GitHub Lists'
     ])
     const retainedEditor = nativeListHeader(root)?.querySelector<HTMLInputElement>('input') ?? null
     expect(retainedEditor?.value).toBe('Desired List')
@@ -3838,7 +3843,8 @@ test('removes a missing native List editor and shows its sanitized rename result
     expect(nativeListHeader(root)?.querySelector('form.native-list-rename-editor')).toBeNull()
     expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
       'Unlist',
-      'Other List'
+      'Other List',
+      'Manage GitHub Lists'
     ])
     expect(root.querySelector('.status-banner.is-error')?.textContent).toBe(
       'GitHub no longer reports the renamed native List.'
@@ -5346,6 +5352,193 @@ test('restores focus to an available result when search removes the inspected re
   expect(library.querySelector('.repository-inspection-dialog')).toBeNull()
   expect((browserWindow.document.activeElement as unknown) === fallbackRow).toBe(true)
   library.remove()
+})
+
+test('keeps GitHub List management reachable with an empty synchronized catalog', async () => {
+  const state = membershipReadyDashboardState()
+  const root = await mountReadyDashboard({
+    ...state,
+    nativeListLifecycle: {readiness: 'capability-unproven', operation: null},
+    library: {...state.library!, nativeLists: []}
+  })
+
+  const management = [...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+    .find((button) => button.textContent === 'Manage GitHub Lists') ?? null
+  expect(management).not.toBeNull()
+  management?.click()
+  await (window as unknown as Window).happyDOM.whenAsyncComplete()
+  expect(root.querySelector('[data-native-list-management] h1')?.textContent).toBe('Manage GitHub Lists')
+  expect(root.textContent).toContain('Remote native GitHub Lists are separate from local tags and annotations.')
+  expect(root.textContent).toContain('No synchronized GitHub Lists yet.')
+})
+
+test('requires an explicit visibility and renders a read-only create preview before confirmation', async () => {
+  const messages: unknown[] = []
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: unknown) => {
+    messages.push(message)
+    return {ok: true, data: {kind: 'create', name: 'Review list', visibility: 'private'}}
+  }}}})
+  try {
+    const root = await mountReadyDashboard({
+      ...state,
+      sync: completeSyncState('stars'),
+      nativeListSync: completeSyncState('native-lists'),
+      nativeListLifecycle: {readiness: 'ready', operation: null},
+      library: {...state.library!, nativeLists: []}
+    })
+    const browserWindow = window as unknown as Window
+    const management = [...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+      .find((button) => button.textContent === 'Manage GitHub Lists')
+    management?.click()
+    await nextTurn(browserWindow)
+    const create = root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+    expect(create?.disabled).toBe(false)
+    create?.dispatchEvent(new browserWindow.MouseEvent('click', {bubbles: true}) as unknown as Event)
+    await nextTurn(browserWindow)
+    let dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
+    let name = dialog?.querySelector<HTMLInputElement>('#native-list-create-name')
+    expect(dialog?.getAttribute('role')).toBe('dialog')
+    expect(name?.labels?.[0]?.textContent).toBe('List name')
+    expect(dialog?.querySelectorAll('input[type="radio"]:checked')).toHaveLength(0)
+    dialog?.querySelector<HTMLButtonElement>('.primary-action')?.click()
+    await nextTurn(browserWindow)
+    dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
+    name = dialog?.querySelector<HTMLInputElement>('#native-list-create-name')
+    expect(dialog?.querySelector('[role="alert"]')?.textContent).toBe('A GitHub List name is required.')
+    expect(messages).toEqual([])
+
+    if (name === null || name === undefined) throw new Error('Name input required.')
+    name.value = '  Review list  '
+    name.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    dialog?.querySelector<HTMLButtonElement>('.primary-action')?.click()
+    await nextTurn(browserWindow)
+    dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
+    expect(dialog?.querySelector('[role="alert"]')?.textContent).toBe('Choose public or private visibility before reviewing.')
+    const privateChoice = dialog?.querySelector<HTMLInputElement>('input[value="private"]')
+    if (privateChoice === null || privateChoice === undefined) throw new Error('Private choice required.')
+    privateChoice.checked = true
+    privateChoice.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+    dialog?.querySelector<HTMLButtonElement>('.primary-action')?.click()
+    await nextTurn(browserWindow)
+    expect(messages).toEqual([{type: 'preview-native-list-create', name: 'Review list', visibility: 'private'}])
+    dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
+    expect(dialog?.textContent).toContain('Read-only preview. No GitHub operation has been sent.')
+    expect(dialog?.textContent?.includes('This form has no repository membership controls.')).toBe(false)
+    expect(dialog?.querySelector('input')).toBeNull()
+    dialog?.querySelector<HTMLButtonElement>('.dialog-cancel')?.click()
+    await nextTurn(browserWindow)
+    expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
+    expect(messages).toHaveLength(1)
+    expect((browserWindow.document.activeElement as unknown) === root.querySelector('[data-native-list-create-invoker]')).toBe(true)
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('uses a stronger populated List deletion confirmation and sends no mutation on cancellation', async () => {
+  const messages: Array<{readonly type: string; readonly listNodeId?: string}> = []
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    messages.push(message)
+    return {ok: true, data: {kind: 'delete', listNodeId: 'L_current', name: 'Current List', visibility: 'private', reportedItemCount: 7, importStatus: 'partial', confirmationFingerprint: 'fresh'}}
+  }}}})
+  try {
+    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}})
+    const browserWindow = window as unknown as Window
+    const management = [...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+      .find((button) => button.textContent === 'Manage GitHub Lists')
+    management?.click()
+    await nextTurn(browserWindow)
+    const review = root.querySelector<HTMLButtonElement>('[data-native-list-delete-invoker="L_current"]')
+    review?.click()
+    await nextTurn(browserWindow)
+    const dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation.is-destructive')
+    expect(dialog?.textContent).toContain('This populated GitHub List requires a stronger confirmation.')
+    expect(dialog?.textContent).toContain('GitHub reports 7 repositories.')
+    expect(dialog?.textContent).toContain('Partial import limitation')
+    expect(dialog?.textContent).toContain('There is no Undo. Repositories remain starred but become unlisted.')
+    expect(dialog?.querySelector('.danger-action')?.textContent).toBe('Confirm deletion of Current List')
+    dialog?.dispatchEvent(new browserWindow.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}) as unknown as Event)
+    await nextTurn(browserWindow)
+    await nextTurn(browserWindow)
+    expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
+    expect(messages).toEqual([{type: 'preview-native-list-delete', listNodeId: 'L_current'}])
+    expect((browserWindow.document.activeElement as unknown) === root.querySelector('[data-native-list-delete-invoker="L_current"]')).toBe(true)
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('renders lifecycle progress and blocks conflicting membership and rename actions', async () => {
+  const state = membershipReadyDashboardState()
+  const active = {
+    githubUserId: '42', operationId: 'op-1',
+    intent: {kind: 'delete' as const, listNodeId: 'L_current', name: 'Current List', visibility: 'private' as const, reportedItemCount: 2, importStatus: 'partial' as const},
+    phase: 'verifying' as const, attemptCount: 1, candidateListNodeId: 'L_current', confirmationFingerprint: 'fresh', lastError: null,
+    createdAt: '2026-08-20T10:00:00Z', updatedAt: '2026-08-20T10:00:01Z', completedAt: null
+  }
+  const root = await mountReadyDashboard({...state, nativeListRename: {readiness: 'ready'}, nativeListLifecycle: {readiness: 'ready', operation: active}, library: {...state.library!, nativeMemberships: [{githubUserId: '42', repositoryNodeId: 'R_one', listNodeId: 'L_current', lastObservedAt: '2026-08-20T10:00:00Z'}]}})
+  const browserWindow = window as unknown as Window
+  const management = [...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+    .find((button) => button.textContent === 'Manage GitHub Lists')
+  management?.click()
+  await nextTurn(browserWindow)
+  expect(root.textContent).toContain('Latest operation: Verifying')
+  expect(root.textContent).toContain('Conflicting native List lifecycle, membership, and rename actions are disabled')
+  expect(root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.disabled).toBe(true)
+  const currentList = nativeListNavigationButton(root, 'Current List')
+  currentList?.click()
+  await nextTurn(browserWindow)
+  expect(renameEditButton(root)).toBeNull()
+  await openRepositoryDetails(root, browserWindow)
+  expect(root.querySelector<HTMLButtonElement>('.membership-review')?.disabled).toBe(true)
+  expect(root.textContent).toContain('Membership previews are unavailable until its outcome is verified.')
+})
+
+test('rejects a stale lifecycle preview after the active account changes', async () => {
+  const preview = deferred()
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    if (message.type === 'preview-native-list-create') {
+      await preview.promise
+      return {ok: true, data: {kind: 'create', name: 'Stale List', visibility: 'public'}}
+    }
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+  try {
+    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}, library: {...state.library!, nativeLists: []}})
+    const browserWindow = window as unknown as Window
+    ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+      .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
+    await nextTurn(browserWindow)
+    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.click()
+    await nextTurn(browserWindow)
+    const name = root.querySelector<HTMLInputElement>('#native-list-create-name')
+    if (name === null) throw new Error('Create name required.')
+    name.value = 'Stale List'
+    name.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    const publicChoice = root.querySelector<HTMLInputElement>('input[value="public"]')
+    if (publicChoice === null) throw new Error('Public choice required.')
+    publicChoice.checked = true
+    publicChoice.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+    root.querySelector<HTMLButtonElement>('.native-list-lifecycle-confirmation .primary-action')?.click()
+    const {renderAppState} = await import('../../src/dashboard/scripts')
+    renderAppState({...accountBDashboardState(), nativeListLifecycle: {readiness: 'ready', operation: null}})
+    preview.resolve()
+    await nextTurn(browserWindow)
+    expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
+    expect(root.textContent).not.toContain('Stale List')
+  } finally {
+    preview.resolve()
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
 })
 
 function createDashboardWindow(): Window {
