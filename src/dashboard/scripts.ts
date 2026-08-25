@@ -1080,6 +1080,7 @@ function NativeListHeaderControls() {
       if (
         nativeList === null ||
         publishedNativeListRename.val?.readiness !== 'ready' ||
+        nativeListLifecyclePending.val ||
         activeNativeListLifecycleOperation(appState.val) !== null
       ) {
         return ''
@@ -1410,7 +1411,9 @@ function NativeListMembershipControls(
   ) ?? []
   if (lists.length === 0 || repositories.length === 0) return null
   const ready = state.nativeListMembership?.readiness === 'ready'
-  const lifecycleActive = activeNativeListLifecycleOperation(state) !== null
+  const lifecycleActive =
+    nativeListLifecyclePending.val ||
+    activeNativeListLifecycleOperation(state) !== null
   const blockedByJob = repositories.some((repository) =>
     hasActiveRepositoryJob(repository.repositoryNodeId)
   )
