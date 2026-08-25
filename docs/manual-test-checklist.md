@@ -86,10 +86,17 @@ GitHub native Lists use a public-preview API. Run every membership scenario only
 
 ## Capability-Gated Native List Lifecycle
 
-Lifecycle create/delete is implemented but release-disabled while its reviewed non-secret release-evidence input is `null`. Run these checks only after separately reviewed lifecycle release evidence is included in an isolated test build; it proves the build and OAuth App, not a user authorization. Use a development-only account and disposable Lists, never include credentials or fixture IDs in results, and leave every item unchecked until manually performed.
+Lifecycle create/delete is implemented but release-disabled while its reviewed non-secret release-evidence input is `null`. Use a development-only account and isolated profiles, never include credentials or fixture IDs in results, and leave every item unchecked until manually performed.
 
-- [ ] In an isolated profile with zero imported native Lists, confirm **Manage GitHub Lists** remains reachable, distinguishes GitHub Lists from local tags, shows lifecycle readiness and a manual refresh path, and permits no lifecycle write while release evidence is absent or the account lacks matching `public_repo user` authorization; read-only import remains usable.
-- [ ] In a separately gated isolated profile, create one empty disposable **public** List and one empty disposable **private** List. Confirm the form requires an explicit visibility selection, creates no repository membership, and reports success only after the returned stable ID, requested name, and visibility appear in complete catalog read-back.
+### Default read-only fallback
+
+- [ ] In an isolated profile using the default build with lifecycle release evidence `null` and zero imported native Lists, confirm **Manage GitHub Lists** remains reachable, distinguishes GitHub Lists from local tags, shows lifecycle readiness and a manual refresh path, keeps create/delete controls unavailable, and leaves read-only import usable.
+
+### Evidence-enabled lifecycle flows
+
+Run the remaining scenarios only in a separate isolated test build after lifecycle release evidence has been reviewed and included. That evidence proves the build and OAuth App, not a user authorization; the active account must still have matching `public_repo user` authorization.
+
+- [ ] In the separately gated isolated profile, create one empty disposable **public** List and one empty disposable **private** List. Confirm the form requires an explicit visibility selection, creates no repository membership, and reports success only after the returned stable ID, requested name, and visibility appear in complete catalog read-back.
 - [ ] Delete a known empty disposable List. Confirm standard confirmation names that List and its visibility, states no undo, sends no repository mutation or unstar, and reports success only after its stable ID is absent from complete catalog read-back.
 - [ ] Delete a populated disposable List. Confirm stronger List-name-specific confirmation displays the latest reported item count, any partial-import warning, and that repositories remain starred but become unlisted; cancel once and confirm no lifecycle operation or request is created before completing the confirmed deletion.
 - [ ] After deletion, confirm local reconciliation removes only the deleted List and its memberships. Confirm every affected repository record and local tags, notes, favorites, triage state, revisit dates, and review history remain.
