@@ -3276,21 +3276,43 @@ function focusNativeListLifecycleFallback(
   lifecycle: FocusLifecycle
 ): void {
   const searchRoot = lifecycle.dashboardRoot ?? lifecycle.scope ?? lifecycle.ownerDocument
-  const listNodeId = invoker?.element.dataset.nativeListDeleteInvoker
+  const originalInvoker = invoker?.element ?? null
+  if (tryFocusTarget(originalInvoker)) return
+
+  const listNodeId = originalInvoker?.dataset.nativeListDeleteInvoker
+  const isCreateInvoker = originalInvoker?.matches('[data-native-list-create-invoker]') ?? false
   const replacementInvoker = listNodeId
     ? [...searchRoot.querySelectorAll<HTMLElement>('[data-native-list-delete-invoker]')]
         .find((element) => element.dataset.nativeListDeleteInvoker === listNodeId) ?? null
-    : invoker?.element.matches('[data-native-list-create-invoker]')
+    : isCreateInvoker
       ? searchRoot.querySelector<HTMLElement>('[data-native-list-create-invoker]')
       : null
+  if (tryFocusTarget(replacementInvoker)) return
+
+  const unlist = searchRoot.querySelector<HTMLElement>(
+    '.list-sidebar [data-view-kind="unlist"]'
+  )
+  if (activeNativeListLifecycleOperation(appState.val) !== null) {
+    if (listNodeId) {
+      const siblingNavigation = [
+        ...searchRoot.querySelectorAll<HTMLElement>('[data-native-list-row]')
+      ]
+        .find((row) => row.dataset.nativeListRow === listNodeId)
+        ?.querySelector<HTMLElement>(':scope > .nav-item') ?? null
+      if (tryFocusTarget(siblingNavigation)) return
+    }
+    if (listNodeId || isCreateInvoker) {
+      tryFocusTarget(unlist)
+      return
+    }
+  }
+
   const railInvokers = [
     ...searchRoot.querySelectorAll<HTMLElement>(
       '.list-sidebar-heading-row [data-native-list-create-invoker], .list-sidebar [data-native-list-delete-invoker]'
     )
   ]
-  const unlist = searchRoot.querySelector<HTMLElement>('[data-view-kind="unlist"]')
-  const candidates = [invoker?.element ?? null, replacementInvoker, ...railInvokers, unlist]
-  for (const candidate of candidates) {
+  for (const candidate of [...railInvokers, unlist]) {
     if (tryFocusTarget(candidate)) return
   }
 }
@@ -4078,6 +4100,9 @@ function applyState(state: AppState): void {
     nextFingerprints.nativeListSync !== publishedFingerprints.nativeListSync ||
     nextFingerprints.nativeListLifecycle !== publishedFingerprints.nativeListLifecycle
   const position = libraryChanged ? captureDashboardPosition() : null
+  const railFocus = libraryChanged || accountChanged
+    ? captureNativeListRailFocus()
+    : null
   if (libraryChanged || accountChanged) resetRenderedResults()
   if (!accountChanged && lifecycleAuthorityChanged) {
     clearNativeListLifecycleError('rail')
@@ -4121,7 +4146,10 @@ function applyState(state: AppState): void {
   reconcileActiveNativeList(state)
   appState.val = state
   publishStateSlices(state, nextFingerprints)
-  if (position) scheduleRepositoryQueryReconciliation(position)
+  scheduleNativeListRailFocusReconciliation(railFocus)
+  if (position && railFocus === null) {
+    scheduleRepositoryQueryReconciliation(position)
+  }
   if (state.library) {
     const selectable = new Set(
       publishedRepositories.val
@@ -4277,6 +4305,139 @@ function publishIfMateriallyChanged<T>(
 ): string {
   if (previousFingerprint !== nextFingerprint) signal.val = value
   return nextFingerprint
+}
+
+type NativeListRailFocusKind = 'create' | 'remove' | 'navigate'
+
+interface NativeListRailFocus {
+  readonly mountId: number
+  readonly accountId: string | null
+  readonly scope: HTMLElement
+  readonly element: HTMLElement
+  readonly kind: NativeListRailFocusKind
+  readonly listNodeId: string | null
+  readonly listIndex: number
+}
+
+function captureNativeListRailFocus(): NativeListRailFocus | null {
+  const root = mountedDashboardRoot
+  const active = document.activeElement as HTMLElement | null
+  const scope = active?.closest<HTMLElement>('.app-shell') ?? null
+  if (
+    root === null ||
+    active === null ||
+    scope === null ||
+    !root.contains(scope) ||
+    !scope.isConnected
+  ) {
+    return null
+  }
+
+  const rows = [...scope.querySelectorAll<HTMLElement>('[data-native-list-row]')]
+  if (active.matches('[data-native-list-create-invoker]')) {
+    return {
+      mountId: activeDashboardMountId,
+      accountId: dashboardAccountId,
+      scope,
+      element: active,
+      kind: 'create',
+      listNodeId: null,
+      listIndex: -1
+    }
+  }
+
+  const row = active.closest<HTMLElement>('[data-native-list-row]')
+  if (row === null || !scope.contains(row)) return null
+  const listNodeId = row.dataset.nativeListRow ?? null
+  if (listNodeId === null) return null
+  const kind: NativeListRailFocusKind | null =
+    active.matches('[data-native-list-delete-invoker]')
+      ? 'remove'
+      : active.classList.contains('nav-item') && active.parentElement === row
+        ? 'navigate'
+        : null
+  if (kind === null) return null
+  return {
+    mountId: activeDashboardMountId,
+    accountId: dashboardAccountId,
+    scope,
+    element: active,
+    kind,
+    listNodeId,
+    listIndex: rows.indexOf(row)
+  }
+}
+
+function scheduleNativeListRailFocusReconciliation(
+  focus: NativeListRailFocus | null
+): void {
+  if (focus === null) return
+  queueMicrotask(() => {
+    queueMicrotask(() => reconcileNativeListRailFocus(focus))
+  })
+}
+
+function reconcileNativeListRailFocus(focus: NativeListRailFocus): void {
+  if (
+    focus.mountId !== activeDashboardMountId ||
+    focus.accountId !== dashboardAccountId ||
+    mountedDashboardRoot === null ||
+    !mountedDashboardRoot.isConnected ||
+    !mountedDashboardRoot.contains(focus.scope) ||
+    !focus.scope.isConnected
+  ) {
+    return
+  }
+
+  const ownerDocument = focus.scope.ownerDocument
+  const currentFocus = ownerDocument.activeElement as HTMLElement | null
+  const focusWasIntentionallyMoved =
+    currentFocus !== null &&
+    currentFocus !== ownerDocument.body &&
+    currentFocus.isConnected &&
+    currentFocus !== focus.element
+  if (focusWasIntentionallyMoved) return
+
+  const matchingTarget = findMatchingNativeListRailTarget(focus)
+  if (tryFocusTarget(matchingTarget)) return
+
+  const create = focus.scope.querySelector<HTMLElement>(
+    '[data-native-list-create-invoker]'
+  )
+  if (tryFocusTarget(create)) return
+
+  const navigationRows = [
+    ...focus.scope.querySelectorAll<HTMLElement>('[data-native-list-row]')
+  ]
+  const sameIndex = navigationRows[focus.listIndex] ?? null
+  const priorIndex = Math.min(focus.listIndex - 1, navigationRows.length - 1)
+  const prior = priorIndex >= 0 ? navigationRows[priorIndex] ?? null : null
+  for (const row of [sameIndex, prior]) {
+    if (tryFocusTarget(row?.querySelector<HTMLElement>(':scope > .nav-item') ?? null)) {
+      return
+    }
+  }
+
+  tryFocusTarget(
+    focus.scope.querySelector<HTMLElement>('.list-sidebar [data-view-kind="unlist"]')
+  )
+}
+
+function findMatchingNativeListRailTarget(
+  focus: NativeListRailFocus
+): HTMLElement | null {
+  if (isDashboardFocusTargetVisible(focus.element)) return focus.element
+  if (focus.kind === 'create') {
+    return focus.scope.querySelector<HTMLElement>('[data-native-list-create-invoker]')
+  }
+  if (focus.listNodeId === null) return null
+  const row = [...focus.scope.querySelectorAll<HTMLElement>('[data-native-list-row]')]
+    .find((candidate) => candidate.dataset.nativeListRow === focus.listNodeId) ?? null
+  if (focus.kind === 'remove') {
+    return [...(row?.querySelectorAll<HTMLElement>('[data-native-list-delete-invoker]') ?? [])]
+      .find((element) => element.dataset.nativeListDeleteInvoker === focus.listNodeId) ?? null
+  }
+  return row?.querySelector<HTMLElement>(':scope > .nav-item') ?? null
 }
 
 interface LibraryPageLifecycle {

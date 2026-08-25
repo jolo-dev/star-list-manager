@@ -5604,6 +5604,341 @@ test('requires an exact populated List name before deletion confirmation can dis
   }
 })
 
+test('moves queued lifecycle dialog focus from disabled rail actions to safe native List targets', async () => {
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const base = membershipReadyDashboardState()
+  const queuedDelete: AppState = {
+    ...base,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    nativeListLifecycle: {readiness: 'ready', operation: lifecycleOperation('queued')},
+    library: {
+      ...base.library!,
+      nativeLists: [
+        nativeList('L_current', 'Current List'),
+        nativeList('L_other', 'Other List')
+      ]
+    }
+  }
+  const messages: Array<{readonly type: string}> = []
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    messages.push(message)
+    if (message.type === 'preview-native-list-delete') {
+      return {
+        ok: true,
+        data: {
+          kind: 'delete',
+          listNodeId: 'L_current',
+          name: 'Current List',
+          visibility: 'private',
+          reportedItemCount: 0,
+          importStatus: 'complete',
+          confirmationFingerprint: 'queued-delete'
+        }
+      }
+    }
+    if (message.type === 'confirm-native-list-delete' || message.type === 'get-app-state') {
+      return {ok: true, data: queuedDelete}
+    }
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+
+  try {
+    const root = await mountReadyDashboard({
+      ...queuedDelete,
+      nativeListLifecycle: {readiness: 'ready', operation: null}
+    })
+    const browserWindow = window as unknown as Window
+    root.querySelector<HTMLButtonElement>(
+      '.list-sidebar [data-native-list-delete-invoker="L_current"]'
+    )?.click()
+    await nextTurn(browserWindow)
+    root.querySelector<HTMLButtonElement>(
+      '.native-list-lifecycle-confirmation .danger-action'
+    )?.click()
+    await flushFocusReconciliation(browserWindow)
+
+    const remove = [...root.querySelectorAll<HTMLButtonElement>(
+      '.list-sidebar [data-native-list-delete-invoker]'
+    )].find((button) => button.dataset.nativeListDeleteInvoker === 'L_current') ?? null
+    const navigate = [...root.querySelectorAll<HTMLButtonElement>(
+      '.list-sidebar [data-native-list-row] > .nav-item'
+    )].find((button) => button.closest<HTMLElement>('[data-native-list-row]')?.dataset.nativeListRow === 'L_current') ?? null
+    expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
+    expect(remove?.disabled).toBe(true)
+    expect(navigate).not.toBeNull()
+    expect((browserWindow.document.activeElement as unknown) === navigate).toBe(true)
+    expect(messages.map((message) => message.type)).toEqual([
+      'preview-native-list-delete',
+      'confirm-native-list-delete'
+    ])
+
+    const {renderAppState} = await import('../../src/dashboard/scripts')
+    renderAppState({
+      ...queuedDelete,
+      nativeListLifecycle: {readiness: 'ready', operation: lifecycleOperation('succeeded')},
+      library: {
+        ...queuedDelete.library!,
+        nativeLists: [nativeList('L_other', 'Other List')]
+      }
+    })
+    await flushFocusReconciliation(browserWindow)
+    expect(nativeListNavigationButton(root, 'Current List')).toBeNull()
+    expect((browserWindow.document.activeElement as unknown) ===
+      root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')).toBe(true)
+  } finally {
+    const {renderAppState} = await import('../../src/dashboard/scripts')
+    renderAppState({...queuedDelete, nativeListLifecycle: {readiness: 'ready', operation: null}})
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('falls back to Unlist after a queued create disables its lifecycle invoker', async () => {
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const base = membershipReadyDashboardState()
+  const queuedCreateOperation: NativeListLifecycleOperationRecord = {
+    githubUserId: '42',
+    operationId: 'op-create-queued',
+    intent: {kind: 'create', name: 'Queued List', visibility: 'private'},
+    phase: 'queued',
+    attemptCount: 0,
+    candidateListNodeId: null,
+    confirmationFingerprint: null,
+    lastError: null,
+    createdAt: '2026-08-20T10:00:00Z',
+    updatedAt: '2026-08-20T10:00:00Z',
+    completedAt: null
+  }
+  const queuedCreate: AppState = {
+    ...base,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    nativeListLifecycle: {readiness: 'ready', operation: queuedCreateOperation}
+  }
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    if (message.type === 'preview-native-list-create') {
+      return {ok: true, data: {kind: 'create', name: 'Queued List', visibility: 'private'}}
+    }
+    if (message.type === 'confirm-native-list-create' || message.type === 'get-app-state') {
+      return {ok: true, data: queuedCreate}
+    }
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+
+  try {
+    const root = await mountReadyDashboard({
+      ...queuedCreate,
+      nativeListLifecycle: {readiness: 'ready', operation: null}
+    })
+    const browserWindow = window as unknown as Window
+    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.click()
+    await nextTurn(browserWindow)
+    const name = root.querySelector<HTMLInputElement>('#native-list-create-name')
+    const privateChoice = root.querySelector<HTMLInputElement>('input[value="private"]')
+    if (!name || !privateChoice) throw new Error('Create form controls required.')
+    name.value = 'Queued List'
+    name.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    privateChoice.checked = true
+    privateChoice.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+    root.querySelector<HTMLButtonElement>('.native-list-lifecycle-confirmation .primary-action')?.click()
+    await nextTurn(browserWindow)
+    root.querySelector<HTMLButtonElement>('.native-list-lifecycle-confirmation .primary-action')?.click()
+    await flushFocusReconciliation(browserWindow)
+
+    expect(root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.disabled).toBe(true)
+    expect((browserWindow.document.activeElement as unknown) ===
+      root.querySelector<HTMLButtonElement>('.list-sidebar [data-view-kind="unlist"]')).toBe(true)
+  } finally {
+    const {renderAppState} = await import('../../src/dashboard/scripts')
+    renderAppState({...queuedCreate, nativeListLifecycle: {readiness: 'ready', operation: null}})
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('reconciles authoritative native List deletion from the persistent rail in every workspace', async () => {
+  for (const workspace of ['Library', 'Operations', 'Settings'] as const) {
+    const base = membershipReadyDashboardState()
+    const queued: AppState = {
+      ...base,
+      sync: completeSyncState('stars'),
+      nativeListSync: completeSyncState('native-lists'),
+      nativeListLifecycle: {readiness: 'ready', operation: lifecycleOperation('verifying')},
+      library: {
+        ...base.library!,
+        nativeLists: [
+          nativeList('L_before', 'Before List'),
+          nativeList('L_current', 'Current List'),
+          nativeList('L_after', 'Next List')
+        ]
+      }
+    }
+    const root = await mountReadyDashboard(queued)
+    const browserWindow = window as unknown as Window
+    const {renderAppState} = await import('../../src/dashboard/scripts')
+    if (workspace !== 'Library') {
+      [...root.querySelectorAll<HTMLButtonElement>('.primary-navigation [data-view-kind]')]
+        .find((button) => button.textContent === workspace)?.click()
+      await browserWindow.happyDOM.whenAsyncComplete()
+    }
+    expect(root.querySelector(`.${workspace.toLowerCase()}-page`)).not.toBeNull()
+
+    const retainedNavigation = nativeListNavigationButton(root, 'Current List')
+    retainedNavigation?.focus()
+    expect((browserWindow.document.activeElement as unknown) === retainedNavigation).toBe(true)
+
+    const verified: AppState = {
+      ...queued,
+      nativeListLifecycle: {
+        readiness: 'ready',
+        operation: {...lifecycleOperation('succeeded'), completedAt: '2026-08-20T10:00:02Z'}
+      },
+      library: {
+        ...queued.library!,
+        nativeLists: [
+          nativeList('L_before', 'Before List'),
+          nativeList('L_after', 'Next List')
+        ]
+      }
+    }
+    renderAppState(verified)
+    await nextTurn(browserWindow)
+
+    expect(nativeListNavigationButton(root, 'Current List')).toBeNull()
+    expect(root.querySelector(`.${workspace.toLowerCase()}-page`)).not.toBeNull()
+    expect((browserWindow.document.activeElement as unknown) ===
+      root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')).toBe(true)
+    root.remove()
+  }
+})
+
+test('preserves an original connected and enabled native List rail target', async () => {
+  const base = membershipReadyDashboardState()
+  const initial: AppState = {
+    ...base,
+    sync: completeSyncState('stars'),
+    nativeListSync: completeSyncState('native-lists'),
+    nativeListLifecycle: {readiness: 'ready', operation: null}
+  }
+  const root = await mountReadyDashboard(initial)
+  const browserWindow = window as unknown as Window
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const create = root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+  create?.focus()
+
+  renderAppState({
+    ...initial,
+    triageCounts: {inbox: 9, backlog: 8, due: 7, organized: 6}
+  })
+  await flushFocusReconciliation(browserWindow)
+
+  expect(create?.isConnected).toBe(true)
+  expect(create?.disabled).toBe(false)
+  expect((browserWindow.document.activeElement as unknown) === create).toBe(true)
+})
+
+test('preserves or safely falls back rail focus without selector interpolation', async () => {
+  const base = membershipReadyDashboardState()
+  const active = lifecycleOperation('verifying')
+  const weirdListNodeId = 'L_weird"\\]'
+  const initial: AppState = {
+    ...base,
+    nativeListLifecycle: {readiness: 'ready', operation: active},
+    library: {
+      ...base.library!,
+      nativeLists: [
+        nativeList('L_alpha', 'Alpha List'),
+        nativeList(weirdListNodeId, 'Middle List'),
+        nativeList('L_zulu', 'Zulu List')
+      ]
+    }
+  }
+  const root = await mountReadyDashboard(initial)
+  const browserWindow = window as unknown as Window
+  const {renderAppState} = await import('../../src/dashboard/scripts')
+  const navigationById = (listNodeId: string) =>
+    [...root.querySelectorAll<HTMLButtonElement>('[data-native-list-row] > .nav-item')]
+      .find((button) => button.closest<HTMLElement>('[data-native-list-row]')?.dataset.nativeListRow === listNodeId) ?? null
+
+  const retained = navigationById(weirdListNodeId)
+  retained?.focus()
+  renderAppState({
+    ...initial,
+    library: {
+      ...initial.library!,
+      nativeLists: [...initial.library!.nativeLists, nativeList('L_extra', 'Extra List')]
+    }
+  })
+  await flushFocusReconciliation(browserWindow)
+  expect((browserWindow.document.activeElement as unknown) === navigationById(weirdListNodeId)).toBe(true)
+
+  const middle = navigationById(weirdListNodeId)
+  middle?.focus()
+  renderAppState({
+    ...initial,
+    library: {
+      ...initial.library!,
+      nativeLists: [nativeList('L_alpha', 'Alpha List'), nativeList('L_zulu', 'Zulu List')]
+    }
+  })
+  await flushFocusReconciliation(browserWindow)
+  expect((browserWindow.document.activeElement as unknown) === navigationById('L_zulu')).toBe(true)
+
+  navigationById('L_zulu')?.focus()
+  renderAppState({
+    ...initial,
+    library: {...initial.library!, nativeLists: [nativeList('L_alpha', 'Alpha List')]}
+  })
+  await flushFocusReconciliation(browserWindow)
+  expect((browserWindow.document.activeElement as unknown) === navigationById('L_alpha')).toBe(true)
+
+  navigationById('L_alpha')?.focus()
+  renderAppState({...initial, library: {...initial.library!, nativeLists: []}})
+  await flushFocusReconciliation(browserWindow)
+  expect((browserWindow.document.activeElement as unknown) ===
+    root.querySelector<HTMLButtonElement>('.list-sidebar [data-view-kind="unlist"]')).toBe(true)
+  renderAppState({...initial, nativeListLifecycle: {readiness: 'ready', operation: null}})
+})
+
+test('does not override intentional rail focus movement or cross account and mount guards', async () => {
+  const base = membershipReadyDashboardState()
+  const root = await mountReadyDashboard({
+    ...base,
+    library: {
+      ...base.library!,
+      nativeLists: [nativeList('L_current', 'Current List'), nativeList('L_other', 'Other List')]
+    }
+  })
+  const browserWindow = window as unknown as Window
+  const {mountDashboard, renderAppState} = await import('../../src/dashboard/scripts')
+  nativeListNavigationButton(root, 'Current List')?.focus()
+  renderAppState({...base, library: {...base.library!, nativeLists: [nativeList('L_other', 'Other List')]}})
+  const intentional = root.querySelector<HTMLButtonElement>('.primary-navigation [data-view-kind="settings"]')
+  intentional?.focus()
+  await nextTurn(browserWindow)
+  expect((browserWindow.document.activeElement as unknown) === intentional).toBe(true)
+
+  nativeListNavigationButton(root, 'Other List')?.focus()
+  renderAppState(accountBDashboardState())
+  await nextTurn(browserWindow)
+  expect((browserWindow.document.activeElement as unknown) !==
+    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')).toBe(true)
+  expect((browserWindow.document.activeElement as unknown) !==
+    root.querySelector<HTMLButtonElement>('.list-sidebar [data-view-kind="unlist"]')).toBe(true)
+
+  const staleTarget = root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')
+  staleTarget?.focus()
+  renderAppState({...accountBDashboardState(), library: {...accountBDashboardState().library!, nativeLists: [nativeList('L_new', 'New List')]}})
+  const replacementRoot = browserWindow.document.createElement('main') as unknown as HTMLElement
+  browserWindow.document.body.append(replacementRoot as unknown as Parameters<typeof browserWindow.document.body.append>[0])
+  mountDashboard(replacementRoot, accountBDashboardState())
+  const replacementFocus = replacementRoot.querySelector<HTMLButtonElement>('[data-view-kind="settings"]')
+  replacementFocus?.focus()
+  await nextTurn(browserWindow)
+  expect((browserWindow.document.activeElement as unknown) === replacementFocus).toBe(true)
+})
+
 test('shows lifecycle confirmation pending state until a deferred confirm recovers focus', async () => {
   const confirmation = deferred()
   const messages: Array<{readonly type: string}> = []
@@ -5861,7 +6196,9 @@ test('traps Tab focus and restores the lifecycle dialog invoker on Escape', asyn
     new browserWindow.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}) as unknown as Event
   )
   await nextTurn(browserWindow)
-  const unlist = root.querySelector<HTMLButtonElement>('[data-view-kind="unlist"]')
+  const unlist = root.querySelector<HTMLButtonElement>(
+    '.list-sidebar [data-view-kind="unlist"]'
+  )
   expect((browserWindow.document.activeElement as unknown) === unlist).toBe(true)
 })
 
@@ -6665,6 +7002,13 @@ async function selectResultMode(
 async function flushDashboardReactivity(browserWindow: Window): Promise<void> {
   await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
   await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+}
+
+async function flushFocusReconciliation(browserWindow: Window): Promise<void> {
+  await Promise.resolve()
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+  await new Promise<void>((resolve) => browserWindow.setTimeout(resolve, 0))
+  await Promise.resolve()
 }
 
 async function nextTurn(browserWindow: Window): Promise<void> {
