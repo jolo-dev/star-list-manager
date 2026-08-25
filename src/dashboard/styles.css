@@ -2306,6 +2306,14 @@ textarea:disabled {
     outline-offset: 2px;
   }
 
+  .lifecycle-readiness,
+  .lifecycle-operation {
+    color: CanvasText !important;
+    background: Canvas !important;
+    border-color: CanvasText !important;
+    forced-color-adjust: none;
+  }
+
   .status-banner,
   .status-banner.is-success,
   .status-banner.is-warning,
@@ -2354,7 +2362,7 @@ textarea:disabled {
   gap: 20px;
 }
 
-.native-list-management > .archive-document-header {
+.native-list-management-content > .archive-document-header {
   align-items: flex-start;
 }
 
@@ -2412,8 +2420,33 @@ textarea:disabled {
 }
 
 .native-list-management-row strong,
-.native-list-lifecycle-preview > strong {
+.native-list-lifecycle-preview > strong,
+.native-list-lifecycle-confirmation h2,
+.native-list-lifecycle-confirmation p,
+.native-list-lifecycle-confirmation .danger-action {
+  min-width: 0;
   overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.native-list-delete-confirmation {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--type-label-size);
+  font-weight: 600;
+}
+
+.native-list-delete-confirmation input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 11px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
 }
 
 .partial-native-list-note {
@@ -2495,7 +2528,7 @@ textarea:disabled {
 }
 
 @media (max-width: 700px) {
-  .native-list-management > .archive-document-header,
+  .native-list-management-content > .archive-document-header,
   .native-list-management-row {
     align-items: stretch;
     flex-direction: column;

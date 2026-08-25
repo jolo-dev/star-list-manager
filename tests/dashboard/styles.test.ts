@@ -349,6 +349,14 @@ test('keeps retained native List management content in the existing operating rh
   expect(content).toMatch(/gap:\s*20px/)
 })
 
+test('keeps native List management headers, long names, and destructive labels safe', () => {
+  expect(exactRuleFor(styles, ['.native-list-management-content > .archive-document-header'])).toMatch(/align-items:\s*flex-start/)
+  expect(ruleFor(styles, '.native-list-management-row strong,')).toMatch(/overflow-wrap:\s*anywhere/)
+  expect(ruleFor(styles, '.native-list-lifecycle-confirmation h2')).toMatch(/overflow-wrap:\s*anywhere/)
+  expect(ruleFor(styles, '.native-list-lifecycle-confirmation .danger-action')).toMatch(/overflow-wrap:\s*anywhere/)
+  expect(ruleFor(styles, '.native-list-delete-confirmation')).toMatch(/min-width:\s*0/)
+})
+
 test('uses transform-only bounded skeleton shimmer', () => {
   expect(styles).not.toMatch(/@keyframes[^{}]*shimmer[\s\S]*?background-position/)
   expect(ruleFor(styles, '.skeleton-row')).toMatch(/overflow:\s*hidden/)
@@ -394,6 +402,10 @@ test('maps forced colors after components with explicit selected, focus, status,
     '.nav-item:focus-visible', '.file-action:focus-within'
   ]
   expect(exactRuleFor(forced, focusSelectors)).toMatch(/outline:\s*3px solid Highlight\s*!important/)
+  const lifecycleStatuses = ruleFor(forced, '.lifecycle-readiness')
+  expect(lifecycleStatuses).toMatch(/background:\s*Canvas\s*!important/)
+  expect(lifecycleStatuses).toMatch(/color:\s*CanvasText\s*!important/)
+  expect(lifecycleStatuses).toMatch(/border-color:\s*CanvasText\s*!important/)
   const statuses = exactRuleFor(forced, ['.status-banner', '.status-banner.is-success', '.status-banner.is-warning', '.status-banner.is-error'])
   expect(statuses).toMatch(/background:\s*Canvas\s*!important/)
   expect(statuses).toMatch(/color:\s*CanvasText\s*!important/)

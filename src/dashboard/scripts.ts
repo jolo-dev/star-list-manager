@@ -271,6 +271,7 @@ interface NativeListLifecycleDialog {
 
 let nativeListLifecycleDialog = van.state<NativeListLifecycleDialog | null>(null)
 let nativeListLifecycleName = van.state('')
+let nativeListDeleteConfirmationName = van.state('')
 let nativeListLifecycleVisibility = van.state<'public' | 'private' | null>(null)
 let nativeListLifecycleError = van.state<string | null>(null)
 let nativeListLifecyclePending = van.state(false)
@@ -2910,6 +2911,7 @@ function openNativeListCreate(invoker: HTMLElement): void {
   if (nativeListLifecyclePending.val) return
   nativeListLifecycleInvoker = captureDialogInvoker(invoker)
   nativeListLifecycleName.val = ''
+  nativeListDeleteConfirmationName.val = ''
   nativeListLifecycleVisibility.val = null
   nativeListLifecycleError.val = null
   nativeListLifecycleDialog.val = {kind: 'create', preview: null}
@@ -2922,6 +2924,8 @@ function NativeListLifecycleConfirmation() {
   if (!dialog) return ''
   const preview = dialog.preview
   const create = dialog.kind === 'create'
+  const requiresExactDeleteName = preview?.kind === 'delete' && preview.reportedItemCount > 0
+  const deleteNameConfirmed = !requiresExactDeleteName || nativeListDeleteConfirmationName.val === preview.name
   const title = preview
     ? create ? 'Review GitHub List creation' : `Review deletion of ${preview.name}`
     : 'Create a GitHub List'
@@ -2935,11 +2939,39 @@ function NativeListLifecycleConfirmation() {
       },
       header({class: 'archive-dialog-header'}, h2({id: 'native-list-lifecycle-title'}, title)),
       preview ? LifecyclePreview(preview) : LifecycleCreateForm(),
-      nativeListLifecycleError.val ? p({class: 'inline-error', role: 'alert'}, nativeListLifecycleError) : null,
+      requiresExactDeleteName
+        ? label(
+            {class: 'native-list-delete-confirmation', for: 'native-list-delete-confirmation'},
+            span(`Type ${preview.name} exactly to confirm deletion`),
+            input({
+              id: 'native-list-delete-confirmation',
+              type: 'text',
+              value: nativeListDeleteConfirmationName,
+              disabled: nativeListLifecyclePending,
+              'aria-invalid': () => String(nativeListDeleteConfirmationName.val.length > 0 && !deleteNameConfirmed),
+              'aria-describedby': 'native-list-delete-confirmation-help',
+              'aria-errormessage': () => nativeListDeleteConfirmationName.val.length > 0 && !deleteNameConfirmed
+                ? 'native-list-delete-confirmation-error'
+                : null,
+              oninput: (event: Event) => {
+                nativeListDeleteConfirmationName.val = (event.currentTarget as HTMLInputElement).value
+                renderNativeListLifecycleDialog()
+                window.setTimeout(() => {
+                  document.getElementById('native-list-delete-confirmation')?.focus()
+                }, 0)
+              }
+            }),
+            p({id: 'native-list-delete-confirmation-help'}, 'The name is case-sensitive.'),
+            () => nativeListDeleteConfirmationName.val.length > 0 && !deleteNameConfirmed
+              ? p({class: 'inline-error', id: 'native-list-delete-confirmation-error', role: 'alert'}, 'The entered List name does not match.')
+              : null
+          )
+        : null,
+      nativeListLifecycleError.val ? p({class: 'inline-error', id: 'native-list-lifecycle-error', role: 'alert'}, nativeListLifecycleError) : null,
       div(
         {class: 'action-row'},
         preview
-          ? button({class: preview.kind === 'delete' ? 'danger-action' : 'primary-action', type: 'button', disabled: nativeListLifecyclePending, onclick: () => void confirmNativeListLifecycle(preview)}, () => nativeListLifecyclePending.val ? 'Queueing…' : preview.kind === 'delete' ? `Confirm deletion of ${preview.name}` : 'Confirm and queue creation')
+          ? button({class: preview.kind === 'delete' ? 'danger-action' : 'primary-action', type: 'button', disabled: () => nativeListLifecyclePending.val || (requiresExactDeleteName && nativeListDeleteConfirmationName.val !== preview.name), onclick: () => void confirmNativeListLifecycle(preview)}, () => nativeListLifecyclePending.val ? 'Queueing…' : preview.kind === 'delete' ? `Confirm deletion of ${preview.name}` : 'Confirm and queue creation')
           : button({class: 'primary-action', type: 'button', disabled: nativeListLifecyclePending, onclick: () => void previewNativeListCreate()}, () => nativeListLifecyclePending.val ? 'Checking…' : 'Review creation'),
         button({class: 'secondary-action dialog-cancel', type: 'button', disabled: nativeListLifecyclePending, onclick: () => cancelNativeListLifecycleDialog(true)}, 'Cancel')
       )
@@ -2951,7 +2983,7 @@ function LifecycleCreateForm() {
   const inputId = 'native-list-create-name'
   return form(
     {class: 'native-list-lifecycle-form', onsubmit: (event: SubmitEvent) => { event.preventDefault(); void previewNativeListCreate() }},
-    label({for: inputId}, span('List name'), input({id: inputId, type: 'text', value: nativeListLifecycleName, disabled: nativeListLifecyclePending, 'aria-invalid': () => String(nativeListLifecycleError.val !== null), oninput: (event: Event) => { nativeListLifecycleName.val = (event.currentTarget as HTMLInputElement).value; nativeListLifecycleError.val = null }})),
+    label({for: inputId}, span('List name'), input({id: inputId, type: 'text', value: nativeListLifecycleName, disabled: nativeListLifecyclePending, 'aria-invalid': () => String(nativeListLifecycleError.val !== null), 'aria-describedby': () => nativeListLifecycleError.val ? 'native-list-lifecycle-error' : null, 'aria-errormessage': () => nativeListLifecycleError.val ? 'native-list-lifecycle-error' : null, oninput: (event: Event) => { nativeListLifecycleName.val = (event.currentTarget as HTMLInputElement).value; nativeListLifecycleError.val = null }})),
     section({class: 'native-list-visibility', 'aria-labelledby': 'native-list-visibility-heading'}, h3({id: 'native-list-visibility-heading'}, 'Visibility'),
       p('Select whether GitHub should make this List public or private. No visibility is selected by default.'),
       ...(['public', 'private'] as const).map((visibility) => label(input({type: 'radio', name: 'native-list-visibility', value: visibility, checked: () => nativeListLifecycleVisibility.val === visibility, disabled: nativeListLifecyclePending, onchange: () => { nativeListLifecycleVisibility.val = visibility; nativeListLifecycleError.val = null }}), span(visibility === 'public' ? 'Public' : 'Private')))
@@ -2970,6 +3002,17 @@ function setNativeListLifecycleError(message: string | null): void {
   nativeListLifecycleError.val = message
   nativeListManagementRevision.val += 1
   renderNativeListLifecycleDialog()
+  if (message !== null) focusNativeListLifecycleErrorTarget()
+}
+
+function focusNativeListLifecycleErrorTarget(): void {
+  window.setTimeout(() => {
+    const dialog = document.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
+    const target = dialog?.querySelector<HTMLElement>(
+      '#native-list-create-name, #native-list-delete-confirmation, .dialog-cancel:not(:disabled)'
+    ) ?? null
+    if (target && isDashboardFocusTargetVisible(target)) target.focus()
+  }, 0)
 }
 
 function cancelNativeListLifecycleDialog(restoreFocus = false): void {
@@ -4559,6 +4602,7 @@ function resetDashboardUiState(): void {
   nativeListRenameInvoker = null
   nativeListLifecycleDialog = van.state<NativeListLifecycleDialog | null>(null)
   nativeListLifecycleName = van.state('')
+  nativeListDeleteConfirmationName = van.state('')
   nativeListLifecycleVisibility = van.state<'public' | 'private' | null>(null)
   nativeListLifecycleError = van.state<string | null>(null)
   nativeListManagementRevision = van.state(0)

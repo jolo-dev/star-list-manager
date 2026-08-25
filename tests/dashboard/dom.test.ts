@@ -5438,6 +5438,118 @@ test('requires an explicit visibility and renders a read-only create preview bef
   }
 })
 
+test('keeps an unbroken native List name intact in management at narrow content widths', async () => {
+  const state = membershipReadyDashboardState()
+  const name = `List-${'x'.repeat(180)}`
+  const root = await mountReadyDashboard({
+    ...state,
+    nativeListLifecycle: {readiness: 'capability-unproven', operation: null},
+    library: {...state.library!, nativeLists: [nativeList('L_long_management', name)]}
+  })
+  const browserWindow = window as unknown as Window
+  ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+    .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
+  await nextTurn(browserWindow)
+  const row = root.querySelector<HTMLElement>('.native-list-management-row')
+  expect(row?.querySelector('strong')?.textContent).toBe(name)
+  expect(row?.querySelector('.danger-action')?.textContent).toBe('Review deletion')
+  expect(row?.classList.contains('native-list-management-row')).toBe(true)
+})
+
+test('keeps lifecycle preview errors actionable in the dialog with linked focus', async () => {
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    if (message.type === 'preview-native-list-create') {
+      return {ok: false, error: {category: 'network', message: 'GitHub preview is unavailable. Try again.', retryable: true}}
+    }
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+  try {
+    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}, library: {...state.library!, nativeLists: []}})
+    const browserWindow = window as unknown as Window
+    ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+      .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
+    await nextTurn(browserWindow)
+    root.querySelector<HTMLButtonElement>('[data-native-list-create-invoker]')?.click()
+    await nextTurn(browserWindow)
+    const name = root.querySelector<HTMLInputElement>('#native-list-create-name')
+    const privateChoice = root.querySelector<HTMLInputElement>('input[value="private"]')
+    if (!name || !privateChoice) throw new Error('Create controls required.')
+    name.value = 'Error List'
+    name.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    privateChoice.checked = true
+    privateChoice.dispatchEvent(new browserWindow.Event('change', {bubbles: true}) as unknown as Event)
+    root.querySelector<HTMLButtonElement>('.native-list-lifecycle-confirmation .primary-action')?.click()
+    await nextTurn(browserWindow)
+    const dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
+    const error = dialog?.querySelector<HTMLElement>('[role="alert"]')
+    const erroredName = dialog?.querySelector<HTMLInputElement>('#native-list-create-name')
+    expect(dialog).not.toBeNull()
+    expect(error?.textContent).toBe('GitHub preview is unavailable. Try again.')
+    expect(error?.id).toBe('native-list-lifecycle-error')
+    expect(erroredName?.getAttribute('aria-invalid')).toBe('true')
+    expect(erroredName?.getAttribute('aria-describedby')).toBe('native-list-lifecycle-error')
+    expect((browserWindow.document.activeElement as unknown) === erroredName).toBe(true)
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
+test('requires an exact populated List name before deletion confirmation can dispatch', async () => {
+  const messages: Array<{readonly type: string}> = []
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    messages.push(message)
+    if (message.type === 'preview-native-list-delete') {
+      return {ok: true, data: {kind: 'delete', listNodeId: 'L_current', name: 'Current List', visibility: 'private', reportedItemCount: 3, importStatus: 'partial', confirmationFingerprint: 'fresh'}}
+    }
+    if (message.type === 'confirm-native-list-delete') return {ok: true, data: state}
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+  try {
+    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: completeSyncState('native-lists'), nativeListLifecycle: {readiness: 'ready', operation: null}})
+    const browserWindow = window as unknown as Window
+    ;[...root.querySelectorAll<HTMLButtonElement>('.list-navigation button')]
+      .find((button) => button.textContent === 'Manage GitHub Lists')?.click()
+    await nextTurn(browserWindow)
+    root.querySelector<HTMLButtonElement>('[data-native-list-delete-invoker="L_current"]')?.click()
+    await nextTurn(browserWindow)
+    const dialog = root.querySelector<HTMLElement>('.native-list-lifecycle-confirmation')
+    const confirmation = dialog?.querySelector<HTMLInputElement>('#native-list-delete-confirmation')
+    const confirm = dialog?.querySelector<HTMLButtonElement>('.danger-action')
+    if (!confirmation || !confirm) throw new Error('Populated confirmation controls required.')
+    expect(confirm.disabled).toBe(true)
+    confirmation.value = 'current list'
+    confirmation.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    await nextTurn(browserWindow)
+    expect(root.querySelector<HTMLButtonElement>('.native-list-lifecycle-confirmation .danger-action')?.disabled).toBe(true)
+    const wrongConfirmation = root.querySelector<HTMLInputElement>('#native-list-delete-confirmation')
+    expect(wrongConfirmation?.getAttribute('aria-invalid')).toBe('true')
+    expect(wrongConfirmation?.getAttribute('aria-errormessage')).toBe('native-list-delete-confirmation-error')
+    expect(root.querySelector('#native-list-delete-confirmation-error')?.textContent).toBe('The entered List name does not match.')
+    expect(messages.map((message) => message.type)).toEqual(['preview-native-list-delete'])
+    const exactConfirmation = root.querySelector<HTMLInputElement>('#native-list-delete-confirmation')
+    if (!exactConfirmation) throw new Error('Exact delete confirmation input required.')
+    exactConfirmation.value = 'Current List'
+    exactConfirmation.dispatchEvent(new browserWindow.Event('input', {bubbles: true}) as unknown as Event)
+    await nextTurn(browserWindow)
+    const exactConfirm = root.querySelector<HTMLButtonElement>('.native-list-lifecycle-confirmation .danger-action')
+    expect(exactConfirm?.disabled).toBe(false)
+    exactConfirm?.click()
+    await nextTurn(browserWindow)
+    expect(messages.map((message) => message.type)).toEqual([
+      'preview-native-list-delete',
+      'confirm-native-list-delete'
+    ])
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
 test('shows lifecycle confirmation pending state until a deferred confirm recovers focus', async () => {
   const confirmation = deferred()
   const messages: Array<{readonly type: string}> = []
