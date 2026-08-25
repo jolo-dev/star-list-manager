@@ -372,8 +372,8 @@ test('places compact native List lifecycle controls in the My Lists rail', () =>
   expect(controls).toMatch(/border-radius:\s*var\(--radius-control\)/)
 
   const remove = exactRuleFor(styles, ['.native-list-remove-button'])
-  expect(remove).toMatch(/color:\s*var\(--text-danger\)/)
-  expect(remove).toMatch(/background:\s*var\(--surface-danger\)/)
+  expect(remove).toMatch(/color:\s*var\(--action-danger-text\)/)
+  expect(remove).toMatch(/background:\s*var\(--action-danger\)/)
   expect(remove).toMatch(/border-color:\s*var\(--border-danger\)/)
   expect(exactRuleFor(styles, ['.native-list-create-button:hover:not(:disabled)'])).toMatch(/border-color:\s*var\(--text-primary\)/)
   expect(exactRuleFor(styles, ['.native-list-remove-button:hover:not(:disabled)'])).toMatch(/background:\s*var\(--action-danger-hover\)/)
@@ -452,15 +452,17 @@ test('reflows rail lifecycle controls safely at 320px and maps forced colors exp
   expect(reduced).toMatch(/transition-duration:\s*0\.01ms\s*!important/)
 })
 
-test('removes obsolete native List management page and operation selectors', () => {
+test('removes obsolete native List management page and lifecycle selectors', () => {
   const selectors = parseRules(styles).flatMap((rule) => rule.selectors)
+  expect(exactRuleFor(styles, ['.lifecycle-readiness'])).not.toBe('')
   for (const obsolete of [
     '.native-list-management',
     '.native-list-management-section',
     '.native-list-management-row',
     '.native-list-management-list',
     '.native-list-management-content',
-    '.lifecycle-operation'
+    '.lifecycle-operation',
+    '.lifecycle-readiness.is-ready'
   ]) {
     expect(selectors.some((selector) => selector.includes(obsolete)), obsolete).toBe(false)
   }

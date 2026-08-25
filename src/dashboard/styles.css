@@ -334,8 +334,8 @@ p {
 }
 
 .native-list-remove-button {
-  color: var(--text-danger);
-  background: var(--surface-danger);
+  color: var(--action-danger-text);
+  background: var(--action-danger);
   border-color: var(--border-danger);
 }
 
@@ -2055,12 +2055,6 @@ textarea:disabled {
   border-radius: var(--radius-control);
   font-size: var(--type-warning-size);
   line-height: 1.5;
-}
-
-.lifecycle-readiness.is-ready {
-  color: var(--text-success);
-  background: var(--surface-success);
-  border-color: var(--border-success);
 }
 
 .native-list-lifecycle-form,
