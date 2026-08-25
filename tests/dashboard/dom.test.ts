@@ -820,24 +820,25 @@ test('renders inline GitHub List lifecycle controls with direct valid list rows'
     }
   }
   const root = await mountReadyDashboard(state)
-  const sidebar = sidebarNavigation(root)
+  const sidebar = sidebarNavigation(root) as HTMLElement | null
   const sidebarRoot = sidebar?.closest<HTMLElement>('.list-sidebar') ?? null
-  const groups = [...(sidebar?.querySelectorAll('details.nav-group') ?? [])]
-  const githubLists = navigationGroup(sidebar, 'GitHub Lists')
-  const navigationList = directNavigationList(githubLists) as HTMLElement | null
+  const navigationList = sidebar?.querySelector<HTMLElement>(
+    ':scope > ul#native-list-navigation.nav-list'
+  ) ?? null
   const heading = sidebarRoot?.querySelector<HTMLElement>('.list-sidebar-heading-row') ?? null
   const create = heading?.querySelector<HTMLButtonElement>(
     '[data-native-list-create-invoker]'
   ) ?? null
 
-  expect(groups).toHaveLength(1)
-  expect(groups.map((group) => navigationGroupSummary(group)?.textContent)).toEqual(['GitHub Lists'])
-  expect(githubLists?.hasAttribute('open')).toBe(true)
-  expect(navigationGroup(sidebar, 'Utilities')).toBeNull()
+  expect(navigationList?.parentElement).toBe(sidebar)
+  expect(sidebar?.querySelector('.nav-groups')).toBeNull()
+  expect(sidebar?.querySelector('details.nav-group')).toBeNull()
+  expect(sidebar?.querySelector('summary')).toBeNull()
   expect(heading?.querySelector('h2')?.textContent).toBe('My Lists')
   expect(create?.textContent).toBe('+')
   expect(create?.hidden).toBe(false)
   expect(create?.getAttribute('aria-label')).toBe('Create GitHub List')
+  expect(create?.hasAttribute('aria-describedby')).toBe(false)
   expect(navigationList?.id).toBe('native-list-navigation')
   expect(navigationList?.classList.contains('nav-list')).toBe(true)
   expect(navigationLabels(navigationList)).toEqual([
@@ -868,6 +869,7 @@ test('renders inline GitHub List lifecycle controls with direct valid list rows'
     expect(remove?.classList.contains('native-list-remove-button')).toBe(true)
     expect(remove?.textContent).toBe('−')
     expect(remove?.getAttribute('aria-label')).toBe(`Remove ${name} GitHub List`)
+    expect(remove?.hasAttribute('aria-describedby')).toBe(false)
     expect(navigate?.querySelector('[data-native-list-delete-invoker]')).toBeNull()
   }
 
@@ -1416,10 +1418,10 @@ test('renders GitHub Lists and Unlist without imported native Lists', async () =
   }
   const root = await mountReadyDashboard(state)
   const sidebar = sidebarNavigation(root)
-  const githubLists = navigationGroup(sidebar, 'GitHub Lists')
+  const navigationList = directNativeListNavigation(sidebar)
 
-  expect(githubLists).not.toBeNull()
-  expect(navigationLabels(directNavigationList(githubLists))).toEqual(['Unlist'])
+  expect(navigationList).not.toBeNull()
+  expect(navigationLabels(navigationList)).toEqual(['Unlist'])
 })
 
 test('keeps a visible Search label beside the prominent Refresh control', async () => {
@@ -3716,7 +3718,7 @@ test('sends one valid native List header rename and renders only verified return
     pending.resolve()
     await nextTurn(browserWindow)
     expect(nativeListHeader(root)?.querySelector('.native-list-name')?.textContent).toBe('Verified Name')
-    expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+    expect(navigationLabels(directNativeListNavigation(sidebarNavigation(root)))).toEqual([
       'Unlist',
       'Other List',
       'Verified Name'
@@ -3752,7 +3754,7 @@ test('shows a fixed safe message when native List rename dispatch throws', async
     expect(name.value).toBe('Unverified Name')
     expect(error).toBe('Unable to rename the GitHub List. Please try again.')
     expect(error).not.toContain('ghp_exampleSecretValue')
-    expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+    expect(navigationLabels(directNativeListNavigation(sidebarNavigation(root)))).toEqual([
       'Unlist',
       'Current List',
       'Other List'
@@ -3788,7 +3790,7 @@ test('preserves native List header editor and prior rendered name after a runtim
     expect(nativeListHeader(root)?.querySelector('[role="alert"]')?.textContent).toBe(
       'GitHub could not verify the renamed List. Refresh before trying again.'
     )
-    expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+    expect(navigationLabels(directNativeListNavigation(sidebarNavigation(root)))).toEqual([
       'Unlist',
       'Current List',
       'Other List'
@@ -3831,7 +3833,7 @@ test('applies divergent native List state while retaining the sanitized rename r
     await nextTurn(browserWindow)
 
     expect(nativeListHeader(root)?.querySelector('.native-list-name')?.textContent).toBe('Observed List')
-    expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+    expect(navigationLabels(directNativeListNavigation(sidebarNavigation(root)))).toEqual([
       'Unlist',
       'Observed List',
       'Other List'
@@ -3877,7 +3879,7 @@ test('removes a missing native List editor and shows its sanitized rename result
     expect(currentNavigationLabel(root)).toBe('Unlist')
     expect(nativeListHeader(root)?.querySelector('.native-list-name')).toBeNull()
     expect(nativeListHeader(root)?.querySelector('form.native-list-rename-editor')).toBeNull()
-    expect(navigationLabels(navigationGroup(sidebarNavigation(root), 'GitHub Lists'))).toEqual([
+    expect(navigationLabels(directNativeListNavigation(sidebarNavigation(root)))).toEqual([
       'Unlist',
       'Other List'
     ])
@@ -6313,20 +6315,10 @@ function sidebarNavigation(root: Element): Element | null {
   return root.querySelector('nav[aria-label="Library"]')
 }
 
-function navigationGroup(sidebar: Element | null, title: string): Element | null {
-  return (
-    [...(sidebar?.querySelectorAll('details.nav-group') ?? [])].find(
-      (group) => navigationGroupSummary(group)?.textContent === title
-    ) ?? null
-  )
-}
-
-function navigationGroupSummary(group: Element | null): Element | null {
-  return [...(group?.children ?? [])].find((element) => element.matches('summary')) ?? null
-}
-
-function directNavigationList(group: Element | null): Element | null {
-  return [...(group?.children ?? [])].find((element) => element.matches('ul.nav-list')) ?? null
+function directNativeListNavigation(sidebar: Element | null): Element | null {
+  return [...(sidebar?.children ?? [])].find(
+    (element) => element.matches('ul#native-list-navigation.nav-list')
+  ) ?? null
 }
 
 function accessibleDialogName(dialog: Element | null): string | null {

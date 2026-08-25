@@ -444,7 +444,6 @@ function Navigation() {
             class: 'native-list-create-button',
             type: 'button',
             'aria-label': 'Create GitHub List',
-            'aria-describedby': disabled ? 'native-list-lifecycle-guidance' : null,
             'data-native-list-create-invoker': 'true',
             disabled,
             onclick: (event: MouseEvent) =>
@@ -456,12 +455,12 @@ function Navigation() {
     ),
     nav(
       {class: 'list-navigation', 'aria-label': 'Library'},
-      () => div({class: 'nav-groups'}, ...NavigationGroups())
+      () => NativeListNavigation()
     )
   )
 }
 
-function NavigationGroups() {
+function NativeListNavigation() {
   const repositories = publishedRepositories.val
   const counts = deriveViewCounts(
     repositories,
@@ -471,24 +470,18 @@ function NavigationGroups() {
     left.name.localeCompare(right.name)
   ) ?? []
   const lifecycleControlsDisabled = nativeListLifecycleControlsDisabled()
-  return [
-    details(
-      {class: 'nav-group', open: true},
-      summary('GitHub Lists'),
-      ul(
-        {class: 'nav-list nav-list-secondary', id: 'native-list-navigation'},
-        NavItem('Unlist', {kind: 'unlist'}, counts.unlist, '', 0),
-        ...lists.map((nativeList, index) =>
-          NativeListNavigationRow(
-            nativeList,
-            counts.lists[nativeList.listNodeId] ?? 0,
-            index + 1,
-            lifecycleControlsDisabled
-          )
-        )
+  return ul(
+    {class: 'nav-list nav-list-secondary', id: 'native-list-navigation'},
+    NavItem('Unlist', {kind: 'unlist'}, counts.unlist, '', 0),
+    ...lists.map((nativeList, index) =>
+      NativeListNavigationRow(
+        nativeList,
+        counts.lists[nativeList.listNodeId] ?? 0,
+        index + 1,
+        lifecycleControlsDisabled
       )
     )
-  ]
+  )
 }
 
 function NavItem(
@@ -557,7 +550,6 @@ function NativeListNavigationRow(
         class: 'native-list-remove-button',
         type: 'button',
         'aria-label': `Remove ${list.name} GitHub List`,
-        'aria-describedby': disabled ? 'native-list-lifecycle-guidance' : null,
         'data-native-list-delete-invoker': list.listNodeId,
         disabled,
         onclick: (event: MouseEvent) =>
