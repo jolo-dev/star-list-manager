@@ -34,11 +34,11 @@ createList({ expectedGitHubUserId, name, visibility })
 deleteList({ expectedGitHubUserId, listNodeId })
 ```
 
-It owns three static GraphQL documents: the minimum capability probe, `CreateUserList`, and `DeleteUserList`. The caller cannot supply GraphQL, URLs, descriptions, mutation IDs, or arbitrary inputs. It reuses the existing account ownership, token-type, scope, HTTP, GraphQL-error classification, and secret-sanitization rules. This preserves the deliberate boundary instead of broadening `ListMembershipWriteSession` into a generic OAuth GraphQL client.
+It owns only two static GraphQL mutation documents: `CreateUserList` and `DeleteUserList`. The separate operator probe owns its fixed catalog observations and invokes only these lifecycle mutations through an equally narrow boundary. The caller cannot supply GraphQL, URLs, descriptions, mutation IDs, or arbitrary inputs. The session reuses the existing account ownership, token-type, scope, HTTP, GraphQL-error classification, and secret-sanitization rules. This preserves the deliberate boundary instead of broadening `ListMembershipWriteSession` into a generic OAuth GraphQL client.
 
 ### Independently prove lifecycle mutations with a disposable fixture
 
-Membership capability proof does not prove different GraphQL mutations. Add `scripts/oauth-list-lifecycle-capability-probe.ts`: after operator confirmation of a disposable unique name and explicit visibility, it creates a List, reads the catalog until the returned stable ID appears with matching name and visibility, deletes that same ID, and reads until it is absent. The script stores/prints sanitized evidence only. Any failed deletion provides cleanup guidance and keeps production lifecycle controls disabled.
+Membership capability proof does not prove different GraphQL mutations. Add `scripts/oauth-list-lifecycle-capability-probe.ts`: after operator confirmation of a disposable unique name and explicit visibility, it creates a List, reads the catalog until the returned stable ID appears with matching name and visibility, deletes that same ID, and reads until it is absent. The script stores or prints sanitized evidence only. Reviewed proof is represented by a dedicated checked-in lifecycle release-evidence module that validates an exact null-prototype shape and fails closed when evidence is absent, malformed, sensitive, or incomplete. Release evidence proves the configured OAuth App and build; every runtime write still independently requires the active account's matching OAuth credential and scopes. Any failed deletion provides cleanup guidance and keeps production lifecycle controls disabled.
 
 ### Persist a dedicated singleton lifecycle operation
 
@@ -84,8 +84,8 @@ Provide a `Manage GitHub Lists` control in the List navigation area or a dedicat
 ## Migration Plan
 
 1. Add the lifecycle types, IndexedDB versioned store, migration tests, background messages, and a no-op disabled state without enabling controls.
-2. Implement and test the narrow lifecycle OAuth session and its disposable fixture probe.
+2. Implement and test the narrow lifecycle OAuth session, disposable fixture probe, and fail-closed checked-in release-evidence validator.
 3. Implement the persisted lifecycle runner, authoritative sync/read-back, interruption recovery, and shared List mutation lock.
 4. Add accessible create/delete dialogs, empty/populated confirmations, status, refresh, and membership invalidation.
-5. Complete fake-transport, IndexedDB, DOM, service-worker recovery, and isolated-profile fixture verification before enabling the public build flag.
+5. Complete fake-transport, IndexedDB, DOM, service-worker recovery, and isolated-profile fixture verification before adding reviewed lifecycle release evidence to a release build.
 6. Roll back by disabling lifecycle controls; retain read-only List import, local data, and sanitized operation records for inspection.

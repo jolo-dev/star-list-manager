@@ -144,6 +144,10 @@ export class ListLifecycleWriteSession {
     if (writeState.credential.tokenType !== 'bearer' || !writeState.credential.accessToken || !writeState.credential.grantedScopes.includes(requiredScope)) {
       throw failure('scope-denied', 'permission', 'Native List lifecycle requires same-account authorization with the user scope.', false)
     }
+    const stillActive = await this.#authStore.loadActive()
+    if (stillActive?.githubUserId !== expectedGitHubUserId || stillActive.identity.githubUserId !== expectedGitHubUserId) {
+      throw failure('account-changed', 'authentication', 'The active GitHub account changed. Retry the native List action.', true)
+    }
 
     let response: Response
     try {
@@ -190,7 +194,23 @@ function validateDeleteRequest(request: DeleteNativeListRequest): void {
 }
 
 function onlyKeys(value: object, allowed: readonly string[]): boolean {
-  return Object.keys(value).every((key) => allowed.includes(key))
+  try {
+    if (Object.getPrototypeOf(value) !== Object.prototype) return false
+    const keys = Reflect.ownKeys(value)
+    if (
+      keys.length !== allowed.length ||
+      !allowed.every((key) => Object.hasOwn(value, key)) ||
+      keys.some((key) => typeof key !== 'string' || !allowed.includes(key))
+    ) {
+      return false
+    }
+    return allowed.every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      return descriptor !== undefined && descriptor.enumerable && 'value' in descriptor
+    })
+  } catch {
+    return false
+  }
 }
 function identifier(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 && value.trim() === value ? value : null

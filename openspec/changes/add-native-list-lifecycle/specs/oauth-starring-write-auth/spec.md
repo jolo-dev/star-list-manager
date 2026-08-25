@@ -16,7 +16,7 @@ The system MUST require the expected stable GitHub user ID for every write reque
 - **THEN** the system rejects the request locally without sending it to GitHub
 
 ### Requirement: Native List lifecycle write capability is independently verified
-The project SHALL verify the configured OAuth App against an explicitly named disposable fixture before native List lifecycle controls are enabled. The fixture procedure MUST create an empty List with an explicit visibility, independently read it from the authenticated account's catalog, delete the same stable List ID, independently verify its absence, and record only sanitized evidence.
+The project SHALL verify the configured OAuth App against an explicitly named disposable fixture before native List lifecycle controls are enabled. The fixture procedure MUST create an empty List with an explicit visibility, independently read it from the authenticated account's catalog, delete the same stable List ID, independently verify its absence, and record only reviewed, non-secret release evidence. That release evidence verifies the configured app and build only; it MUST NOT authorize a runtime user or replace the same-account credential and scope checks required for every lifecycle write.
 
 #### Scenario: Disposable lifecycle probe succeeds
 - **WHEN** the operator completes OAuth device authorization and confirms a disposable fixture name and visibility
@@ -25,3 +25,7 @@ The project SHALL verify the configured OAuth App against an explicitly named di
 #### Scenario: Lifecycle capability or cleanup fails
 - **WHEN** the schema, permission, account ownership, creation, deletion, or either read-back cannot be verified
 - **THEN** the probe reports prominent cleanup or inspection guidance as applicable and does not claim lifecycle capability success
+
+#### Scenario: Release evidence exists without user authorization
+- **WHEN** valid reviewed lifecycle release evidence is present but the active user lacks a matching OAuth credential with the required scopes
+- **THEN** the system keeps lifecycle controls unavailable for that account and sends no lifecycle mutation

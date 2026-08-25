@@ -1,23 +1,24 @@
 ## 1. Define lifecycle contracts and migration
 
-- [ ] 1.1 Add `NativeListLifecycleIntent`, operation phases, verification outcomes, and sanitized lifecycle details to `src/domain/types.ts`; keep repository mutation types unchanged rather than using synthetic repository jobs.
-- [ ] 1.2 Add a versioned `nativeListLifecycleOperations` IndexedDB store, account/status indexes, validation, and account/data-deletion coverage in `src/storage/database.ts` and `src/storage/library.ts`.
-- [ ] 1.3 Write failing migration and persistence tests in `tests/storage/native-list-lifecycle-operations.test.ts` for create intent, delete snapshot, terminal history, account isolation, active-operation uniqueness, and complete local-data deletion.
-- [ ] 1.4 Implement the minimal storage API and run `bun test tests/storage/native-list-lifecycle-operations.test.ts` until it passes.
+- [x] 1.1 Add `NativeListLifecycleIntent`, operation phases, verification outcomes, and sanitized lifecycle details to `src/domain/types.ts`; keep repository mutation types unchanged rather than using synthetic repository jobs.
+- [x] 1.2 Add a versioned `nativeListLifecycleOperations` IndexedDB store, account/status indexes, validation, and account/data-deletion coverage in `src/storage/database.ts` and `src/storage/library.ts`.
+- [x] 1.3 Expand migration and persistence tests in `tests/storage/native-list-lifecycle-operations.test.ts` to cover create intent, delete snapshot, terminal history, account isolation, active-operation uniqueness, account deletion, and complete local-data deletion.
+- [x] 1.4 Implement the minimal storage API and run `bun test tests/storage/native-list-lifecycle-operations.test.ts` until it passes.
 
 ## 2. Create the narrow OAuth lifecycle transport
 
-- [ ] 2.1 Add failing tests in `tests/github/list-lifecycle-write-session.test.ts` for fixed create/delete documents, expected account checks, scope checks, canonical validated inputs, response decoding, GraphQL/HTTP errors, and token redaction.
-- [ ] 2.2 Implement `src/github/list-lifecycle-write-session.ts` with only `createList` and `deleteList`; reject descriptions, rename, existing visibility changes, arbitrary documents, arbitrary variables, and account mismatch locally.
-- [ ] 2.3 Add explicit create/delete lifecycle readiness to `src/github/list-lifecycle-capability.ts` and its unit tests; it must remain false without verified fixture evidence.
-- [ ] 2.4 Run `bun test tests/github/list-lifecycle-write-session.test.ts tests/github/list-lifecycle-capability.test.ts`.
+- [x] 2.1 Add failing tests in `tests/github/list-lifecycle-write-session.test.ts` for fixed create/delete documents, expected account checks, scope checks, canonical validated inputs, response decoding, GraphQL/HTTP errors, and token redaction.
+- [x] 2.2 Implement `src/github/list-lifecycle-write-session.ts` with only `createList` and `deleteList`; reject descriptions, rename, existing visibility changes, arbitrary documents, arbitrary variables, and account mismatch locally.
+- [x] 2.3 Add explicit create/delete lifecycle readiness to `src/github/list-lifecycle-capability.ts` and its unit tests; it must remain false without verified fixture evidence.
+- [x] 2.4 Run `bun test tests/github/list-lifecycle-write-session.test.ts tests/github/list-lifecycle-capability.test.ts`.
 
-## 3. Add an independent disposable lifecycle probe
+## 3. Add an independent disposable lifecycle probe and release gate
 
-- [ ] 3.1 Write failing fixture tests in `tests/scripts/oauth-list-lifecycle-capability-probe.test.ts` covering explicit fixture name/visibility, create read-back, delete-by-returned-ID, absence read-back, failures, and sanitized output.
-- [ ] 3.2 Implement `scripts/oauth-list-lifecycle-capability-probe.ts`; accept only operator-confirmed disposable input, never log tokens, and print cleanup guidance if the created fixture remains.
-- [ ] 3.3 Update `docs/github-app-setup.md` and add `docs/native-list-lifecycle-fixture.md` with the exact disposable-fixture setup, verification, and cleanup procedure.
-- [ ] 3.4 Run `bun test tests/scripts/oauth-list-lifecycle-capability-probe.test.ts`.
+- [x] 3.1 Write failing fixture tests in `tests/scripts/oauth-list-lifecycle-capability-probe.test.ts` covering explicit fixture name/visibility, create read-back, delete-by-returned-ID, absence read-back, failures, and sanitized output.
+- [x] 3.2 Implement `scripts/oauth-list-lifecycle-capability-probe.ts`; accept only operator-confirmed disposable input, never log tokens, and print cleanup guidance if the created fixture remains.
+- [x] 3.3 Add `src/github/list-lifecycle-release-evidence.ts` and focused tests using the existing membership release-evidence pattern: validate an exact null-prototype, non-secret proof shape and fail closed when reviewed evidence is absent, malformed, incomplete, or unexpected.
+- [x] 3.4 Update `docs/github-app-setup.md` and add `docs/native-list-lifecycle-fixture.md` with the exact disposable-fixture setup, evidence-review, validation, and cleanup procedure.
+- [x] 3.5 Run the lifecycle probe and release-evidence unit tests.
 
 ## 4. Implement authoritative lifecycle observation and execution
 
@@ -47,7 +48,7 @@
 
 ## 7. Update specifications and product documentation
 
-- [ ] 7.1 Apply the accepted OpenSpec deltas to `openspec/specs/native-list-import/spec.md`, `openspec/specs/oauth-starring-write-auth/spec.md`, and `openspec/specs/native-list-membership/spec.md`; add `openspec/specs/native-list-lifecycle/spec.md` when implementation is archived.
+- [ ] 7.1 Run strict OpenSpec validation for `add-native-list-lifecycle` and keep the proposal, delta specs, design, and tasks coherent; defer synchronization into main specs to the archive workflow.
 - [ ] 7.2 Update `README.md`, `STORE.md`, and `PRIVACY.md` to disclose create/delete scope, explicit privacy selection, populated List confirmation, no automatic retry after ambiguity, and that repositories/local annotations are retained.
 - [ ] 7.3 Update `docs/manual-test-checklist.md` with isolated-profile creation, public/private visibility verification, empty and populated deletion, post-delete repository retention, external List change, response-lost recovery, and read-only fallback.
 
@@ -56,4 +57,4 @@
 - [ ] 8.1 Run `bun run check:source`, `bun run typecheck`, `bun test`, `env -u NODE_OPTIONS bun run build:chrome`, `env -u NODE_OPTIONS bun run build:firefox`, and `env -u NODE_OPTIONS bun run inspect:build`.
 - [ ] 8.2 Run the lifecycle capability probe only against a deliberately disposable fixture, verify its cleanup independently, and retain only sanitized evidence.
 - [ ] 8.3 Manually verify both browser builds in isolated profiles: create public/private Lists, delete empty/populated Lists, confirm repositories remain starred/unlisted, test stale confirmation and restart recovery, then test membership behavior after creation and deletion.
-- [ ] 8.4 Enable lifecycle controls only after all automated and isolated-profile checks pass; otherwise retain read-only synchronization and disabled lifecycle controls.
+- [ ] 8.4 Add reviewed lifecycle release evidence to a release build only after all automated and isolated-profile checks pass; otherwise keep the evidence input null and retain read-only synchronization with disabled lifecycle controls.

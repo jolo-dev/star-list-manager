@@ -6,15 +6,19 @@ Allow an authenticated user with verified optional write authorization to create
 
 ## ADDED Requirements
 
-### Requirement: Lifecycle actions are independently capability-gated
-The system SHALL expose native List creation and deletion only after GitHub exposes the required lifecycle mutations and the active account's optional OAuth credential has passed a separate disposable-fixture lifecycle probe. The probe MUST prove both `createUserList` and `deleteUserList` with independent catalog read-back, and MUST delete only the List it created for the probe.
+### Requirement: Lifecycle actions require independent release and account gates
+The system SHALL expose native List creation and deletion only when reviewed, non-secret release evidence proves that the configured OAuth App supports the required lifecycle mutations and the active account separately has a matching optional OAuth credential with the required scopes. The release probe MUST prove both `createUserList` and `deleteUserList` with independent catalog read-back, and MUST delete only the List it created for the probe. Release evidence MUST NOT be treated as end-user authorization.
 
-#### Scenario: Lifecycle capability is not proven
-- **WHEN** the lifecycle schema, permission, same-account credential, fixture creation, fixture deletion, or independent read-back cannot be verified
-- **THEN** the system keeps native List lifecycle controls unavailable, preserves read-only List import and existing membership controls according to their own readiness, and shows a sanitized explanation
+#### Scenario: Release capability is not proven
+- **WHEN** lifecycle release evidence is absent, malformed, unreviewed, or does not verify the schema, fixture creation, fixture deletion, and independent read-backs
+- **THEN** the system keeps native List lifecycle controls unavailable for every account, preserves read-only List import and existing membership controls according to their own readiness, and shows a sanitized explanation
 
-#### Scenario: Lifecycle capability is proven
-- **WHEN** the separate disposable-fixture probe creates a disposable List, independently observes it, deletes the same stable List ID, and independently observes its absence
+#### Scenario: Active account is not authorized
+- **WHEN** valid lifecycle release evidence exists but the active account lacks a matching optional OAuth credential or the required scopes
+- **THEN** the system sends no lifecycle mutation, keeps lifecycle controls unavailable for that account, and provides sanitized authorization guidance
+
+#### Scenario: Both lifecycle gates are satisfied
+- **WHEN** reviewed release evidence verifies the separate disposable-fixture create/delete probe and the active account has a matching OAuth credential with the required scopes
 - **THEN** the system enables lifecycle controls only for that active GitHub account
 
 ### Requirement: List creation requires explicit visibility

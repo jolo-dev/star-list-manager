@@ -39,9 +39,52 @@ describe('native List lifecycle write session', () => {
     }
     await expectFailure(sessionFor(fetch).createList({expectedGitHubUserId: '42', name: '  ', visibility: 'public'}), 'invalid-request')
     await expectFailure(sessionFor(fetch).createList({expectedGitHubUserId: '42', name: 'Ideas', visibility: 'public', document: 'mutation evil'} as never), 'invalid-request')
+    await expectFailure(sessionFor(fetch).deleteList({...{expectedGitHubUserId: '42', listNodeId: 'UL_one'}, [Symbol('document')]: 'mutation evil'} as never), 'invalid-request')
+    await expectFailure(sessionFor(fetch).deleteList({expectedGitHubUserId: '42', listNodeId: ' UL_one'}), 'invalid-request')
     await expectFailure(sessionFor(fetch, {scopes: ['public_repo']}).deleteList({expectedGitHubUserId: '42', listNodeId: 'UL_one'}), 'scope-denied')
     await expectFailure(sessionFor(fetch, {activeUserId: '84'}).deleteList({expectedGitHubUserId: '42', listNodeId: 'UL_one'}), 'account-changed')
     expect(requests).toBe(0)
+  })
+
+  test('rechecks the expected account after loading the credential and before dispatch', async () => {
+    let activeReads = 0
+    let requests = 0
+    const session = new ListLifecycleWriteSession({
+      authStore: {
+        loadActive: async () => {
+          activeReads += 1
+          const githubUserId = activeReads === 1 ? '42' : '84'
+          return {githubUserId, identity: {githubUserId}}
+        }
+      },
+      writeStore: {
+        loadAccount: async () => writeState(['public_repo', 'user']),
+        deleteAccount: async () => undefined
+      },
+      fetch: async () => {
+        requests += 1
+        return new Response('{}')
+      }
+    })
+
+    await expectFailure(session.deleteList({expectedGitHubUserId: '42', listNodeId: 'UL_one'}), 'account-changed')
+    expect(requests).toBe(0)
+  })
+
+  test('classifies GraphQL and HTTP failures while decoding only complete fixed mutation responses', async () => {
+    const graphql = await expectFailure(
+      sessionFor(async () => new Response(JSON.stringify({errors: [{type: 'RATE_LIMITED', message: token}]}))).createList({expectedGitHubUserId: '42', name: 'Ideas', visibility: 'public'}),
+      'rate-limit'
+    )
+    expect(JSON.stringify(sanitizeError(graphql))).not.toContain(token)
+    await expectFailure(
+      sessionFor(async () => new Response(token, {status: 404})).deleteList({expectedGitHubUserId: '42', listNodeId: 'UL_one'}),
+      'schema-unavailable'
+    )
+    await expectFailure(
+      sessionFor(async () => new Response(JSON.stringify({data: {createUserList: {list: {id: 'UL_created', name: 'Other', isPrivate: false}}}}))).createList({expectedGitHubUserId: '42', name: 'Ideas', visibility: 'public'}),
+      'malformed-response'
+    )
   })
 
   test('sanitizes ambiguous and rejected remote failures without retaining token material', async () => {

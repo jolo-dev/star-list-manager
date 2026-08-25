@@ -7,7 +7,7 @@ Issue #4 requires users to create and remove their native GitHub Star Lists from
 - Add creation of an empty native GitHub List using an explicitly selected public or private visibility.
 - Add removal of native GitHub Lists. Users may delete an empty List or a populated List; populated deletion receives stronger destructive confirmation and leaves every repository starred but no longer in that List.
 - Add a narrow, account-bound OAuth GraphQL lifecycle transport that constructs only `createUserList` and `deleteUserList`, alongside the existing allowlisted membership mutation.
-- Require a separate disposable-fixture capability probe for lifecycle mutations before lifecycle controls are enabled.
+- Require reviewed, non-secret release evidence from a separate disposable-fixture lifecycle probe before lifecycle controls can ship, while still requiring each active account to provide a matching OAuth credential with the required scopes at runtime.
 - Persist lifecycle operations, reconcile ambiguous failures safely, and refresh the native List catalog after every resolved create or delete so local metadata and memberships reflect GitHub.
 - Add a List management UI available even when the account currently has no Lists.
 
