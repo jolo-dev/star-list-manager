@@ -213,7 +213,7 @@ async function createHarness(name: string) {
       deleteList: async () => { harness.deleteCalls += 1 }
     },
     observeCatalog: async () => { if (harness.catalogError) throw harness.catalogError; const result = harness.catalog.shift() ?? observation([]); if (harness.switchAfterCatalog) active = '99'; return result },
-    synchronize: async () => { harness.syncCalls += 1; harness.currentCatalog = harness.catalogAfterSync; return {phase: 'complete'} },
+    synchronizeFresh: async () => { harness.syncCalls += 1; harness.currentCatalog = harness.catalogAfterSync; return {phase: 'complete'} },
     listCatalog: async () => harness.currentCatalog,
     now
   })

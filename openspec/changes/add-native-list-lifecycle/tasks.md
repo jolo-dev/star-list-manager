@@ -54,7 +54,7 @@
 
 ## 8. Verify and release safely
 
-- [x] 8.1 Run `bun run check:source`, `bun run typecheck`, `bun test`, `env -u NODE_OPTIONS bun run build:chrome`, `env -u NODE_OPTIONS bun run build:firefox`, and `env -u NODE_OPTIONS bun run inspect:build`.
+- [ ] 8.1 Run `bun run check:source`, `bun run typecheck`, `bun test`, `env -u NODE_OPTIONS bun run build:chrome`, `env -u NODE_OPTIONS bun run build:firefox`, and `env -u NODE_OPTIONS bun run inspect:build`.
 - [ ] 8.2 Run the lifecycle capability probe only against a deliberately disposable fixture, verify its cleanup independently, and retain only sanitized evidence.
 - [ ] 8.3 Manually verify both browser builds in isolated profiles: create public/private Lists, delete empty/populated Lists, confirm repositories remain starred/unlisted, test stale confirmation and restart recovery, then test membership behavior after creation and deletion.
 - [ ] 8.4 Add reviewed lifecycle release evidence to a release build only after all automated and isolated-profile checks pass; otherwise keep the evidence input null and retain read-only synchronization with disabled lifecycle controls.

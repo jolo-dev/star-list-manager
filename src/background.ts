@@ -29,10 +29,10 @@ import {StarSyncService} from './sync/star-sync'
 import {NativeListSyncService} from './sync/native-list-sync'
 import {
   cancelNativeListLifecycleOperationIfPreDispatch,
-  clearAllLibraryData,
   deleteNativeList,
   getNativeList,
   getActiveNativeListLifecycleOperation,
+  hasActiveNativeListLifecycleOperations,
   getSyncState,
   listAnnotations,
   listNativeLists,
@@ -69,6 +69,7 @@ import {NativeListLifecycleRunner} from './mutations/native-list-lifecycle-runne
 import {
   NativeListLifecycleWake
 } from './background-lifecycle-wake'
+import {clearAllDataWithLifecycleDrain} from './background-clear-data-runtime'
 import {NativeListMutationLock} from './mutations/native-list-mutation-lock'
 import {nativeListMembershipControlsEnabled} from './github/list-membership-capability'
 import {nativeListRenameControlsEnabled} from './github/list-rename-capability'
@@ -457,17 +458,20 @@ addRuntimeMessageListener(async (message) => {
         return successResponse(impact)
       }
       case 'clear-all-data':
-        await services.mutationQueue.pause()
-        try {
-          services.writeAuthController.resetAfterCompleteRemoval()
-          await services.authController.disconnect()
-          await clearAllLibraryData(services.database)
-          await clearLocalStorage()
-          await setToolbarBadge('')
-          return successResponse(services.authController.resetAfterCompleteRemoval())
-        } finally {
-          services.mutationQueue.resume()
-        }
+        return successResponse(
+          await clearAllDataWithLifecycleDrain({
+            database: services.database,
+            mutationQueue: services.mutationQueue,
+            lifecycleWake: services.nativeListLifecycleWake,
+            resetWriteAuthorization: () => services.writeAuthController.resetAfterCompleteRemoval(),
+            disconnectAuthentication: async () => {
+              await services.authController.disconnect()
+            },
+            clearLocalStorage,
+            clearToolbarBadge: () => setToolbarBadge(''),
+            resetAuthentication: () => services.authController.resetAfterCompleteRemoval()
+          })
+        )
       default:
         return failureResponse({
           category: 'unsupported',
@@ -549,6 +553,7 @@ async function createRuntimeServices(): Promise<RuntimeServices> {
     authStore: store,
     writeStore
   })
+  let lifecycleDispatchPaused = false
   const nativeListMutationRuntime = createNativeListMutationRuntime({
     rename: nativeListRenameService,
     queue: {
@@ -576,8 +581,9 @@ async function createRuntimeServices(): Promise<RuntimeServices> {
       writer: lifecycleWriter,
       observeCatalog: (githubUserId, targetListNodeIds) =>
         nativeListSync.observeCatalog(githubUserId, targetListNodeIds),
-      synchronize: (githubUserId) => nativeListSync.synchronize(githubUserId),
+      synchronizeFresh: (githubUserId) => nativeListSync.synchronizeFresh(githubUserId),
       listCatalog: (githubUserId) => listNativeLists(database, githubUserId),
+      canDispatch: () => !lifecycleDispatchPaused,
       now: () => new Date().toISOString()
     }
   })
@@ -589,7 +595,10 @@ async function createRuntimeServices(): Promise<RuntimeServices> {
     capabilityProven: nativeListLifecycleCapabilityProven,
     authSession,
     nativeListLifecycleRunner,
-    schedule: () => createBrowserAlarm(nativeListLifecycleAlarmName, Date.now()),
+    hasActiveOperations: () => hasActiveNativeListLifecycleOperations(database),
+    setDispatchPaused: (paused) => { lifecycleDispatchPaused = paused },
+    schedule: (delayMs = 0) =>
+      createBrowserAlarm(nativeListLifecycleAlarmName, Date.now() + delayMs),
     clear: () => clearBrowserAlarm(nativeListLifecycleAlarmName)
   })
   const starSync = new StarSyncService({database, observer: restClient})

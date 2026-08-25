@@ -113,6 +113,42 @@ describe('native List synchronization', () => {
     database.close()
   })
 
+  test('starts a new reconciliation after an overlapping preflight sync completes', async () => {
+    const database = await testDatabase('native-lists-fresh-after-overlap')
+    let releaseFirstCatalog!: () => void
+    let beginFirstCatalog!: () => void
+    const firstCatalogStarted = new Promise<void>((resolve) => { beginFirstCatalog = resolve })
+    const firstCatalogReleased = new Promise<void>((resolve) => { releaseFirstCatalog = resolve })
+    let catalogReads = 0
+    const service = new NativeListSyncService({
+      database,
+      reader: {
+        probeNativeLists: async () => ({available: true, rateLimit}),
+        fetchNativeListCatalogPage: async () => {
+          catalogReads += 1
+          if (catalogReads === 1) {
+            beginFirstCatalog()
+            await firstCatalogReleased
+            return catalogPage([listMetadata('UL_target', 'Before', 0)], false, null, 1)
+          }
+          return catalogPage([listMetadata('UL_target', 'After', 0)], false, null, 1)
+        },
+        fetchNativeListItemsPage: async () => itemsPage(0, [], false, null)
+      },
+      now: () => Date.parse(timestamp)
+    })
+
+    const preflight = service.synchronize(githubUserId)
+    await firstCatalogStarted
+    const fresh = service.synchronizeFresh(githubUserId)
+    releaseFirstCatalog()
+    await Promise.all([preflight, fresh])
+
+    expect(catalogReads).toBe(2)
+    expect((await getNativeList(database, githubUserId, 'UL_target'))?.name).toBe('After')
+    database.close()
+  })
+
   test('observes complete targeted catalog metadata and fingerprints changed name, visibility, and item count', async () => {
     const database = await testDatabase('native-lists-catalog-observation')
     const first = listMetadata('UL_target', 'Before', 1)

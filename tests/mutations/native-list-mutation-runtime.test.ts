@@ -43,7 +43,7 @@ test('production native List composition serializes concurrent lifecycle, member
       database, owner: activeOwner(),
       writer: {createList: async () => { events.push('lifecycle-write-start'); lifecycleStarted(); await new Promise<void>((resolve) => { releaseLifecycle = resolve }); events.push('lifecycle-write-end'); return {listNodeId: 'UL_created', name: 'Ideas', visibility: 'public' as const} }, deleteList: async () => undefined},
       observeCatalog: async () => ({githubUserId: account, complete: true as const, targets: new Map([['UL_created', catalogMetadata('UL_created', 'Ideas')]]), fingerprint: 'catalog', rateLimit: {limit: 5000, remaining: 4999, resetAt: null}}),
-      synchronize: async () => { catalog = [nativeList('UL_created', 'Ideas')]; return {phase: 'complete'} },
+      synchronizeFresh: async () => { catalog = [nativeList('UL_created', 'Ideas')]; return {phase: 'complete'} },
       listCatalog: async () => catalog, now: () => timestamp
     }
   })

@@ -56,6 +56,17 @@ export class NativeListSyncService {
   synchronize(githubUserId: GitHubUserId): Promise<SyncStateRecord> {
     const active = this.#activeRuns.get(githubUserId)
     if (active) return active
+    return this.#start(githubUserId)
+  }
+
+  /** Starts a new complete reconciliation after the prior run has settled. */
+  async synchronizeFresh(githubUserId: GitHubUserId): Promise<SyncStateRecord> {
+    const active = this.#activeRuns.get(githubUserId)
+    if (active) await active
+    return this.synchronize(githubUserId)
+  }
+
+  #start(githubUserId: GitHubUserId): Promise<SyncStateRecord> {
     const run = this.#run(githubUserId).finally(() => {
       if (this.#activeRuns.get(githubUserId) === run) {
         this.#activeRuns.delete(githubUserId)

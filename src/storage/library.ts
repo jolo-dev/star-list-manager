@@ -234,6 +234,24 @@ export async function listNativeListLifecycleOperations(
   )
 }
 
+export async function hasActiveNativeListLifecycleOperations(
+  database: IDBDatabase
+): Promise<boolean> {
+  return runLibraryTransaction(
+    database,
+    libraryStores.nativeListLifecycleOperations,
+    'readonly',
+    async (transaction) => {
+      const operations = await requestResult(
+        transaction.objectStore(libraryStores.nativeListLifecycleOperations).getAll() as IDBRequest<
+          NativeListLifecycleOperationRecord[]
+        >
+      )
+      return operations.some((operation) => activeNativeListLifecyclePhases.has(operation.phase))
+    }
+  )
+}
+
 export async function getActiveNativeListLifecycleOperation(
   database: IDBDatabase,
   githubUserId: GitHubUserId

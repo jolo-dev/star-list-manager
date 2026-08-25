@@ -27,9 +27,11 @@ export interface NativeListLifecycleRunnerOptions {
     githubUserId: string,
     targetListNodeIds: readonly string[]
   ) => Promise<NativeListCatalogObservation>
-  /** Normal reconciliation, used only after a catalog observation verifies an outcome. */
-  readonly synchronize: (githubUserId: string) => Promise<{readonly phase: string}>
+  /** New reconciliation initiated after the mutation/read-back boundary. */
+  readonly synchronizeFresh: (githubUserId: string) => Promise<{readonly phase: string}>
   readonly listCatalog: (githubUserId: string) => Promise<readonly NativeListRecord[]>
+  /** Stops queued lock waiters from reaching the remote writer during local-data deletion. */
+  readonly canDispatch?: () => boolean
   readonly now: () => string
 }
 
@@ -43,8 +45,9 @@ export class NativeListLifecycleRunner {
   readonly #lock: NativeListMutationLock
   readonly #writer: NativeListLifecycleRunnerOptions['writer']
   readonly #observeCatalog: NativeListLifecycleRunnerOptions['observeCatalog']
-  readonly #synchronize: NativeListLifecycleRunnerOptions['synchronize']
+  readonly #synchronizeFresh: NativeListLifecycleRunnerOptions['synchronizeFresh']
   readonly #listCatalog: NativeListLifecycleRunnerOptions['listCatalog']
+  readonly #canDispatch: () => boolean
   readonly #now: () => string
 
   constructor(options: NativeListLifecycleRunnerOptions) {
@@ -53,8 +56,9 @@ export class NativeListLifecycleRunner {
     this.#lock = options.lock
     this.#writer = options.writer
     this.#observeCatalog = options.observeCatalog
-    this.#synchronize = options.synchronize
+    this.#synchronizeFresh = options.synchronizeFresh
     this.#listCatalog = options.listCatalog
+    this.#canDispatch = options.canDispatch ?? (() => true)
     this.#now = options.now
   }
 
@@ -68,6 +72,7 @@ export class NativeListLifecycleRunner {
   }
 
   async #run(githubUserId: string): Promise<void> {
+    if (!this.#canDispatch()) return
     const operation = await getActiveNativeListLifecycleOperation(this.#database, githubUserId)
     if (!operation || !(await this.#ownerStillActive(operation.githubUserId))) return
     if (operation.phase === 'queued' || operation.phase === 'preflight') {
@@ -107,6 +112,7 @@ export class NativeListLifecycleRunner {
       }
     }
     if (!(await this.#ownerStillActive(operation.githubUserId))) return
+    if (!this.#canDispatch()) return
     const mutating = await this.#save(operation, {phase: 'mutating', attemptCount: operation.attemptCount + 1})
     try {
       if (mutating.intent.kind === 'create') {
@@ -241,7 +247,7 @@ export class NativeListLifecycleRunner {
       return null
     }
     try {
-      const state = await this.#synchronize(operation.githubUserId)
+      const state = await this.#synchronizeFresh(operation.githubUserId)
       if (!(await this.#ownerStillActive(operation.githubUserId))) {
         await this.#accountSuspended(operation)
         return null
