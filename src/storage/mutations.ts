@@ -28,6 +28,7 @@ import {
   canonicalMembershipSet,
   planMembershipIntent,
   referencedListNodeIds,
+  relevantListCatalogFingerprint,
   type CanonicalListCatalogFingerprint,
   type MembershipIntentPlan
 } from '../domain/native-list-membership'
@@ -72,7 +73,7 @@ const terminalJobStatuses: ReadonlySet<MutationJobStatus> = new Set([
 const allowedTransitions: Readonly<
   Record<MutationJobStatus, ReadonlySet<MutationJobStatus>>
 > = {
-  queued: new Set(['checking', 'cancelled']),
+  queued: new Set(['checking', 'needs-confirmation', 'cancelled']),
   checking: new Set([
     'deleting',
     'verifying',
@@ -81,21 +82,24 @@ const allowedTransitions: Readonly<
     'succeeded-external',
     'retry-waiting',
     'failed',
-    'blocked-unknown'
+    'blocked-unknown',
+    'needs-confirmation'
   ]),
   deleting: new Set([
     'verifying',
     'succeeded',
     'retry-waiting',
     'failed',
-    'blocked-unknown'
+    'blocked-unknown',
+    'needs-confirmation'
   ]),
   verifying: new Set([
     'succeeded',
     'succeeded-external',
     'retry-waiting',
     'failed',
-    'blocked-unknown'
+    'blocked-unknown',
+    'needs-confirmation'
   ]),
   'observing-membership': new Set([
     'mutating-membership',
@@ -115,7 +119,8 @@ const allowedTransitions: Readonly<
     'unstable-observation',
     'verification-conflict',
     'failed',
-    'blocked-unknown'
+    'blocked-unknown',
+    'needs-confirmation'
   ]),
   'verifying-membership': new Set([
     'observing-membership',
@@ -124,14 +129,16 @@ const allowedTransitions: Readonly<
     'unstable-observation',
     'verification-conflict',
     'failed',
-    'blocked-unknown'
+    'blocked-unknown',
+    'needs-confirmation'
   ]),
   'retry-waiting': new Set([
     'checking',
     'failed',
     'blocked-unknown',
     'unstable-observation',
-    'verification-conflict'
+    'verification-conflict',
+    'needs-confirmation'
   ]),
   succeeded: new Set(),
   'succeeded-external': new Set(),
@@ -580,6 +587,65 @@ export async function getNextMutationExecutionAt(
       )
     }
   )
+}
+
+export async function invalidateMembershipJobsForDeletedList(
+  database: IDBDatabase,
+  githubUserId: GitHubUserId,
+  deletedListNodeId: string,
+  occurredAt: IsoDateTime,
+  createHistoryId: (jobId: MutationJobId) => OperationHistoryId
+): Promise<readonly MutationJobId[]> {
+  const jobs = await listMutationJobs(database, githubUserId)
+  const affected = jobs.filter(
+    (job) =>
+      activeJobStatuses.has(job.status) &&
+      job.mutationKind === 'native-list-membership' &&
+      job.membershipDetails !== null &&
+      referencedListNodeIds(job.membershipDetails.intent).includes(deletedListNodeId)
+  )
+  for (const job of affected) {
+    const details = job.membershipDetails
+    if (!details) continue
+    const observedCatalog = relevantListCatalogFingerprint(
+      referencedListNodeIds(details.intent),
+      details.confirmedCatalog.entries.flatMap((entry) =>
+        entry.exists && entry.listNodeId !== deletedListNodeId
+          ? [{listNodeId: entry.listNodeId, name: entry.name, visibility: entry.visibility}]
+          : []
+      )
+    )
+    const refreshed = {
+      ...details,
+      recoveryPhase: null,
+      latestObservedCatalog: observedCatalog,
+      listCatalogFingerprint: observedCatalog.fingerprint,
+      needsConfirmation: {
+        confirmedBefore: details.confirmedBefore,
+        observed: details.latestObserved ?? details.confirmedBefore,
+        confirmedCatalog: details.confirmedCatalog,
+        observedCatalog
+      }
+    }
+    await finalizeMutationJob(database, {
+      githubUserId,
+      jobId: job.jobId,
+      historyId: createHistoryId(job.jobId),
+      finalStatus: 'needs-confirmation',
+      verificationResult: 'not-verified',
+      occurredAt,
+      error: {
+        category: 'verification-mismatch',
+        message: 'A referenced native List was deleted. Refresh the membership preview and confirm again.',
+        statusCode: null,
+        occurredAt
+      },
+      retryEligibility: 'after-refresh',
+      membershipDetails: refreshed,
+      updateLocalMemberships: false
+    })
+  }
+  return affected.map((job) => job.jobId)
 }
 
 export interface MutationJobTransitionUpdates {

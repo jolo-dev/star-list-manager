@@ -22,12 +22,12 @@
 
 ## 4. Implement authoritative lifecycle observation and execution
 
-- [ ] 4.1 Extend `src/sync/native-list-sync.ts` with a catalog-only fresh observation API that returns a complete metadata fingerprint for targeted List IDs without treating partial repository import as deletion proof.
-- [ ] 4.2 Write failing tests in `tests/sync/native-list-sync.test.ts` for fresh target metadata, renamed/visibility/count changes, target absence, catalog pagination, and retaining the existing mirror on interrupted sync.
-- [ ] 4.3 Add `src/mutations/native-list-lifecycle-runner.ts` and tests in `tests/mutations/native-list-lifecycle-runner.test.ts` for create, empty delete, populated delete, preflight re-confirmation, already-deleted, response-lost recovery, read-back mismatch, rate limit, account switching, and service-worker interruption.
-- [ ] 4.4 Serialize lifecycle actions with membership writes through one native-List mutation lock. When a delete removes a List referenced by queued membership work, transition those jobs to refreshed-preview/needs-confirmation rather than issuing stale membership mutations.
-- [ ] 4.5 On verified create/delete, call normal native List synchronization and let `reconcileNativeLists` update local List/membership rows; verify repository records and annotations are unchanged.
-- [ ] 4.6 Run `bun test tests/sync/native-list-sync.test.ts tests/mutations/native-list-lifecycle-runner.test.ts tests/mutations/membership-runner.test.ts`.
+- [x] 4.1 Extend `src/sync/native-list-sync.ts` with a catalog-only fresh observation API that returns a complete metadata fingerprint for targeted List IDs without treating partial repository import as deletion proof.
+- [x] 4.2 Write failing tests in `tests/sync/native-list-sync.test.ts` for fresh target metadata, renamed/visibility/count changes, target absence, catalog pagination, and retaining the existing mirror on interrupted sync.
+- [x] 4.3 Add `src/mutations/native-list-lifecycle-runner.ts` and tests in `tests/mutations/native-list-lifecycle-runner.test.ts` for create, empty delete, populated delete, preflight re-confirmation, already-deleted, response-lost recovery, read-back mismatch, rate limit, account switching, and service-worker interruption.
+- [x] 4.4 Serialize lifecycle actions with membership writes through one native-List mutation lock. When a delete removes a List referenced by queued membership work, transition those jobs to refreshed-preview/needs-confirmation rather than issuing stale membership mutations.
+- [x] 4.5 On verified create/delete, call normal native List synchronization and let `reconcileNativeLists` update local List/membership rows; verify repository records and annotations are unchanged.
+- [x] 4.6 Run `bun test tests/sync/native-list-sync.test.ts tests/mutations/native-list-lifecycle-runner.test.ts tests/mutations/membership-runner.test.ts`.
 
 ## 5. Wire background protocol and state
 

@@ -12,11 +12,16 @@ import type {
 import {AppFailure} from '../../src/shared/errors'
 import {openLibraryDatabase} from '../../src/storage/database'
 import {
+  getAnnotation,
   getNativeList,
+  getRepository,
   listMembershipsForList,
   listMembershipsForRepository,
   listNativeLists,
+  putAnnotation,
   putNativeList,
+  putNativeMembership,
+  putRepository,
   putSyncState
 } from '../../src/storage/library'
 import {
@@ -63,6 +68,16 @@ describe('native List synchronization', () => {
   test('reconciles deletion for a no-list account while preserving non-List data', async () => {
     const database = await testDatabase('native-lists-empty')
     await putNativeList(database, storedList('UL_old'))
+    await putNativeMembership(database, {
+      githubUserId,
+      listNodeId: 'UL_old',
+      repositoryNodeId: 'R_kept',
+      lastObservedAt: timestamp
+    })
+    const repository = storedRepository()
+    const annotation = storedAnnotation()
+    await putRepository(database, repository)
+    await putAnnotation(database, annotation)
     const service = new NativeListSyncService({
       database,
       reader: new FixtureReader([catalogPage([], false, null, 0)], {}),
@@ -71,6 +86,9 @@ describe('native List synchronization', () => {
 
     expect((await service.synchronize(githubUserId)).phase).toBe('complete')
     expect(await listNativeLists(database, githubUserId)).toEqual([])
+    expect(await listMembershipsForRepository(database, githubUserId, 'R_kept')).toEqual([])
+    expect(await getRepository(database, githubUserId, repository.repositoryNodeId)).toEqual(repository)
+    expect(await getAnnotation(database, githubUserId, repository.repositoryNodeId)).toEqual(annotation)
     database.close()
   })
 
@@ -93,6 +111,59 @@ describe('native List synchronization', () => {
       importStatus: 'partial'
     })
     database.close()
+  })
+
+  test('observes complete targeted catalog metadata and fingerprints changed name, visibility, and item count', async () => {
+    const database = await testDatabase('native-lists-catalog-observation')
+    const first = listMetadata('UL_target', 'Before', 1)
+    const changed = {...listMetadata('UL_target', 'After', 2), isPrivate: true}
+    const reader = new FixtureReader([catalogPage([first], false, null, 1)], {})
+    const service = new NativeListSyncService({database, reader, now: () => Date.parse(timestamp)})
+    const before = await service.observeCatalog(githubUserId, ['UL_target'])
+    expect(before.complete).toBe(true)
+    expect(before.targets.get('UL_target')).toMatchObject({name: 'Before', isPrivate: false, reportedItemCount: 1})
+
+    const changedService = new NativeListSyncService({
+      database,
+      reader: new FixtureReader([catalogPage([changed], false, null, 1)], {}),
+      now: () => Date.parse(timestamp)
+    })
+    const after = await changedService.observeCatalog(githubUserId, ['UL_target'])
+    expect(after.targets.get('UL_target')).toMatchObject({name: 'After', isPrivate: true, reportedItemCount: 2})
+    expect(after.fingerprint).not.toBe(before.fingerprint)
+    database.close()
+  })
+
+  test('proves target absence only from a complete validated catalog without changing the mirror', async () => {
+    const database = await testDatabase('native-lists-catalog-absence')
+    await putNativeList(database, storedList('UL_existing'))
+    const service = new NativeListSyncService({
+      database,
+      reader: new FixtureReader([catalogPage([], false, null, 0)], {}),
+      now: () => Date.parse(timestamp)
+    })
+    const observation = await service.observeCatalog(githubUserId, ['UL_existing'])
+    expect(observation.complete).toBe(true)
+    expect(observation.targets.get('UL_existing')).toBeNull()
+    expect(await getNativeList(database, githubUserId, 'UL_existing')).not.toBeNull()
+    database.close()
+  })
+
+  test('rejects invalid catalog pagination and preserves the mirror', async () => {
+    const invalidCatalogs = [
+      [catalogPage([listMetadata('UL_a', 'A', 0)], true, 'repeat', 2), catalogPage([listMetadata('UL_b', 'B', 0)], true, 'repeat', 2)],
+      [catalogPage([listMetadata('UL_a', 'A', 0)], true, null, 1)],
+      [catalogPage([listMetadata('UL_a', 'A', 0), listMetadata('UL_a', 'A duplicate', 0)], false, null, 2)],
+      [catalogPage([listMetadata('UL_a', 'A', 0)], false, null, 2)]
+    ]
+    for (const [index, catalog] of invalidCatalogs.entries()) {
+      const database = await testDatabase(`native-lists-invalid-catalog-${index}`)
+      await putNativeList(database, storedList('UL_existing'))
+      const service = new NativeListSyncService({database, reader: new FixtureReader(catalog, {}), now: () => Date.parse(timestamp)})
+      await expect(service.observeCatalog(githubUserId, ['UL_a'])).rejects.toThrow()
+      expect(await getNativeList(database, githubUserId, 'UL_existing')).not.toBeNull()
+      database.close()
+    }
   })
 
   test('preserves the prior mirror when capability is unavailable or sync is interrupted', async () => {
@@ -220,6 +291,14 @@ function storedList(listNodeId: string): NativeListRecord {
     importStatus: 'complete',
     lastObservedAt: timestamp
   }
+}
+
+function storedRepository() {
+  return {githubUserId, repositoryNodeId: 'R_kept', ownerLogin: 'octocat', name: 'kept', fullName: 'octocat/kept', htmlUrl: 'https://github.com/octocat/kept', description: null, topics: [], primaryLanguage: null, starredAt: timestamp, pushedAt: null, archived: false, disabled: false, isStarred: true, firstObservedAt: timestamp, lastObservedAt: timestamp, unstarredAt: null}
+}
+
+function storedAnnotation() {
+  return {githubUserId, repositoryNodeId: 'R_kept', triageState: 'backlog' as const, tags: ['local'], note: 'kept', favorite: true, revisitAt: null, reviewedAt: timestamp, localModifiedAt: timestamp}
 }
 
 function completedSyncState(): SyncStateRecord {

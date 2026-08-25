@@ -43,6 +43,7 @@ import {
   enqueueMutationBatch,
   getMutationBatch,
   getMutationJob,
+  invalidateMembershipJobsForDeletedList,
   listMutationAttempts,
   listOperationHistory,
   transitionMutationJob
@@ -498,6 +499,25 @@ describe('native List membership queue runner', () => {
     harness.database.close()
   })
 
+  test('invalidates only queued membership jobs that reference a deleted List', async () => {
+    const harness = await createHarness('membership-runner-deleted-list-invalidation')
+    await enqueueMembershipBatch(harness.database, [
+      {jobId: 'affected', repositoryNodeId: 'R_affected', before: [], additions: ['L_added']},
+      {jobId: 'unrelated', repositoryNodeId: 'R_unrelated', before: [], additions: ['L_other']}
+    ])
+    const invalidated = await invalidateMembershipJobsForDeletedList(
+      harness.database, accountA, 'L_added', timestamp(), (jobId) => `history-${jobId}`
+    )
+    expect(invalidated).toEqual(['affected'])
+    expect(await getMutationJob(harness.database, accountA, 'affected')).toMatchObject({
+      status: 'needs-confirmation', retryEligibility: 'after-refresh',
+      membershipDetails: {needsConfirmation: {observedCatalog: {entries: [{listNodeId: 'L_added', exists: false}]}}}
+    })
+    expect((await getMutationJob(harness.database, accountA, 'unrelated'))?.status).toBe('queued')
+    expect(await listOperationHistory(harness.database, accountA)).toHaveLength(1)
+    harness.database.close()
+  })
+
   test('shares one sequential drain with unstar work', async () => {
     const events: string[] = []
     const harness = await createHarness('membership-runner-shared-sequence')
@@ -826,7 +846,7 @@ async function enqueueMembershipBatch(
         ownerLogin: 'octocat',
         repositoryName: fixture.repositoryNodeId,
         plan: plan.value,
-        confirmedCatalog: catalog()
+        confirmedCatalog: fixture.additions.includes('L_other') ? otherCatalog() : catalog()
       }
     })
   })
@@ -880,6 +900,13 @@ function catalog(): CanonicalListCatalogFingerprint {
   return relevantListCatalogFingerprint(
     ['L_added'],
     [{listNodeId: 'L_added', name: 'Added', visibility: 'public'}]
+  )
+}
+
+function otherCatalog(): CanonicalListCatalogFingerprint {
+  return relevantListCatalogFingerprint(
+    ['L_other'],
+    [{listNodeId: 'L_other', name: 'Other', visibility: 'public'}]
   )
 }
 

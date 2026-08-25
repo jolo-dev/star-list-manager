@@ -32,6 +32,15 @@ export interface NativeListSyncOptions {
   readonly now?: () => number
 }
 
+/** A complete catalog observation, intentionally independent of item import. */
+export interface NativeListCatalogObservation {
+  readonly githubUserId: GitHubUserId
+  readonly complete: true
+  readonly targets: ReadonlyMap<string, NativeListCatalogPage['lists'][number] | null>
+  readonly fingerprint: string
+  readonly rateLimit: RateLimitState
+}
+
 export class NativeListSyncService {
   readonly #database: IDBDatabase
   readonly #reader: NativeListReader
@@ -54,6 +63,32 @@ export class NativeListSyncService {
     })
     this.#activeRuns.set(githubUserId, run)
     return run
+  }
+
+  /**
+   * Reads and validates every catalog page without importing repository items
+   * or modifying the local mirror.  A missing target is authoritative only
+   * after this method resolves.
+   */
+  async observeCatalog(
+    githubUserId: GitHubUserId,
+    targetListNodeIds: readonly string[]
+  ): Promise<NativeListCatalogObservation> {
+    const capability = await this.#reader.probeNativeLists()
+    if (!capability.available) {
+      throw validationFailure('GitHub native List catalog is unavailable.')
+    }
+    const catalog = await this.#collectCatalog(capability.rateLimit)
+    const targetIds = [...new Set(targetListNodeIds)].sort()
+    const targets = new Map<string, NativeListCatalogPage['lists'][number] | null>()
+    for (const listNodeId of targetIds) targets.set(listNodeId, catalog.lists.get(listNodeId) ?? null)
+    return {
+      githubUserId,
+      complete: true,
+      targets,
+      fingerprint: JSON.stringify(targetIds.map((listNodeId) => catalogFingerprintEntry(catalog.lists.get(listNodeId) ?? null))),
+      rateLimit: catalog.rateLimit
+    }
   }
 
   async #run(githubUserId: GitHubUserId): Promise<SyncStateRecord> {
@@ -93,25 +128,16 @@ export class NativeListSyncService {
         return state
       }
 
-      const metadata = new Map<string, NativeListCatalogPage['lists'][number]>()
-      let catalogCursor: string | null = null
-      let catalogTotal = 0
-      do {
-        const page = await this.#reader.fetchNativeListCatalogPage(catalogCursor)
+      const catalog = await this.#collectCatalog(capability.rateLimit, async (rateLimit) => {
         state = {
           ...state,
           pagesProcessed: state.pagesProcessed + 1,
-          rateLimit: mergeRateLimit(state.rateLimit, page.rateLimit)
+          rateLimit: mergeRateLimit(state.rateLimit, rateLimit)
         }
         await putSyncState(this.#database, state)
-        catalogTotal = page.totalCount
-        for (const list of page.lists) metadata.set(list.listNodeId, list)
-        catalogCursor = nextCursor(page.pageInfo.hasNextPage, page.pageInfo.endCursor)
-      } while (catalogCursor)
-
-      if (metadata.size !== catalogTotal) {
-        throw validationFailure('GitHub native List metadata pagination was incomplete.')
-      }
+      })
+      state = {...state, rateLimit: mergeRateLimit(state.rateLimit, catalog.rateLimit)}
+      const metadata = catalog.lists
 
       const observedAt = this.#timestamp()
       const lists: NativeListRecord[] = []
@@ -199,9 +225,52 @@ export class NativeListSyncService {
     }
   }
 
+  async #collectCatalog(
+    initialRateLimit: RateLimitState,
+    onPage?: (rateLimit: RateLimitState) => Promise<void>
+  ): Promise<{readonly lists: ReadonlyMap<string, NativeListCatalogPage['lists'][number]>; readonly rateLimit: RateLimitState}> {
+    const lists = new Map<string, NativeListCatalogPage['lists'][number]>()
+    const seenCursors = new Set<string>()
+    let cursor: string | null = null
+    let totalCount: number | null = null
+    let rateLimit = initialRateLimit
+    do {
+      if (cursor !== null && !seenCursors.add(cursor)) {
+        throw validationFailure('GitHub native List metadata pagination repeated a cursor.')
+      }
+      const page = await this.#reader.fetchNativeListCatalogPage(cursor)
+      if (!Number.isSafeInteger(page.totalCount) || page.totalCount < 0) {
+        throw validationFailure('GitHub native List metadata pagination returned an invalid total.')
+      }
+      if (totalCount === null) totalCount = page.totalCount
+      else if (totalCount !== page.totalCount) {
+        throw validationFailure('GitHub native List metadata pagination changed its total.')
+      }
+      rateLimit = mergeRateLimit(rateLimit, page.rateLimit)
+      await onPage?.(page.rateLimit)
+      for (const list of page.lists) {
+        if (lists.has(list.listNodeId)) {
+          throw validationFailure('GitHub native List metadata pagination repeated a List ID.')
+        }
+        lists.set(list.listNodeId, list)
+      }
+      cursor = nextCursor(page.pageInfo.hasNextPage, page.pageInfo.endCursor)
+    } while (cursor)
+    if (lists.size !== totalCount) {
+      throw validationFailure('GitHub native List metadata pagination was incomplete.')
+    }
+    return {lists, rateLimit}
+  }
+
   #timestamp(): string {
     return new Date(this.#now()).toISOString()
   }
+}
+
+function catalogFingerprintEntry(list: NativeListCatalogPage['lists'][number] | null): readonly unknown[] | null {
+  return list === null
+    ? null
+    : [list.listNodeId, list.name, list.isPrivate ? 'private' : 'public', list.reportedItemCount]
 }
 
 function nextCursor(hasNextPage: boolean, endCursor: string | null): string | null {
