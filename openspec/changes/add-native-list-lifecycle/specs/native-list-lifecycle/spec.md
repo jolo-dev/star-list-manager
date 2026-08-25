@@ -19,7 +19,7 @@ The system SHALL enable native List creation and deletion only when reviewed, no
 
 #### Scenario: Both lifecycle gates are satisfied
 - **WHEN** reviewed release evidence verifies the separate disposable-fixture create/delete probe and the active account has a matching OAuth credential with the required scopes
-- **THEN** the system enables lifecycle controls only for that active GitHub account
+- **THEN** the system treats only that active GitHub account as eligible for lifecycle writes, and MUST enable its lifecycle controls only while the catalog state is safe, no lifecycle, membership, or rename request is in flight, and no conflicting work holds the native-List mutation lock
 
 ### Requirement: List creation requires explicit visibility
 The system MUST let the user create an empty native GitHub List by entering a non-empty name and explicitly choosing either public or private visibility. It MUST not silently choose visibility, add repositories, or set a description.
