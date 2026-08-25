@@ -5966,6 +5966,35 @@ test('invalidates a membership preview and requires a refreshed review after lif
   }
 })
 
+test('retains lifecycle refresh after a transient catalog recovery failure', async () => {
+  const previousChrome = (globalThis as {chrome?: unknown}).chrome
+  const state = membershipReadyDashboardState()
+  Object.assign(globalThis, {chrome: {runtime: {sendMessage: async (message: {readonly type: string}) => {
+    if (message.type === 'refresh-native-list-lifecycle') {
+      return {ok: false, error: {category: 'network', message: 'Unable to reach GitHub.', retryable: true}}
+    }
+    throw new Error(`Unexpected runtime message: ${message.type}`)
+  }}}})
+  try {
+    const root = await mountReadyDashboard({...state, sync: completeSyncState('stars'), nativeListSync: {...completeSyncState('native-lists'), phase: 'stale'}, nativeListLifecycle: {readiness: 'ready', operation: null}})
+    const browserWindow = window as unknown as Window
+    root.querySelector<HTMLButtonElement>('[data-native-list-refresh]')?.click()
+    await nextTurn(browserWindow)
+
+    const status = root.querySelector<HTMLElement>('[data-native-list-lifecycle-status]')
+    const refresh = status?.querySelector<HTMLButtonElement>('[data-native-list-refresh]') ?? null
+    expect(status?.querySelector('[role="alert"]')?.textContent).toBe('Unable to reach GitHub.')
+    expect(refresh).not.toBeNull()
+    expect(refresh?.disabled).toBe(false)
+    expect(refresh?.getAttribute('aria-describedby')).toBe('native-list-lifecycle-status-text')
+    expect(refresh?.getAttribute('aria-controls')).toBe('native-list-navigation native-list-lifecycle-status-text')
+    expect(root.querySelector('.native-list-lifecycle-confirmation')).toBeNull()
+  } finally {
+    if (previousChrome === undefined) delete (globalThis as {chrome?: unknown}).chrome
+    else Object.assign(globalThis, {chrome: previousChrome})
+  }
+})
+
 test('renders lifecycle refresh errors in the rail without opening a dialog', async () => {
   const previousChrome = (globalThis as {chrome?: unknown}).chrome
   const state = membershipReadyDashboardState()
