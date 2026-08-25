@@ -94,7 +94,7 @@ export async function runOAuthListLifecycleCapabilityProbe(
       visibility
     })
   } catch {
-    throw probeFailure('mutation-failed', 'GitHub did not confirm creation of the disposable List fixture.')
+    throw cleanupRequiredFailure()
   }
 
   let createdId: string
@@ -102,7 +102,7 @@ export async function runOAuthListLifecycleCapabilityProbe(
     createdId = validateCreatedList(created, fixtureName, visibility)
   } catch (error: unknown) {
     const id = validIdentifier(created?.listNodeId) ? created.listNodeId : null
-    if (!id) throw safeFailure(error)
+    if (!id) throw cleanupRequiredFailure()
     return failAfterCleanup(dependencies, expectedGitHubUserId, id, safeFailure(error))
   }
 
@@ -253,6 +253,10 @@ function safeFailure(error: unknown): OAuthListLifecycleProbeFailure {
   return error instanceof OAuthListLifecycleProbeFailure
     ? error
     : probeFailure('mutation-failed', 'The disposable List lifecycle probe failed safely.')
+}
+
+function cleanupRequiredFailure(): OAuthListLifecycleProbeFailure {
+  return probeFailure('cleanup-required', cleanupMessage, true)
 }
 
 function probeFailure(

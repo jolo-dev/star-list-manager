@@ -204,6 +204,24 @@ export async function putNativeListLifecycleOperation(
   )
 }
 
+export async function deleteNativeListLifecycleOperationsForAccount(
+  database: IDBDatabase,
+  githubUserId: GitHubUserId
+): Promise<void> {
+  await runLibraryTransaction(
+    database,
+    libraryStores.nativeListLifecycleOperations,
+    'readwrite',
+    async (transaction) => {
+      const store = transaction.objectStore(libraryStores.nativeListLifecycleOperations)
+      const keys = await requestResult(
+        store.index(libraryIndexes.byAccount).getAllKeys(githubUserId)
+      )
+      await Promise.all(keys.map((key) => requestResult(store.delete(key))))
+    }
+  )
+}
+
 export async function listNativeListLifecycleOperations(
   database: IDBDatabase,
   githubUserId: GitHubUserId

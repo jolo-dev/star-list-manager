@@ -7,6 +7,7 @@ import {
 } from '../../src/storage/database'
 import {
   clearAllLibraryData,
+  deleteNativeListLifecycleOperationsForAccount,
   getActiveNativeListLifecycleOperation,
   listNativeListLifecycleOperations,
   putNativeListLifecycleOperation
@@ -61,6 +62,22 @@ describe('native List lifecycle operation storage', () => {
         lifecycleOperation('account-a', 'delete-active', 'preflight')
       )
     ).rejects.toThrow('active native List lifecycle operation')
+    database.close()
+  })
+
+  test('removes lifecycle operations when the selected account is deleted without crossing accounts', async () => {
+    const database = await openLibraryDatabase({
+      name: 'native-list-lifecycle-account-delete',
+      factory: new IDBFactory()
+    })
+    await putNativeListLifecycleOperation(database, lifecycleOperation('account-a', 'create-a', 'cancelled'))
+    const otherAccount = lifecycleOperation('account-b', 'create-b', 'failed')
+    await putNativeListLifecycleOperation(database, otherAccount)
+
+    await deleteNativeListLifecycleOperationsForAccount(database, 'account-a')
+
+    expect(await listNativeListLifecycleOperations(database, 'account-a')).toEqual([])
+    expect(await listNativeListLifecycleOperations(database, 'account-b')).toEqual([otherAccount])
     database.close()
   })
 

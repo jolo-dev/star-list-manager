@@ -4,7 +4,7 @@ import {AppFailure, githubHttpFailure} from '../shared/errors'
 
 const graphqlUrl = 'https://api.github.com/graphql'
 const apiVersion = '2026-03-10'
-const requiredScope = 'user'
+const requiredScopes = ['public_repo', 'user'] as const
 const createListDocument = `mutation CreateUserList($name: String!, $isPrivate: Boolean!) {
   createUserList(input: {name: $name, isPrivate: $isPrivate}) {
     list { id name isPrivate }
@@ -141,8 +141,12 @@ export class ListLifecycleWriteSession {
     if (writeState.githubUserId !== expectedGitHubUserId || writeState.identity.githubUserId !== expectedGitHubUserId) {
       throw failure('authorization-mismatch', 'authentication', 'GitHub write authorization does not match the active account.', false)
     }
-    if (writeState.credential.tokenType !== 'bearer' || !writeState.credential.accessToken || !writeState.credential.grantedScopes.includes(requiredScope)) {
-      throw failure('scope-denied', 'permission', 'Native List lifecycle requires same-account authorization with the user scope.', false)
+    if (
+      writeState.credential.tokenType !== 'bearer' ||
+      !writeState.credential.accessToken ||
+      requiredScopes.some((scope) => !writeState.credential.grantedScopes.includes(scope))
+    ) {
+      throw failure('scope-denied', 'permission', 'Native List lifecycle requires same-account authorization with public_repo and user scopes.', false)
     }
     const stillActive = await this.#authStore.loadActive()
     if (stillActive?.githubUserId !== expectedGitHubUserId || stillActive.identity.githubUserId !== expectedGitHubUserId) {

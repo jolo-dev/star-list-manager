@@ -96,6 +96,55 @@ describe('OAuth native List lifecycle capability probe', () => {
     expect(error.message).not.toContain('Unexpected list')
   })
 
+  test('requires manual GitHub inspection without retrying when ambiguous creation has no returned ID', async () => {
+    let creates = 0
+    let deletes = 0
+    const error = await expectProbeFailure(
+      runOAuthListLifecycleCapabilityProbe(options, {
+        validateExpectedOwner: async () => {},
+        transport: {
+          createList: async () => {
+            creates += 1
+            throw new Error('gho_lifecycle_probe_secret')
+          },
+          deleteList: async () => { deletes += 1 }
+        },
+        readCompleteCatalog: async () => []
+      }),
+      'cleanup-required'
+    )
+    expect(creates).toBe(1)
+    expect(deletes).toBe(0)
+    expect(error.cleanupRequired).toBe(true)
+    expect(error.message).toContain('CLEANUP REQUIRED')
+    expect(error.message).toContain('Manually inspect')
+    expect(error.message).not.toContain('gho_lifecycle_probe_secret')
+  })
+
+  test('requires manual GitHub inspection without retrying when create response has no trustworthy ID', async () => {
+    let creates = 0
+    let deletes = 0
+    const error = await expectProbeFailure(
+      runOAuthListLifecycleCapabilityProbe(options, {
+        validateExpectedOwner: async () => {},
+        transport: {
+          createList: async () => {
+            creates += 1
+            return {listNodeId: ' ', name: options.fixtureName, visibility: 'private'} as never
+          },
+          deleteList: async () => { deletes += 1 }
+        },
+        readCompleteCatalog: async () => []
+      }),
+      'cleanup-required'
+    )
+    expect(creates).toBe(1)
+    expect(deletes).toBe(0)
+    expect(error.cleanupRequired).toBe(true)
+    expect(error.message).toContain('CLEANUP REQUIRED')
+    expect(error.message).toContain('Manually inspect')
+  })
+
   test('fails safely and prominently requests manual cleanup when the created fixture may remain', async () => {
     const deletes: string[] = []
     const error = await expectProbeFailure(

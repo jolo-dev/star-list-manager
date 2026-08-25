@@ -46,6 +46,19 @@ describe('native List lifecycle write session', () => {
     expect(requests).toBe(0)
   })
 
+  test('requires both public_repo and user scopes for every lifecycle mutation', async () => {
+    let requests = 0
+    const fetch = async (): Promise<Response> => {
+      requests += 1
+      return new Response('{}')
+    }
+    for (const scopes of [['user'], ['public_repo']] as const) {
+      await expectFailure(sessionFor(fetch, {scopes}).createList({expectedGitHubUserId: '42', name: 'Ideas', visibility: 'private'}), 'scope-denied')
+      await expectFailure(sessionFor(fetch, {scopes}).deleteList({expectedGitHubUserId: '42', listNodeId: 'UL_one'}), 'scope-denied')
+    }
+    expect(requests).toBe(0)
+  })
+
   test('rechecks the expected account after loading the credential and before dispatch', async () => {
     let activeReads = 0
     let requests = 0
