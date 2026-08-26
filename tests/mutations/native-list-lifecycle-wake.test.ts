@@ -4,7 +4,7 @@ import {
   registerNativeListLifecycleWakeEvents
 } from '../../src/mutations/native-list-lifecycle-wake'
 
-test('registers only the dedicated lifecycle alarm and browser startup wake', () => {
+test('registers dedicated wake events and immediately recovers when a worker starts after the one-shot alarm fired', () => {
   const alarms = new Map<string, () => void>()
   let startup: (() => void) | null = null
   let wakes = 0
@@ -15,9 +15,10 @@ test('registers only the dedicated lifecycle alarm and browser startup wake', ()
   }, () => { wakes += 1 })
 
   expect(nativeListLifecycleAlarmName).toBe('native-list-lifecycle-wake')
+  expect(wakes).toBe(1)
   alarms.get('mutation-queue-wake')?.()
-  expect(wakes).toBe(0)
+  expect(wakes).toBe(1)
   alarms.get(nativeListLifecycleAlarmName)?.()
   ;(startup as (() => void) | null)?.()
-  expect(wakes).toBe(2)
+  expect(wakes).toBe(3)
 })
