@@ -19,7 +19,7 @@ The current split between a read-only GitHub App session and a separate OAuth Ap
 - Native List membership add/remove/move must work through a supported public-only GitHub API before this redesign can ship.
 - Undocumented GitHub web endpoints, browser automation, cookie reuse, and arbitrary GraphQL are prohibited.
 - If no supported public-only membership route works, release is blocked rather than requesting private-repository access or shipping partially working List management.
-- Creation supports name, description, and explicit public/private List visibility when exposed by the official create input.
+- Creation must support name, optional user-entered description, and explicit public/private List visibility through GitHub's officially documented create input; loss of any of those create fields blocks release.
 - Post-creation rename is included. Description and visibility editing are included only if GitHub officially exposes supported update fields; their absence does not block the first complete release.
 
 ## Scope
@@ -55,14 +55,14 @@ Implementation starts with an isolated, disposable-fixture investigation of GitH
 The investigation must:
 
 1. Recheck current official documentation and live schema for native List membership and metadata mutations.
-2. Use one OAuth App device-flow credential with exactly `public_repo user`.
-3. Confirm returned scopes and the expected account without retaining credentials or raw responses.
+2. Use one OAuth App device-flow request with exactly `public_repo user` and never request `repo`.
+3. Confirm the returned scope set contains both `public_repo` and `user` and confirm the expected account without retaining credentials or raw responses. Normalized additional scopes returned by GitHub, including `user` subscopes, do not invalidate an otherwise sufficient credential.
 4. Exercise only a fixed, typed membership operation against an explicitly disposable public starred repository and disposable Lists.
 5. Prove add, remove, and move with complete stable observations before and independent authoritative read-back afterward.
 6. Retain only sanitized status, allowlisted failure classification, and non-sensitive capability conclusions.
 7. Clean up fixtures independently.
 
-A successful result may use `updateUserListsForItem` if GitHub accepts it and independent read-back proves each effect. Another route is acceptable only when GitHub officially documents it and it can be implemented as a fixed operation. Internal web APIs are never acceptable.
+A successful result may use `updateUserListsForItem` only if GitHub's current official documentation and live schema expose it for this purpose, GitHub accepts it with the approved public-only OAuth boundary, and independent read-back proves each effect. Every alternative route is subject to the same official-documentation, live-schema, fixed-operation, and read-back requirements. Successful execution alone never makes an undocumented route acceptable. Internal web APIs are never acceptable.
 
 If no supported public-only route succeeds, the implementation plan stops at the feasibility gate and the redesign is not released.
 
@@ -89,15 +89,17 @@ A release uses one public OAuth client identifier. The implementation removes th
 
 ### Existing-installation migration
 
-Migration is account-bound and atomic:
+Migration is account-bound, durable, and idempotent:
 
 1. Load the active read identity and any stored OAuth write credential.
-2. Validate that the write credential belongs to the same stable GitHub user ID, is a bearer credential, has exactly the required usable scopes, and still authenticates successfully.
-3. Store it as the unified primary session before deleting either legacy credential.
-4. Reassemble application state and run authoritative synchronization.
-5. Delete legacy auth records only after the unified session is durable.
+2. Validate that the write credential belongs to the same stable GitHub user ID, is a bearer credential, contains at least `public_repo` and `user`, and still authenticates successfully. Additional normalized GitHub scopes do not invalidate it; `repo` is never requested by this product.
+3. In one IndexedDB transaction, write the unified primary credential and a versioned migration record while leaving both legacy credentials intact.
+4. If that transaction aborts, the legacy sessions remain authoritative and startup may retry from the beginning. No unified session is exposed.
+5. After the transaction commits, the unified session is authoritative. Reassemble application state and attempt synchronization from it.
+6. Delete legacy auth records in an idempotent cleanup step only after the unified credential has authenticated successfully. Mark migration complete in the same cleanup transaction.
+7. If interruption or synchronization failure occurs after commit but before cleanup, startup reads the migration record, continues using the durable unified session, retries synchronization as ordinary recoverable work, and resumes cleanup without recreating or combining credentials.
 
-If promotion cannot be proven safe, retain all local repositories, Lists, annotations, history, and operation records. Keep the library locally available and present one replacement **Connect GitHub** action. Never combine or guess across accounts.
+If validation or promotion cannot be proven safe, retain all local repositories, Lists, annotations, history, operation records, and unchanged legacy records. Keep the library locally available and present one replacement **Connect GitHub** action. Never combine or guess across accounts.
 
 ## GitHub operation boundaries
 
@@ -150,11 +152,11 @@ After synchronization:
 - **Unlist** remains a derived local view and never receives rename or delete actions;
 - unsupported metadata fields are omitted rather than shown as permanently disabled controls.
 
-Creation collects a validated name, optional description when officially supported, and explicit public/private List visibility. Delete confirmation retains the exact List name, latest GitHub-reported item count, partial-import warning, no-undo warning, and assurance that repositories remain starred.
+Creation collects a validated name, an optional user-entered description through the required official create field, and explicit public/private List visibility. Delete confirmation retains the exact List name, latest GitHub-reported item count, partial-import warning, no-undo warning, and assurance that repositories remain starred.
 
-## Mutation data flow
+## Native List mutation data flow
 
-Every mutation follows the same safety sequence:
+Every native List create, update, membership, or delete mutation follows the same safety sequence:
 
 1. Confirm the active account and unified credential.
 2. Obtain a fresh complete authoritative observation.
@@ -168,7 +170,7 @@ Every mutation follows the same safety sequence:
 10. Reconcile local state only from complete GitHub observations.
 11. Persist a sanitized terminal or recovery state and release the lock.
 
-Ambiguous create, update, membership, or delete outcomes are recovered through observation. They are never automatically replayed.
+Ambiguous create, update, membership, or delete outcomes are recovered through observation. They are never automatically replayed. Existing star/unstar operations retain their dedicated durable queue, confirmation, convergence, and recovery behavior; they do not acquire the native List mutation lock or inherit List-specific previews.
 
 ## Failure handling
 
@@ -186,10 +188,16 @@ Tokens, device codes, authorization headers, client identifiers, raw GitHub mess
 
 ## Verification and release
 
+The release matrix is:
+
+- **Hard blockers:** one-login OAuth migration; officially documented and verified membership add/remove/move; create with name, description, and explicit visibility; delete; and rename.
+- **Conditional scope:** post-creation description and visibility editing ship only if the official update schema exposes those fields. Their absence does not block release and no unavailable controls are rendered.
+- **Forbidden workarounds:** `repo`, undocumented endpoints, browser automation, cookies, and arbitrary GraphQL can never satisfy a blocker.
+
 The release requires:
 
 - a successful official-API feasibility probe for add, remove, and move;
-- disposable-fixture verification of create, delete, and rename;
+- disposable-fixture verification of create including description and visibility, delete, and rename;
 - independent cleanup and authoritative read-back for every mutation class;
 - migration tests for valid promotion, missing write credential, mismatched account, rejected credential, interrupted migration, and rollback;
 - controller/session tests proving one device flow and one credential;
