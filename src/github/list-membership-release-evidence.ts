@@ -14,7 +14,7 @@ const canonicalReleaseEvidence = Object.freeze(
 )
 
 // This is a release-time build input. Set it to null when the evidence is absent or unverified.
-const reviewedReleaseEvidenceBuildInput: unknown | null = canonicalReleaseEvidence
+const reviewedReleaseEvidenceBuildInput: unknown | null = null
 
 const evidenceRequirements = [
   ['schema', 'available'],

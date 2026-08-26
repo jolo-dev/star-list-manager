@@ -6,6 +6,7 @@ import {
   type StableMembershipObservation
 } from '../../scripts/oauth-list-membership-capability-probe'
 import {nativeListMembershipControlsEnabled} from '../../src/github/list-membership-capability'
+import {ListMembershipMutationFailure} from '../../src/github/list-membership-write-session'
 
 const options = {
   fixture: 'fixture-owner/disposable-star',
@@ -101,6 +102,103 @@ describe('OAuth native List membership capability probe', () => {
     expect(mismatch.message).not.toContain('L_alpha')
   })
 
+  test('retains only allowlisted typed mutation failure diagnostics and skips read-back', async () => {
+    const observations = observationSequence([
+      {completeListIds: [], observations: 2}
+    ])
+    const error = await expectProbeFailure(
+      runOAuthListMembershipCapabilityProbe(options, {
+        transport: {
+          updateMemberships: () => Promise.reject(
+            new ListMembershipMutationFailure('permission', {
+              category: 'permission',
+              message: 'Bearer gho_secret raw GitHub denial',
+              retryable: false,
+              status: 403
+            })
+          )
+        },
+        observeStableMemberships: observations.observe
+      }),
+      'mutation-failed'
+    )
+
+    expect(error.mutationFailure).toEqual({
+      reason: 'permission',
+      category: 'permission',
+      status: 403
+    })
+    expect(error.message).toBe(
+      'The unchanged native List membership mutation failed: permission (HTTP 403).'
+    )
+    expect(observations.calls()).toBe(1)
+    expect(JSON.stringify(error)).not.toContain('gho_secret')
+    expect(JSON.stringify(error)).not.toContain('raw GitHub denial')
+  })
+
+  test('rejects forged typed diagnostics and drops invalid HTTP statuses', async () => {
+    const forgedReason = new ListMembershipMutationFailure('permission', {
+      category: 'permission',
+      message: 'fixed',
+      retryable: false,
+      status: 403
+    })
+    Object.defineProperty(forgedReason, 'reason', {
+      value: 'permission Bearer gho_secret',
+      enumerable: true
+    })
+    const reasonError = await expectProbeFailure(
+      probeWithMutationFailure(forgedReason),
+      'mutation-failed'
+    )
+    expect(reasonError.mutationFailure).toBeNull()
+    expect(reasonError.message).toBe(
+      'The unchanged native List membership mutation did not succeed.'
+    )
+    expect(JSON.stringify(reasonError)).not.toContain('gho_secret')
+
+    for (const category of ['network', 'credential gho_secret']) {
+      const categoryError = await expectProbeFailure(
+        probeWithMutationFailure(
+          new ListMembershipMutationFailure('permission', {
+            category: category as 'permission',
+            message: 'fixed',
+            retryable: false,
+            status: 403
+          })
+        ),
+        'mutation-failed'
+      )
+      expect(categoryError.mutationFailure).toBeNull()
+      expect(categoryError.message).toBe(
+        'The unchanged native List membership mutation did not succeed.'
+      )
+      expect(JSON.stringify(categoryError)).not.toContain('gho_secret')
+    }
+
+    for (const status of [Number.NaN, Number.POSITIVE_INFINITY, -1, 99, 403.5, 600]) {
+      const statusError = await expectProbeFailure(
+        probeWithMutationFailure(
+          new ListMembershipMutationFailure('permission', {
+            category: 'permission',
+            message: 'fixed',
+            retryable: false,
+            status
+          })
+        ),
+        'mutation-failed'
+      )
+      expect(statusError.mutationFailure).toEqual({
+        reason: 'permission',
+        category: 'permission',
+        status: null
+      })
+      expect(statusError.message).toBe(
+        'The unchanged native List membership mutation failed: permission.'
+      )
+    }
+  })
+
   test('sanitizes observation dependency failures', async () => {
     const error = await expectProbeFailure(
       runOAuthListMembershipCapabilityProbe(options, {
@@ -114,6 +212,18 @@ describe('OAuth native List membership capability probe', () => {
     expect(error.message).not.toContain('gho_secret')
   })
 })
+
+function probeWithMutationFailure(error: ListMembershipMutationFailure): Promise<unknown> {
+  return runOAuthListMembershipCapabilityProbe(options, {
+    transport: {
+      updateMemberships: () => Promise.reject(error)
+    },
+    observeStableMemberships: async () => ({
+      completeListIds: [],
+      observations: 2
+    })
+  })
+}
 
 function observationSequence(values: readonly StableMembershipObservation[]): {
   readonly observe: OAuthListMembershipProbeDependencies['observeStableMemberships']

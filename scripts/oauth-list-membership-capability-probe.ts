@@ -9,8 +9,10 @@ import {
 import {
   ListMembershipMutationFailure,
   ListMembershipWriteSession,
+  type ListMembershipMutationFailureReason,
   type ListMembershipMutationResult
 } from '../src/github/list-membership-write-session'
+import {sanitizeError, type ErrorCategory} from '../src/shared/errors'
 
 const apiOrigin = 'https://api.github.com'
 const graphqlUrl = `${apiOrigin}/graphql`
@@ -27,13 +29,41 @@ export type ListMembershipProbeFailureCode =
   | 'mutation-failed'
   | 'read-back-mismatch'
 
+export interface OAuthListMembershipProbeMutationFailure {
+  readonly reason: ListMembershipMutationFailureReason
+  readonly category: ErrorCategory
+  readonly status: number | null
+}
+
+const mutationFailureCategories = Object.freeze({
+  'invalid-request': 'validation',
+  'account-changed': 'authentication',
+  'authorization-required': 'authentication',
+  'authorization-mismatch': 'authentication',
+  'scope-denied': 'permission',
+  'credential-rejected': 'authentication',
+  'schema-unavailable': 'unsupported',
+  permission: 'permission',
+  'invalid-identifiers': 'validation',
+  'rate-limit': 'rate-limit',
+  server: 'network',
+  'network-ambiguous': 'network',
+  'malformed-response': 'validation'
+} as const satisfies Record<ListMembershipMutationFailureReason, ErrorCategory>)
+
 export class OAuthListMembershipProbeFailure extends Error {
   readonly code: ListMembershipProbeFailureCode
+  readonly mutationFailure: OAuthListMembershipProbeMutationFailure | null
 
-  constructor(code: ListMembershipProbeFailureCode, message: string) {
+  constructor(
+    code: ListMembershipProbeFailureCode,
+    message: string,
+    mutationFailure: OAuthListMembershipProbeMutationFailure | null = null
+  ) {
     super(message)
     this.name = 'OAuthListMembershipProbeFailure'
     this.code = code
+    this.mutationFailure = mutationFailure
   }
 }
 
@@ -92,7 +122,19 @@ export async function runOAuthListMembershipCapabilityProbe(
       repositoryNodeId,
       completeListIds: initial.completeListIds
     })
-  } catch {
+  } catch (error: unknown) {
+    if (error instanceof ListMembershipMutationFailure) {
+      const mutationFailure = allowlistedMutationFailure(error)
+      if (mutationFailure) {
+        throw probeFailure(
+          'mutation-failed',
+          `The unchanged native List membership mutation failed: ${mutationFailure.reason}${
+            mutationFailure.status === null ? '' : ` (HTTP ${mutationFailure.status})`
+          }.`,
+          mutationFailure
+        )
+      }
+    }
     throw probeFailure(
       'mutation-failed',
       'The unchanged native List membership mutation did not succeed.'
@@ -125,6 +167,32 @@ export async function runOAuthListMembershipCapabilityProbe(
       unchangedSetMutation: 'verified',
       independentReadBack: 'verified'
     }
+  }
+}
+
+function allowlistedMutationFailure(
+  error: ListMembershipMutationFailure
+): OAuthListMembershipProbeMutationFailure | null {
+  try {
+    const reason = error.reason
+    if (!Object.hasOwn(mutationFailureCategories, reason)) return null
+    const typedReason = reason as ListMembershipMutationFailureReason
+    const category = mutationFailureCategories[typedReason]
+    const sanitized = sanitizeError(error)
+    if (sanitized.category !== category) return null
+    const status = sanitized.status
+    return {
+      reason: typedReason,
+      category,
+      status: status !== undefined &&
+        Number.isInteger(status) &&
+        status >= 100 &&
+        status <= 599
+        ? status
+        : null
+    }
+  } catch {
+    return null
   }
 }
 
@@ -204,9 +272,10 @@ function isValue(value: string): boolean {
 
 function probeFailure(
   code: ListMembershipProbeFailureCode,
-  message: string
+  message: string,
+  mutationFailure: OAuthListMembershipProbeMutationFailure | null = null
 ): OAuthListMembershipProbeFailure {
-  return new OAuthListMembershipProbeFailure(code, message)
+  return new OAuthListMembershipProbeFailure(code, message, mutationFailure)
 }
 
 type ProbeFetch = (

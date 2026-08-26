@@ -60,7 +60,7 @@ EXTENSION_PUBLIC_GITHUB_WRITE_CLIENT_ID=your_write_oauth_client_id
 
 The client ID is public configuration. Do not add client secrets or tokens.
 
-Native List membership writes require a released build with reviewed capability evidence and an individually authorized matching account. The disposable capability probe verifies exactly five assertions: availability schema, OAuth `user` scope, account ownership, unchanged complete-set mutation, and independent stable read-back. See [`docs/native-list-membership-fixture.md`](docs/native-list-membership-fixture.md).
+Native List membership writes require a released build with current reviewed capability evidence and an individually authorized matching account. The checked-in membership evidence is currently `null` after failed requalification on 2026-08-26, so membership controls remain read-only. The disposable capability probe verifies exactly five assertions: availability schema, OAuth `user` scope, account ownership, unchanged complete-set mutation, and independent stable read-back. See [`docs/native-list-membership-fixture.md`](docs/native-list-membership-fixture.md).
 
 Native List lifecycle is independently implemented but release-disabled: its checked-in non-secret release-evidence input remains `null`, so create/delete controls default disabled. After separate disposable-fixture evidence is reviewed, each active user still needs matching `public_repo user` authorization. The lifecycle probe verifies fixed create/read-back/delete/read-back behavior; its release evidence never authorizes a user. See [`docs/native-list-lifecycle-fixture.md`](docs/native-list-lifecycle-fixture.md).
 
@@ -82,7 +82,7 @@ env -u NODE_OPTIONS bun run build:firefox
 
 The unpacked extensions are written to `dist/chrome/` and `dist/firefox/`.
 
-`EXTENSION_PUBLIC_GITHUB_LIST_MEMBERSHIP_WRITE_ENABLED` is retired and must not be supplied. Release maintainers alone enable native List membership writes by running the existing disposable-account probe, reviewing its sanitized output, updating and reviewing checked-in non-secret null-prototype evidence, then rebuilding and rerunning validation and build checks. The evidence is a release capability gate, not a user's OAuth authorization: each account still needs matching `public_repo` and `user` authorization, and the existing preview, confirmation, stable-observation, queue, and independent read-back protections remain in force. Missing, unverified, malformed, or sensitive evidence fails closed and keeps Lists read-only. Renew the evidence whenever the write OAuth application or documented membership mutation changes.
+`EXTENSION_PUBLIC_GITHUB_LIST_MEMBERSHIP_WRITE_ENABLED` is retired and must not be supplied. Release maintainers alone may re-enable native List membership writes after a new successful disposable-account probe, sanitized evidence review, checked-in non-secret null-prototype evidence update, and complete validation/build checks. The evidence is a release capability gate, not a user's OAuth authorization: each account still needs matching `public_repo` and `user` authorization, and the existing preview, confirmation, stable-observation, queue, and independent read-back protections remain in force. Missing, unverified, failed, malformed, or sensitive evidence fails closed and keeps Lists read-only. Renew the evidence whenever the write OAuth application or documented membership mutation changes.
 
 To load the Chromium build, open `chrome://extensions`, enable Developer mode, select **Load unpacked**, and choose `dist/chrome/`.
 

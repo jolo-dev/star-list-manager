@@ -116,6 +116,17 @@ describe('native List membership write session', () => {
           }
         },
         reason: 'scope-denied'
+      },
+      {
+        activeUserId: '42',
+        state: {
+          ...writeState('42'),
+          credential: {
+            ...writeState('42').credential,
+            grantedScopes: ['user']
+          }
+        },
+        reason: 'scope-denied'
       }
     ]
 

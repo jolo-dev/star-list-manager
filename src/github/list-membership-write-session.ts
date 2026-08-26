@@ -8,7 +8,7 @@ import {AppFailure, githubHttpFailure} from '../shared/errors'
 
 const graphqlUrl = 'https://api.github.com/graphql'
 const apiVersion = '2026-03-10'
-const requiredScope = 'user'
+const requiredScopes = ['public_repo', 'user'] as const
 const updateMembershipsDocument = `mutation UpdateUserListsForItem($itemId: ID!, $listIds: [ID!]!) {
   updateUserListsForItem(input: {itemId: $itemId, listIds: $listIds}) {
     lists { id }
@@ -125,12 +125,14 @@ export class ListMembershipWriteSession {
     if (
       writeState.credential.tokenType !== 'bearer' ||
       !writeState.credential.accessToken ||
-      !writeState.credential.grantedScopes.includes(requiredScope)
+      !requiredScopes.every((scope) =>
+        writeState.credential.grantedScopes.includes(scope)
+      )
     ) {
       throw failure(
         'scope-denied',
         'permission',
-        'Native List membership requires same-account authorization with the user scope.',
+        'Native List membership requires same-account authorization with the public_repo and user scopes.',
         false
       )
     }

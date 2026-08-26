@@ -20,8 +20,14 @@ const completeEvidence = {
 } as const
 
 describe('native List membership release evidence', () => {
-  test('returns a complete immutable reviewed capability proof that validates itself', () => {
-    const proof = releaseNativeListMembershipCapabilityProof()
+  test('keeps checked-in membership capability evidence null after failed requalification', () => {
+    expect(releaseNativeListMembershipCapabilityProof()).toBeNull()
+    expect(nativeListMembershipControlsEnabled(releaseNativeListMembershipCapabilityProof())).toBe(false)
+  })
+
+  test('returns a complete immutable proof only for separately supplied exact evidence', () => {
+    const evidence = Object.assign(Object.create(null) as object, completeEvidence)
+    const proof = validateNativeListMembershipReleaseEvidence(evidence)
 
     expect(proof).toEqual(completeEvidence)
     expect(proof).not.toBeNull()
@@ -120,8 +126,8 @@ describe('native List membership release evidence', () => {
     expect(validateNativeListMembershipReleaseEvidence(evidence)).toBeNull()
   })
 
-  test('enables native List membership controls with reviewed release evidence', () => {
-    expect(nativeListMembershipControlsEnabled(releaseNativeListMembershipCapabilityProof())).toBe(true)
+  test('keeps native List membership controls disabled without current reviewed release evidence', () => {
+    expect(nativeListMembershipControlsEnabled(releaseNativeListMembershipCapabilityProof())).toBe(false)
   })
 
   test('uses the reviewed release provider rather than a runtime environment flag', async () => {
