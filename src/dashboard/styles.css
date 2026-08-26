@@ -352,12 +352,10 @@ p {
 }
 
 .list-navigation,
-.nav-groups,
 .nav-list {
   min-width: 0;
 }
 
-.nav-groups,
 .nav-list {
   display: grid;
   gap: 4px;
@@ -375,42 +373,9 @@ p {
   min-width: 0;
 }
 
-details.nav-group {
-  display: grid;
-  gap: 8px;
-}
-
-.nav-group > summary {
-  display: flex;
-  min-height: 40px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px;
-  color: var(--text-secondary);
-  border-radius: var(--radius-control);
-  font-size: 0.8125rem;
-  font-weight: 650;
-  list-style: none;
-}
-
-.nav-group > summary::-webkit-details-marker,
 .view-options > summary::-webkit-details-marker,
 .advanced-filters summary::-webkit-details-marker {
   display: none;
-}
-
-.nav-group > summary::after {
-  content: "+";
-  font-size: 1rem;
-}
-
-.nav-group[open] > summary::after {
-  content: "−";
-}
-
-.nav-group > summary:hover {
-  color: var(--text-primary);
-  background: var(--surface-muted);
 }
 
 .nav-item {
@@ -2310,10 +2275,6 @@ textarea:disabled {
   }
 
   .nav-item {
-    min-height: 44px;
-  }
-
-  .nav-group > summary {
     min-height: 44px;
   }
 

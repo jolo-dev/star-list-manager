@@ -140,9 +140,14 @@ test('uses a centered desktop frame and a sticky My Lists rail', () => {
   expect(ruleFor(styles, '.list-sidebar-heading')).not.toMatch(/border-radius:\s*999px/)
 })
 
-test('styles list navigation with a dark current state and count pills only', () => {
+test('styles a direct List directory with a dark current state and count pills only', () => {
+  const list = exactRuleFor(styles, ['.nav-list'])
   const current = exactRuleFor(styles, ['.nav-item[aria-current="page"]'])
   const count = exactRuleFor(styles, ['.list-count'])
+  expect(list).toMatch(/display:\s*grid/)
+  expect(list).toMatch(/gap:\s*4px/)
+  expect(styles).not.toMatch(/\.nav-groups\b/)
+  expect(styles).not.toMatch(/\.nav-group\b/)
   expect(current).toMatch(/color:\s*var\(--action-primary-text\)/)
   expect(current).toMatch(/background:\s*var\(--surface-nav-active\)/)
   expect(current).toMatch(/border-color:\s*var\(--border-current\)/)
@@ -334,7 +339,7 @@ test('wraps user content and preserves mobile controls and reflow', () => {
   expect(ruleFor(mobile, '.list-sidebar')).toMatch(/max-height:\s*none/)
   expect(ruleFor(mobile, '.selection-control')).toMatch(/min-inline-size:\s*44px/)
   expect(ruleFor(mobile, '.selection-control')).toMatch(/min-block-size:\s*44px/)
-  for (const selector of ['.nav-item', '.nav-group > summary', '.primary-action,', '.triage-actions button,', '.native-list-choices label,', '.result-mode-controls button']) {
+  for (const selector of ['.nav-item', '.primary-action,', '.triage-actions button,', '.native-list-choices label,', '.result-mode-controls button']) {
     expect(ruleFor(mobile, selector), selector).toMatch(/min-height:\s*44px/)
   }
   expect(ruleFor(mobile, '.library-actions input,')).toMatch(/font-size:\s*16px/)

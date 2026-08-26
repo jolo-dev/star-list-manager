@@ -1,0 +1,9 @@
+{
+  "files": [
+    ".impeccable/review/dashboard-fixture.html"
+  ],
+  "exclude": [],
+  "insertBefore": "</body>",
+  "commentSyntax": "html",
+  "cspChecked": true
+}
